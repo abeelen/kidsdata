@@ -47,7 +47,8 @@ def sel_listdata():
 def readKissData(filename, list_data=sel_listdata(), det2red = 'KID', 
                    silent = True, nodata = True):
     """ Read KISS data. 
-        
+    
+
     """
     #global readnikadata
     
