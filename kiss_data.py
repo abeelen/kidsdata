@@ -304,12 +304,18 @@ class KissRawData(KissData):
         super().__init__(**kwargs)
         self.kidPar = KidPar(super.filename)
         self.param = Param(super.filename)
+        self.cache = None
         self.I = None
         self.Q = None
         self.ScData = None
         self.SdData = None 
         self.UcData = None
         self.UdData = None
+
+    @property
+    def cache(self):
+        if not cahche:
+            # read the data into the buffer. 
        
     def listInfo(self):
         print ("KISS RAW DATA")
