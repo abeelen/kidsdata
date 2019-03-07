@@ -3,17 +3,21 @@
 """
 Created on Mon Mar  4 12:55:54 2019
 
-@author: ycao
+@author: Yixian Cao 
+
 """
+
 import numpy as np
 import ctypes
+from numpy.ctypeslib import ndpointer
+
 #import gc
 #import os
 #import string
 
 #libpath = './NIKA_lib_AB_OB_gui/Readdata/C'
 #rnd = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/libreadnikadata.so'
-#%%
+
 
 def codelistdet(det2red):
     switcher={'ALL':1,
@@ -43,140 +47,87 @@ def sel_listdata():
     return list_data
 
 #%%
-class KissInfo(ctypes.Structure):
-    _fields_ = [ ("filename", ctypes.c_char_p), 
-                 ("p_buffer_header", ctypes.POINTER(ctypes.c_long)), 
-                 ("length_header", ctypes.c_int), 
-                 ("var_name_buffer", ctypes.c_char_p),
-                 ("var_name_length", ctypes.c_int), 
-                 ("list_data", ctypes.c_char_p), 
-                 ("type_listdet", ctypes.c_int), 
-                 ("listdet", ctypes.POINTER(ctypes.c_long)),
-                 ("nb_Sc", ctypes.POINTER(ctypes.c_long)), 
-                 ("nb_Sd", ctypes.POINTER(ctypes.c_long)),
-                 ("nb_Uc", ctypes.POINTER(ctypes.c_long)),
-                 ("nb_Ud", ctypes.POINTER(ctypes.c_long)),
-                 ("idx_param_c", ctypes.POINTER(ctypes.c_long)), 
-                 ("idx_param_d", ctypes.POINTER(ctypes.c_long)),
-                 ("silent", ctypes.c_int)]
+class KissInfo(object):
     
-    def ptint(self, length_header=130000, nb_max_det=8001,
-                 nb_char_nom = 16, nom_var_all_length = 200000, 
-                 **kwargs):
-        buffer_header = 0
-        self.p_buffer_header = ctypes.cast(buffer_header,
-                                           ctypes.POINTER(ctypes.c_long))
-        return
-# Later: make args and return of Ctype as structures? 
-#%%
+    def __init__(self, filename, list_data = sel_listdata(),
+                 length_header = 130000, nb_max_det = 8001, 
+                 nb_char_nom= 16, nom_var_all_length = 200000):
+        self.filename = bytes(str(filename), 'ascii')
+        self.list_data  = bytes(str(list_data), 'ascii')
+        self.length_header = length_header
+        self.nb_max_det = nb_max_det
+        self.nb_char_nom = nb_char_nom
+        self.nom_var_all_length = nom_var_all_length
+        
+        self.buffer_header = np.empty(self.length_header,dtype=np.long)
+        self.listdet = np.empty(self.nb_max_det,dtype=np.long)
+        self.nom_var_all= np.empty(self.nb_char_nom*
+                                   self.nom_var_all_length,
+                                   dtype=np.uint8)    
+        self.nb_Sc = np.empty(1,dtype=np.long)
+        self.nb_Sd = np.empty(1,dtype=np.long)
+        self.nb_Uc = np.empty(1,dtype=np.long)
+        self.nb_Ud = np.empty(1,dtype=np.long)
+        self.idx_param_c = np.empty(1,dtype=np.long)
+        self.idx_param_d = np.empty(1,dtype=np.long)
+        
+    
+    def readIn(self, det2red = 'KID', silent = False):
+        """ Read KISS info to the buffer. 
 
-#%%    
+        """
+        
+        libpath =  '../NIKA_lib_AB_OB_gui/Readdata/C'
+        nlib = ctypes.cdll.LoadLibrary(libpath+'/libreadnikadata.dylib')
 
-def readKissData(filename, list_data=sel_listdata(), det2red = 'KID', 
-                   silent = True, nodata = True):
-    """ Read KISS data. 
-    
+        # param_c and param_d pointers.
 
-    """
-    
-    filename = bytes(str(filename), 'ascii')
-    list_data  = bytes(str(list_data), 'ascii')
-    #global readnikadata
-    length_header = 130000
-    nb_max_det = 8001
+        nlib.Py_read_infos.restype = ctypes.c_long
+        nlib.Py_read_infos.argtypes = [ctypes.c_char_p,
+                                       ndpointer(ctypes.c_long), 
+                                       ctypes.c_int, 
+                                       ndpointer(ctypes.c_uint8),
+                                       ctypes.c_int, 
+                                       ctypes.c_char_p, 
+                                       ctypes.c_int, 
+                                       ndpointer(ctypes.c_long),
+                                       ndpointer(ctypes.c_long), 
+                                       ndpointer(ctypes.c_long),
+                                       ndpointer(ctypes.c_long),
+                                       ndpointer(ctypes.c_long),
+                                       ndpointer(ctypes.c_long), 
+                                       ndpointer(ctypes.c_long),
+                                       ctypes.c_int
+                                       ]
 
-    kiss = KissInfo(filename = filename, list_data = list_data,
-                    length_header = length_header)
-    
-    kiss.ptint()
-    
-    libpath =  '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C'
-    rnd = ctypes.cdll.LoadLibrary(libpath+'/libreadnikadata.so')
-
-    
-    buffer_header = np.zeros(length_header,dtype=np.long)
-    hptr = buffer_header.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    #header pointer
-    #kiss.buffer_header = kiss.length_header * 
-    
-    listdet = np.zeros(nb_max_det,dtype=np.long)
-    ldptr = listdet.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    # detector pointer
-
-    nb_total_samples = np.full(1,-1, dtype=np.int)
-#    nbtsptr = nb_total_samples.ctypes.data_as(ctypes.POINTER(ctypes.c_int)) 
-    # sample pointer
-    
-    nb_char_nom= 16
-    nom_var_all_length = 200000
-    nom_var_all= np.zeros(nb_char_nom*nom_var_all_length,dtype=np.uint8)
-    nvaptr =  nom_var_all.ctypes.data_as(ctypes.POINTER(ctypes.c_char))
-    # datanames pointer
-    
-    nb_Sc= np.full(1,-1, dtype=np.long)
-    nb_Scptr = nb_Sc.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    nb_Sd= np.full(1,-1, dtype=np.long)
-    nb_Sdptr = nb_Sd.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    nb_Uc= np.full(1,-1, dtype=np.long)
-    nb_Ucptr = nb_Uc.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    nb_Ud= np.full(1,-1, dtype=np.long)
-    nb_Udptr = nb_Ud.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    # Number of the dataset pointers. 
-
-    
-    idx_param_c = np.full(1,-1, dtype=np.long)
-    idxpcptr = idx_param_c.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    idx_param_d = np.full(1,-1, dtype=np.long)
-    idxpdptr = idx_param_d.ctypes.data_as(ctypes.POINTER(ctypes.c_long))
-    # param_c and param_d pointers.
-
-#    rnd.Py_read_infos.argtypes = [ctypes.c_char_p,
-#                                  ctypes.POINTER(ctypes.c_long), 
-#                                  ctypes.c_int, 
-#                                  ctypes.c_char_p,
-#                                  ctypes.c_int, 
-#                                  ctypes.c_char_p, 
-#                                  ctypes.c_int, 
-#                                  ctypes.POINTER(ctypes.c_long),
-#                                  ctypes.POINTER(ctypes.c_long), 
-#                                  ctypes.POINTER(ctypes.c_long),
-#                                  ctypes.POINTER(ctypes.c_long),
-#                                  ctypes.POINTER(ctypes.c_long),
-#                                  ctypes.POINTER(ctypes.c_long), 
-#                                  ctypes.POINTER(ctypes.c_long),
-#                                  ctypes.c_int
-#                                  ]
-
-    nb_read_samples = rnd.Py_read_infos(kiss.filename,
-                                        kiss.p_buffer_header,
-                                        kiss.length_header,
-                                        nvaptr,
-                                        nom_var_all_length,
-                                        kiss.list_data,
+        nb_read_samples = nlib.Py_read_infos(self.filename,
+                                        self.buffer_header,
+                                        self.length_header,
+                                        self.nom_var_all,
+                                        self.nom_var_all_length,
+                                        self.list_data, 
                                         codelistdet(det2red),
-                                        ldptr,
-                                        nb_Scptr,
-                                        nb_Sdptr,
-                                        nb_Ucptr,
-                                        nb_Udptr,
-                                        idxpcptr,
-                                        idxpdptr,
+                                        self.listdet,
+                                        self.nb_Sc,
+                                        self.nb_Sd,
+                                        self.nb_Uc,
+                                        self.nb_Ud,
+                                        self.idx_param_c,
+                                        self.idx_param_d,
                                         silent)
 
-#    nb_det = listdet[0] 
-#    nb_ts = nb_total_samples[0]
-#    
-#    buffer_header = 
-#    
-#    nb_param_c = buffer_header[13]
-#    print (nb_det, nb_ts, nb_param_c)
-#    
-#    return buffer_header,nb_read_samples
-    return kiss, nb_read_samples
+        return nb_read_samples
+    
+    def printinfo(self):
+        print ('pname')
 
-#%%%
-dir_data = '/data/KISS/Raw/'
+# Later: make args and return of Ctype as structures? 
+
+
+
+#%%
+dir_data = '../../Data/kissRaw/'
 dateval = '2018_12_13_19h09m31'
 filename = dir_data + 'X_'+dateval+'_AA_man'
-test, nb_sample =  readKissData(filename,silent=False,
-                       list_data='all', nodata=True)
+kiss =  KissInfo(filename)
+nb_sampe = kiss.readIn()
