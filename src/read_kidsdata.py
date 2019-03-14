@@ -11,8 +11,12 @@ from astropy.table import Table, MaskedColumn
 # atexit.register(profile.print_stats)
 
 # TODO: This should not be fixed here
-libpath = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
-readnikadata = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.so')
+#libpath = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
+#readnikadata = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.so')
+
+# For my mac
+libpath = '../../NIKA_lib_AB_OB_gui/Readdata/C/'
+readnikadata = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.dylib')
 
 p_int32 = ctypes.POINTER(ctypes.c_int32)
 p_double = ctypes.POINTER(ctypes.c_double)
@@ -203,7 +207,8 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos', list_detector=None, start=None, end=None, silent=True, correct_pps=False):
+def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos', 
+             list_detector=None, start=None, end=None, silent=True, correct_pps=False):
     """Short summary.
 
     Parameters
