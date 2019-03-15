@@ -10,6 +10,7 @@ Created on Fri Feb 22 14:47:51 2019
 import read_kidsdata
 import numpy as np 
 import kiss_calib
+import kiss_plots
 
 class KissData(object):
     """ General KISS data.
@@ -100,7 +101,10 @@ class KissRawData(KissData):
             
         print ('Data listed: ' + list_data.replace(' ', ', ') )
         
-    def calibRaw(self):
+    def calibRaw(self, **args):
+        # Exeptions: data needed for the calibration have not been imported yet. 
         self.calfact, self.Icc, self.Qcc,\
-            self.P0, self.R0, self.kidfreq  = kiss_calib.get_calfact(self)
-        
+            self.P0, self.R0, self.kidfreq = kiss_calib.get_calfact(self, **args)
+            
+    def calibPlot(self, **args):
+        kiss_plots.calibPlot(self)

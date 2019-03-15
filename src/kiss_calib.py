@@ -3,15 +3,10 @@ import numpy as np
 Module for kiss calibration                                                                                                                                               
 """
 
-
-def angleto0(phi):
-    """  
-        Shift angle phi to [-pi, pi]
-    """                                                                                                                 
-    return np.mod(phi, 2*np.pi) - np.pi
+def angle0(phi):
+    return np.mod((phi + np.pi), (2 * np.pi)) - np.pi
 
 
-    
 def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
 
     """                                                                                                                                                                   
@@ -58,7 +53,6 @@ def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
     
     kidfreq = np.copy(dataI)
 
-                                                                                                                             
     for iint in range(nint):    # single interferogram                                                                                                                
 
         Icurrent = dataI[:, iint, :]
@@ -85,7 +79,6 @@ def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
         # Fit circle                                                                                                                                                  
         den = (2.0*(x1*(y2-y3)+x2*(y3-y1)+x3*(y1-y2)))
         Ic   = (x1*x1 + y1*y1)*(y2-y3)+ (x2*x2 + y2*y2)*(y3-y1)+ (x3*x3 + y3*y3)*(y1-y2)
-        Ict = Ic
         Ic[den!=0] /= den[den!=0]
         Qc =(x1*x1 + y1*y1)*(x3-x2)+ (x2*x2 + y2*y2)*(x1-x3)+ (x3*x3 + y3*y3)*(x2-x1)
         Qc[den!=0] /= den[den!=0]
@@ -119,10 +112,9 @@ def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
         r0 = np.arctan2(Ic-x3,Qc-y3)
         R0[:,iint] = r0
 
-
         r1 = np.arctan2(Ic-x1,Qc-y1)
         r2 = np.arctan2(Ic-x2,Qc-y2)
-        diffangle = angleto0(r2-r1)
+        diffangle = angle0(r2-r1)
 
         # Get calibration factor                                                                                                                                      
         diffangle[(diffangle < 0.001)  & (diffangle > -0.001)] = 1.0
@@ -131,13 +123,19 @@ def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
         calfact[:,iint] = calcoeff *fmod * Modfactor
         
 
-        r = np.arctan2(Icc[:,iint]-Icurrent[:, iint],Qcc[:,iint]-Qcurrent[:,iint])
-                
+#        r = np.arctan2(Icc[:,iint]-Icurrent,np.transpose(Qcc[:,iint])-Qcurrent)
+        r = np.arctan2((Icc[:,iint]-Icurrent.transpose()).transpose(),\
+                       (Qcc[:,iint]-Qcurrent.transpose()).transpose())
+        
+#        r = angleto0(np.arctan2((Icc[:,iint]-Icurrent.transpose()),\
+#                                (Qcc[:,iint]-Qcurrent.transpose())) - r0).transpose()
+        ra =  angle0((r.transpose() - r0).transpose())
+        
+        
         if (docalib):
-            kidfreq[:,iint,:] = np.repeat([calfact[:,iint]*angleto0(r-r0)], nptint, axis = 0).transpose()
+            kidfreq[:,iint,:] = (calfact[:,iint] * ra.transpose()).transpose()
         else:
-            kidfreq[:,iint,:] = np.repeat([angleto0(r-r0)], nptint, axis = 0).transpose()
-
+            kidfreq[:,iint,:] = ra
 
     return calfact,Icc,Qcc,P0,R0,kidfreq
 
