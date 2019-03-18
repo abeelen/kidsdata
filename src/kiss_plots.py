@@ -11,7 +11,7 @@ from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
 #from scipy.ndimage.filters import gaussian_filter1d
 
-def calibPlot(kids, ikid = 195, dir_plot = '../plots/', plotname = 'calib.pdf'):
+def calibPlot(kids, ikid = 195):
     fig = plt.figure(figsize=(5*3,4*2))
     
     ax = plt.subplot(2,3,1)
@@ -55,10 +55,11 @@ def calibPlot(kids, ikid = 195, dir_plot = '../plots/', plotname = 'calib.pdf'):
     ax.set_xlabel('Sample Number')
     ax.legend()
 
+    return fig
     
-    plotname = dir_plot + plotname
-    fig.savefig(plotname)
+    # plotname = dir_plot + plotname
+    # fig.savefig(plotname)
     
-    print ('Figure saved: ' + plotname )
+    # print ('Figure saved: ' + plotname )
     
-    return plotname
+    # return plotname
