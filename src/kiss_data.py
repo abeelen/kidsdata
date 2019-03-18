@@ -7,10 +7,10 @@ Created on Fri Feb 22 14:47:51 2019
 """
 #import astropy
 
-import read_kidsdata
 import numpy as np 
-import kiss_calib
-import kiss_plots
+from . import read_kidsdata
+from . import kiss_calib
+from . import kiss_plots
 
 class KissData(object):
     """ General KISS data.
@@ -24,6 +24,10 @@ class KissData(object):
 
     def __init__(self, filename):
         self.filename = filename
+    
+    def __repr__(self):
+        return "%s('%s')" % (self.__class__.__name__, self.filename)
+
         
 class KissRawData(KissData):
     """ Arrays of (I,Q) with assiciated information from KISS raw data. 
@@ -52,8 +56,6 @@ class KissRawData(KissData):
     """
     
     def __init__(self, filename):
-#        self.kidPar = KidPar(super.filename)
-#        self.param = Param(super.filename)
         self.filename = filename
         self.header, self.version_header, self.param_c, \
             self.kidpar, self.names, self.nsamples \
@@ -68,43 +70,42 @@ class KissRawData(KissData):
             # read the data into the buffer. 
     def emptyData(self):
         # Empty the datasets. 
-        if 'data_Sc' in self.__dict__.keys():
+        if '__data_Sc' in self.__dict__.keys():
             for ckey in self._dataSc.keys():
                 self.__dict__[ckey] = None
-        if 'data_Sd' in self.__dict__.keys():
+        if '__data_Sd' in self.__dict__.keys():
             for dkey in self._dataSd.keys():
                 self.__dict__[dkey] = None
-        self._dataSc = None
-        self._dataSd = None
-        self._dataUc = None
-        self._dataUd = None
+        self.__dataSc = None
+        self.__dataSd = None
+        self.__dataUc = None
+        self.__dataUd = None
         
-            
+        
     def listInfo(self):
         print ("KISS RAW DATA")
         print ("==================")
         print ("File name: " + self.filename)
-            
+       
+    def __len__(self):
+        return self.nsamples
 
-    def listData(self, list_data = 'indice A_masq C_laser1_po s C_laser2_pos I Q'):
+    def read_data(self, *args, **kwargs):
         self.emptyData()
         
-        self._dataSc, self._dataSd, self._dataUc, self._dataUd \
-            = read_kidsdata.read_all(self.filename, list_data = list_data)   
-        self.nptint = np.int(np.max(self._dataSc['indice'])+1)
+        self.__dataSc, self.__dataSd,self.__dataUc, self.__dataUd = read_kidsdata.read_all(self.filename, *args, **kwargs)
+        self.nptint = np.int(np.max(self.__dataSc['indice'])+1)
         self.nint = np.int(self.nsamples/self.nptint)  # number of interferograms
         
-        for ckey in self._dataSc.keys():
-            self.__dict__[ckey] = self._dataSc[ckey]
-        for dkey in self._dataSd.keys():
-            self.__dict__[dkey] = self._dataSd[dkey]
-            
-        print ('Data listed: ' + list_data.replace(' ', ', ') )
-        
-    def calibRaw(self, **args):
+        for ckey in self.__dataSc.keys():
+            self.__dict__[ckey] = self.__dataSc[ckey]
+        for dkey in self.__dataSd.keys():
+            self.__dict__[dkey] = self.__dataSd[dkey]
+                    
+    def calib_raw(self, **args):
         # Exeptions: data needed for the calibration have not been imported yet. 
         self.calfact, self.Icc, self.Qcc,\
             self.P0, self.R0, self.kidfreq = kiss_calib.get_calfact(self, **args)
             
-    def calibPlot(self, **args):
-        kiss_plots.calibPlot(self)
+    def calib_plot(self, *args, **kwargs):
+        return kiss_plots.calibPlot(self, *args, **kwargs)

@@ -37,8 +37,7 @@ def get_calfact(kids, Modfactor = 0.5, wsample = [], docalib = True):
     """
 
     ndet = kids.ndet
-    nptint = kids.nptint
-    nint = kids.nint
+    nptint, nint = kids.nptint, kids.nint
     fmod = kids.param_c['1-modulFreq'] #value [Hz] for the calibration
 
     calfact   = np.zeros((ndet,nint))

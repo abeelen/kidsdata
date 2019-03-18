@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#pylint: disable=C0301,C0103
 import ctypes
-import numpy as np
+import gc
 from collections import namedtuple
+import numpy as np
 from astropy.table import Table, MaskedColumn
 
 # import line_profiler
@@ -11,32 +13,8 @@ from astropy.table import Table, MaskedColumn
 # atexit.register(profile.print_stats)
 
 # TODO: This should not be fixed here
-#libpath = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
-#readnikadata = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.so')
-
-# For my mac
-libpath = '../../NIKA_lib_AB_OB_gui/Readdata/C/'
-readnikadata = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.dylib')
-
-p_int32 = ctypes.POINTER(ctypes.c_int32)
-p_double = ctypes.POINTER(ctypes.c_double)
-
-read_nika_info = readnikadata.read_nika_info
-read_nika_info.argtypes = [ctypes.c_char_p,
-                           p_int32, ctypes.c_int32,
-                           ctypes.c_char_p, ctypes.c_int32,
-                           ctypes.c_char_p,
-                           ctypes.c_int32, p_int32,
-                           p_int32, p_int32, p_int32, p_int32,
-                           p_int32, p_int32,
-                           ctypes.c_int]
-
-read_nika_all = readnikadata.read_nika_all
-read_nika_all.argtype = [ctypes.c_char_p,
-                         p_double, p_double,
-                         ctypes.c_char_p,
-                         p_int32,
-                         ctypes.c_int, ctypes.c_int, ctypes.c_int]
+LIBPATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
+READNIKADATA = ctypes.cdll.LoadLibrary(LIBPATH + '/libreadnikadata.so')
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
 TconfigHeader = namedtuple('TconfigHeader',
@@ -68,11 +46,10 @@ TName = namedtuple('TName',
                     'RawDataDetector'])
 
 
-detectors_code = {'kid': 3, 'kod': 2, 'all': 1, 'a1': 4, 'a2': 5, 'a3': 6}
+DETECTORS_CODE = {'kid': 3, 'kod': 2, 'all': 1, 'a1': 4, 'a2': 5, 'a3': 6}
+
 
 # @profile
-
-
 def read_info(filename, det2read='KID', list_data='all', silent=True):
     """Read header information from a binary file.
 
@@ -104,12 +81,24 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
 
     """
 
-    codelistdet = detectors_code.get(det2read.lower(), -1)
+    codelistdet = DETECTORS_CODE.get(det2read.lower(), -1)
 
     # nb_char_nom = 16
     length_header = 300000
     var_name_length = 200000
     nb_max_det = 8001
+
+    p_int32 = ctypes.POINTER(ctypes.c_int32)
+
+    read_nika_info = READNIKADATA.read_nika_info
+    read_nika_info.argtypes = [ctypes.c_char_p,
+                               p_int32, ctypes.c_int32,
+                               ctypes.c_char_p, ctypes.c_int32,
+                               ctypes.c_char_p,
+                               ctypes.c_int32, p_int32,
+                               p_int32, p_int32, p_int32, p_int32,
+                               p_int32, p_int32,
+                               ctypes.c_int]
 
     buffer_header = np.zeros(length_header, dtype=np.int32)
     var_name_buffer = ctypes.create_string_buffer(var_name_length)
@@ -203,12 +192,13 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
                   name_data_Ud, name_detectors)
 
     del(buffer_header, var_name_buffer, list_detector)
+    gc.collect()
+    ctypes._reset_cache()
 
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos', 
-             list_detector=None, start=None, end=None, silent=True, correct_pps=False):
+def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos C_laser2_pos A_masq I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False):
     """Short summary.
 
     Parameters
@@ -263,6 +253,16 @@ def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos',
     end = end or nb_read_info
     nb_to_read = end - start
 
+    p_int32 = ctypes.POINTER(ctypes.c_int32)
+    p_double = ctypes.POINTER(ctypes.c_double)
+
+    read_nika_all = READNIKADATA.read_nika_all
+    read_nika_all.argtype = [ctypes.c_char_p,
+                             p_double, p_double,
+                             ctypes.c_char_p,
+                             p_int32,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_int]
+
     # Number of data to read
     nb_Sc = len(names.ComputedDataSc)
     nb_Sd = len(names.ComputedDataSd)
@@ -303,10 +303,14 @@ def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos',
         0, -1)
 
     # Split the data  by name, here data are 1D or 2D numpy array
-    _dataSc = {name: data for name, data in zip(names.ComputedDataSc, _dataSc)}
-    _dataSd = {name: data for name, data in zip(names.ComputedDataSd, _dataSd)}
-    _dataUc = {name: data for name, data in zip(names.ComputedDataUc, _dataUc)}
-    _dataUd = {name: data for name, data in zip(names.ComputedDataUd, _dataUd)}
+    _dataSc = {name: data
+               for name, data in zip(names.ComputedDataSc, _dataSc)}
+    _dataSd = {name: data.astype(np.float32, order='C', casting='same_kind')
+               for name, data in zip(names.ComputedDataSd, _dataSd)}
+    _dataUc = {name: data
+               for name, data in zip(names.ComputedDataUc, _dataUc)}
+    _dataUd = {name: data.astype(np.float32, order='C', casting='same_kind')
+               for name, data in zip(names.ComputedDataUd, _dataUd)}
 
     # Shift RF_didq if present
     if 'RF_didq' in _dataSd:
@@ -334,7 +338,10 @@ def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos',
                 param = np.polyfit(_dataSc['sample'][good], pps[good], 1)
                 pps[~good] = np.polyval(param, _dataSc['sample'][~good])
 
-        _dataSc = {**_dataSc, 'pps': pps}
+        _dataSc['pps'] = pps
 
     del(buffer_dataS, buffer_dataU)
+    gc.collect()
+    ctypes._reset_cache()
+
     return _dataSc, _dataSd, _dataUc, _dataUd
