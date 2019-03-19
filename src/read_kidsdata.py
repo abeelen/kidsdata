@@ -7,6 +7,8 @@ from collections import namedtuple
 import numpy as np
 from astropy.table import Table, MaskedColumn
 
+# import logging
+
 # import line_profiler
 # import atexit
 # profile = line_profiler.LineProfiler()
@@ -80,7 +82,6 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
         the total  number of sample in the file
 
     """
-
     codelistdet = DETECTORS_CODE.get(det2read.lower(), -1)
 
     # nb_char_nom = 16
@@ -118,6 +119,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
                                      nb_Sc, nb_Sd, nb_Uc, nb_Ud,
                                      idx_param_c, idx_param_d,
                                      silent)
+
     nb_Sc = nb_Sc.value
     nb_Sd = nb_Sd.value
     nb_Uc = nb_Uc.value
@@ -198,7 +200,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos C_laser2_pos A_masq I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False):
+def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False):
     """Short summary.
 
     Parameters
@@ -280,6 +282,8 @@ def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos C_l
     buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U,
                             dtype=np.double)
 
+    # logging.info('buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB'.format(buffer_dataS.nbytes / 1024 / 1024, 
+    #                                                                                              buffer_dataU.nbytes / 1024 / 1024))
     nb_samples_read = read_nika_all(bytes(filename, 'ascii'),
                                     buffer_dataS.ctypes.data_as(p_double),
                                     buffer_dataU.ctypes.data_as(p_double),
@@ -302,46 +306,60 @@ def read_all(filename, det2read='KID', list_data='sample indice C_laser1_pos C_l
         .reshape(nb_to_read // np_pt_bloc, nb_Ud, nb_detectors),
         0, -1)
 
-    # Split the data  by name, here data are 1D or 2D numpy array
-    _dataSc = {name: data
+    # Split the data by name, here data are 1D or 2D numpy array,
+    # Cast ?d data to float32
+
+    # WARNING : We need to copy the data, so that we loose previous
+    # reference to buffer_data*, and hence we can really release its
+    # memory 
+
+    # NOTE : This is causing a extra usage of RAM and CPU during
+    # copy... Should be handled by the C library..
+
+    dataSc = {name: data.copy()
                for name, data in zip(names.ComputedDataSc, _dataSc)}
-    _dataSd = {name: data.astype(np.float32, order='C', casting='same_kind')
+    del(_dataSc)
+    dataSd = {name: data.astype(np.float32, order='C', casting='unsafe')
                for name, data in zip(names.ComputedDataSd, _dataSd)}
-    _dataUc = {name: data
+    del(_dataSd, buffer_dataS)
+
+    dataUc = {name: data.copy()
                for name, data in zip(names.ComputedDataUc, _dataUc)}
-    _dataUd = {name: data.astype(np.float32, order='C', casting='same_kind')
+    del(_dataUc)
+    dataUd = {name: data.astype(np.float32, order='C', casting='unsafe')
                for name, data in zip(names.ComputedDataUd, _dataUd)}
+    del(_dataUd, buffer_dataU)
+
 
     # Shift RF_didq if present
-    if 'RF_didq' in _dataSd:
+    if 'RF_didq' in dataSd:
         shift_rf_didq = -49
-        _dataSd['RF_didq'] = np.roll(_dataSd['RF_didq'], shift_rf_didq, axis=1)
+        dataSd['RF_didq'] = np.roll(dataSd['RF_didq'], shift_rf_didq, axis=1)
 
     # Compute time pps_time difference
-    if 'A_time' in _dataSc:
-        pps = _dataSc['A_time']
-        other_time = [key for key in _dataSc if key.endswith(
+    if 'A_time' in dataSc:
+        pps = dataSc['A_time']
+        other_time = [key for key in dataSc if key.endswith(
             '_time') and key != 'A_time']
-        if other_time and 'sample' in _dataSc:
+        if other_time and 'sample' in dataSc:
             pps_diff = {
-                'A_time-{}'.format(key): (pps - _dataSc[key]) * 1e6 for key in other_time}
+                'A_time-{}'.format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
             pps_diff['pps_diff'] = np.asarray(
                 list(pps_diff.values())).max(axis=0)
 
-            _dataSc = {**_dataSc, **pps_diff}
+            dataSc = {**dataSc, **pps_diff}
 
         # Fake pps time if necessary
         if correct_pps:
             dummy = np.diff(pps, append=0)
             good = np.abs(dummy - 1 / param_c['acqfreq']) < 0.02
             if any(~good):
-                param = np.polyfit(_dataSc['sample'][good], pps[good], 1)
-                pps[~good] = np.polyval(param, _dataSc['sample'][~good])
+                param = np.polyfit(dataSc['sample'][good], pps[good], 1)
+                pps[~good] = np.polyval(param, dataSc['sample'][~good])
 
-        _dataSc['pps'] = pps
+        dataSc['pps'] = pps
 
-    del(buffer_dataS, buffer_dataU)
     gc.collect()
     ctypes._reset_cache()
 
-    return _dataSc, _dataSd, _dataUc, _dataUd
+    return dataSc, dataSd, dataUc, dataUd
