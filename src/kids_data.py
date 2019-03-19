@@ -12,7 +12,7 @@ from . import read_kidsdata
 from . import kiss_calib
 from . import kiss_plots
 
-class KissData(object):
+class KidsData(object):
     """ General KISS data.
         
     Attributes
@@ -29,7 +29,7 @@ class KissData(object):
         return "%s('%s')" % (self.__class__.__name__, self.filename)
 
         
-class KissRawData(KissData):
+class KidsRawData(KidsData):
     """ Arrays of (I,Q) with assiciated information from KISS raw data. 
         
     Attributes
@@ -57,30 +57,15 @@ class KissRawData(KissData):
     
     def __init__(self, filename):
         self.filename = filename
-        self.header, self.version_header, self.param_c, \
-            self.kidpar, self.names, self.nsamples \
-                = read_kidsdata.read_info(self.filename)
+        info = read_kidsdata.read_info(self.filename)
+        self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
         self.ndet = len(self.kidpar[~self.kidpar['index'].mask])
-        
-        self.emptyData()
 
-#    @property
-#    def cache(self):
-#        if not cahche:
-            # read the data into the buffer. 
-    def emptyData(self):
-        # Empty the datasets. 
-        if '__data_Sc' in self.__dict__.keys():
-            for ckey in self._dataSc.keys():
-                self.__dict__[ckey] = None
-        if '__data_Sd' in self.__dict__.keys():
-            for dkey in self._dataSd.keys():
-                self.__dict__[dkey] = None
-        self.__dataSc = None
-        self.__dataSd = None
-        self.__dataUc = None
-        self.__dataUd = None
-        
+        # Minimum dataset
+        self.I = None
+        self.Q = None
+        self.A_masq = None
+
         
     def listInfo(self):
         print ("KISS RAW DATA")
@@ -91,21 +76,23 @@ class KissRawData(KissData):
         return self.nsamples
 
     def read_data(self, *args, **kwargs):
-        self.emptyData()
-        
         self.__dataSc, self.__dataSd,self.__dataUc, self.__dataUd = read_kidsdata.read_all(self.filename, *args, **kwargs)
-        self.nptint = np.int(np.max(self.__dataSc['indice'])+1)
-        self.nint = np.int(self.nsamples/self.nptint)  # number of interferograms
+        self.nptint = self.header.nb_pt_bloc # number of points for one interferogram
+        assert self.nptint == np.int(self.__dataSc['indice'].max() - self.__dataSc['indice'].min()+1), "Problem with 'indice' or header"
+        self.nint = self.nsamples // self.nptint  # number of interferograms
         
         for ckey in self.__dataSc.keys():
             self.__dict__[ckey] = self.__dataSc[ckey]
         for dkey in self.__dataSd.keys():
             self.__dict__[dkey] = self.__dataSd[dkey]
                     
-    def calib_raw(self, **args):
-        # Exeptions: data needed for the calibration have not been imported yet. 
+    def calib_raw(self, *args, **kwargs):
+        assert (self.I is not None) & \
+            (self.Q is not None) & \
+            (self.A_masq is not None), "I, Q or A_masq data not present"
+
         self.calfact, self.Icc, self.Qcc,\
-            self.P0, self.R0, self.kidfreq = kiss_calib.get_calfact(self, **args)
+            self.P0, self.R0, self.kidfreq = kiss_calib.get_calfact(self, *args, **kwargs)
             
     def calib_plot(self, *args, **kwargs):
         return kiss_plots.calibPlot(self, *args, **kwargs)
