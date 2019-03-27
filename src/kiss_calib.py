@@ -118,7 +118,8 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         P0[:, iint] = np.arctan2(Ic, Qc)
 
         # compute angle difference between two modulation points
-        R0[:, iint] = np.arctan2(Ic - x3, Qc - y3)
+        r0 = np.arctan2(Ic - x3, Qc - y3)
+        R0[:, iint] = r0
 
         r1 = np.arctan2(Ic - x1, Qc - y1)
         r2 = np.arctan2(Ic - x2, Qc - y2)
