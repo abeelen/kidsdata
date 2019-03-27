@@ -55,6 +55,9 @@ def calibPlot(kids, ikid = 195):
     ax.set_xlabel('Sample Number')
     ax.legend()
 
+    fig.suptitle(kids.filename)
+    fig.tight_layout()
+
     return fig
     
     # plotname = dir_plot + plotname
