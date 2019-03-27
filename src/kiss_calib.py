@@ -83,13 +83,13 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
                      x3 * (y1 - y2))
 
         Ic = (x1 * x1 + y1 * y1) * (y2 - y3) + \
-            (x2 * x2 + y2 * y2) * (y3 - y1) + \
-            (x3 * x3 + y3 * y3) * (y1 - y2)
+             (x2 * x2 + y2 * y2) * (y3 - y1) + \
+             (x3 * x3 + y3 * y3) * (y1 - y2)
         Ic /= den
 
         Qc = (x1 * x1 + y1 * y1) * (x3 - x2) + \
-            (x2 * x2 + y2 * y2) * (x1 - x3) + \
-            (x3 * x3 + y3 * y3) * (x2 - x1)
+             (x2 * x2 + y2 * y2) * (x1 - x3) + \
+             (x3 * x3 + y3 * y3) * (x2 - x1)
         Qc /= den
 
         # Filter
@@ -133,15 +133,15 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
 
 #        r = np.arctan2(Icc[:,iint]-Icurrent,np.transpose(Qcc[:,iint])-Qcurrent)
-        r = np.arctan2((Icc[:, iint] - Icurrent.transpose()).transpose(),
-                       (Qcc[:, iint] - Qcurrent.transpose()).transpose())
+        r = np.arctan2(Icc[:, iint][:, np.newaxis] - Icurrent,
+                       Qcc[:, iint][:, np.newaxis] - Qcurrent)
 
 #        r = angleto0(np.arctan2((Icc[:,iint]-Icurrent.transpose()),\
 #                                (Qcc[:,iint]-Qcurrent.transpose())) - r0).transpose()
-        ra = angle0((r.transpose() - r0).transpose())
+        ra = angle0(r - r0[:, np.newaxis])
 
         if (docalib):
-            kidfreq[:, iint, :] = (calfact[:, iint] * ra.transpose()).transpose()
+            kidfreq[:, iint, :] = calfact[:, iint][:, np.newaxis] * ra
         else:
             kidfreq[:, iint, :] = ra
 
