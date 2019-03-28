@@ -5,16 +5,20 @@ Created on Thu Mar 14 20:38:32 2019
 
 @author: yixiancao
 """
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
+from astropy.wcs import WCS
 #from scipy.ndimage.filters import gaussian_filter1d
 
-from Labtools_JM_KISS import kiss_pointing_model as kpm
 #from Labtools_JM_KISS import kiss_map_proj as kmp
 
 def calibPlot(kids, ikid = 195):
+    """ Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector; 
+        show median calfact for all detectors in the last panel. 
+    """
     fig = plt.figure(figsize=(5*3,4*2))
     
     ax = plt.subplot(2,3,1)
@@ -41,83 +45,122 @@ def calibPlot(kids, ikid = 195):
     ax.set_xlabel('Sample Number')
     ax.legend()
 
-
     ax = plt.subplot(2,3,4)
-    ax.plot(np.median(kids.calfact,axis=1), label = 'Original')
-    ax.plot(medfilt(np.median(kids.calfact,axis=1),5), label = 'Fitted')
-    ax.grid()
-    ax.set_ylabel('Median Calibration Factor [Hz/rad]')
-    ax.set_xlabel('Detector Number')
-    ax.legend()
-
-    ax = plt.subplot(2,3,5)
     ax.plot(kids.kidfreq[ikid,4:12].ravel(), \
             label = 'Detector:' + kids.kidpar['namedet'][ikid])
     ax.grid()
     ax.set_ylabel('Signal [Hz]')
     ax.set_xlabel('Sample Number')
     ax.legend()
+
+    ax = plt.subplot(2,3,5)
+    ax.plot(np.median(kids.calfact,axis=1), label = 'Original')
+    ax.plot(medfilt(np.median(kids.calfact,axis=1),5), label = 'Fitted')
+    ax.grid()
+    ax.set_ylabel('Median Calibration Factor [Hz/rad]')
+    ax.set_xlabel('Detector Number')
+    ax.legend()
     
     fig.suptitle(kids.filename)
+    fig.tight_layout()
 
     return fig
     
-    # plotname = dir_plot + plotname
-    # fig.savefig(plotname)
-    
-    # print ('Figure saved: ' + plotname )
-    
-    # return plotname
 
 def checkPointing(kids):
+    """ Plot:   
+        1. Azimuth distribution of samples. 
+        2. Elevation distribuiton of samples. 
+        3. 2D distribution of (Elevation, Azimuth) for samples.
+        4. Medians of poitnings for each interferogram,
+        compared with pointing models. 
+    """
     fig = plt.figure(figsize=(5*2+1,4*2))
     fig.suptitle(kids.filename)
 
-    # better to do the unit conversion in reading? 
-    for key in ['F_azimuth', 'F_elevation']:
-        kids.__dict__[key] = np.rad2deg(kids.__dict__[key]/1000.0)
-
-
-    okp = np.where((kids.F_elevation >0.0) & (kids.F_azimuth > 0.0))[0]
+    azimuth, elevation, mask_pointing = kids.F_azimuth, kids.F_elevation, kids.mask_pointing
+    az_tel, el_tel, mask_tel = kids.az_tel, kids.el_tel, kids.mask_tel
+    az_sky, el_sky = kids.az_sky, kids.el_sky
+    az_skyQ1, el_skyQ1 = kids.az_skyQ1, kids.el_skyQ1
+    
 
     ax = plt.subplot(2,2,1)
-    ax.plot(kids.F_azimuth[okp]) 
+    ax.plot(azimuth[mask_pointing]) 
     ax.set_ylabel('Azimuth [deg]')
     ax.set_xlabel('Sample number [dummy units]')
     ax.grid()
     
     ax = plt.subplot(2,2,2)
-    ax.plot(kids.F_elevation[okp])
+    ax.plot(elevation[mask_pointing])
     ax.set_xlabel('Sample number [dummy units]')
     ax.set_ylabel('Elevation [deg]')
     ax.grid()
     
     ax = plt.subplot(2,2,3)
-    ax.plot(kids.F_azimuth[okp],
-            kids.F_elevation[okp],'.')
+    ax.plot(azimuth[mask_pointing],
+            elevation[mask_pointing],'.')
     ax.set_xlabel('Azimuth [deg]')
     ax.set_ylabel('Elevation [deg]')
     ax.set_title('Pointing')
     ax.grid()
-    
-    az_tel = np.median(kids.F_azimuth.reshape((kids.nint,kids.nptint)),axis=1)
-    el_tel = np.median(kids.F_elevation.reshape((kids.nint,kids.nptint)),axis=1)
-    
-    okp = np.where((el_tel >0.0) & (az_tel > 0.0))[0]
-    print (len(okp), az_tel[okp], el_tel[okp])
-    KISSpm = kpm.KISSPmodel()
-    KISSpmQ1 = kpm.KISSPmodel(model='Q1')
-    az_sky, el_sky = KISSpm.telescope2sky(az_tel,el_tel)
-    az_skyQ1, el_skyQ1 = KISSpmQ1.telescope2sky(az_tel,el_tel)
-    # cache
-    
+        
     ax = plt.subplot(2,2,4)
-    plt.plot(az_tel[okp],el_tel[okp],'+', ms =12,  label='Telescope')
-    ax.plot(az_sky[okp],el_sky[okp],'+', ms = 12, label='Sky')
-    ax.plot(az_skyQ1[okp],el_skyQ1[okp],'+', ms = 12, label='Sky Q1')
+    plt.plot(az_tel[mask_tel],el_tel[mask_tel],'+', ms =12,  label='Telescope')
+    ax.plot(az_sky[mask_tel],el_sky[mask_tel],'+', ms = 12, label='Sky')
+    ax.plot(az_skyQ1[mask_tel],el_skyQ1[mask_tel],'+', ms = 12, label='Sky Q1')
     ax.set_xlabel('Azimuth [deg]')
     ax.set_ylabel('Elevation [deg]')
     ax.grid()
     ax.legend()
     
+    fig.tight_layout()
+
+    
     return fig
+
+def photometry(kids):
+    fig = plt.figure(figsize=(5*2+1,4*2+0.5))
+    fig.suptitle(kids.filename)
+
+    bgrd = kids.background 
+    meds = np.median(bgrd, axis=1)
+    stds = np.std(bgrd, axis=1)
+    
+    ax = plt.subplot(2,2,1)
+    ax.semilogy(meds)
+    ax.set_xlabel('Detector Number')
+    ax.set_ylabel("Median of Photometry")
+    
+    ax = plt.subplot(2,2,2)
+    ax.semilogy(stds)
+    ax.set_xlabel('Detector Number')
+    ax.set_ylabel("STD of Photometry")
+    
+    fig.tight_layout()    
+    
+    return fig
+
+def show_maps(kids):
+    nrow = 1
+    ncol = 1
+    fig = plt.figure(figsize=(5*ncol+1,4*nrow+0.5))
+    
+    subtitle = str(kids.testikid)
+    fig.suptitle(kids.filename + subtitle) 
+    
+    ax = plt.subplot(ncol, nrow, 1)
+    ax.imshow(kids.beammap)
+    
+#    wcs = kids.beamwcs
+#    ax = plt.subplot(ncol, nrow, 1, projection=wcs)
+#    bgrs = kids.bgrs[153, kids.mask_tel]
+#    ax.imshow(bgrs)
+    
+    ax.grid(color='white', ls='solid')
+#    ax.set_xlabel('Az [deg]')
+#    ax.set_ylabel('El [deg]')
+    
+    return fig
+
+
+
