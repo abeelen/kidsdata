@@ -6,7 +6,8 @@ import gc
 from collections import namedtuple
 import numpy as np
 from astropy.table import Table, MaskedColumn
-
+import os
+import sys
 # import logging
 
 # import line_profiler
@@ -15,8 +16,24 @@ from astropy.table import Table, MaskedColumn
 # atexit.register(profile.print_stats)
 
 # TODO: This should not be fixed here
-LIBPATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
-READNIKADATA = ctypes.cdll.LoadLibrary(LIBPATH + '/libreadnikadata.so')
+try:
+    # try to load NIKA_LIB_PATH environment variable
+    NIKA_LIB_PATH=os.environ['NIKA_LIB_PATH']
+except:
+    # if empty, we set default path
+    NIKA_LIB_PATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
+
+NIKA_LIB_SO = NIKA_LIB_PATH + "/libreadnikadata.so"
+
+if os.path.exists(NIKA_LIB_SO):
+    READNIKADATA = ctypes.cdll.LoadLibrary(NIKA_LIB_SO)
+else:
+    print("\nNIKA LIB SO File [%s] does not exist\n"
+          "You might have forgot to set \'NIKA_LIB_PATH\' environ variable...\n"
+          "currently \'NIKA_LIB_PATH\' =%s\n\n"%(NIKA_LIB_SO,NIKA_LIB_PATH),
+          file=sys.stderr
+          )
+    sys.exit()
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
 TconfigHeader = namedtuple('TconfigHeader',
@@ -200,7 +217,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False):
+def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False, ordering='K'):
     """Short summary.
 
     Parameters
@@ -221,7 +238,10 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
         Silence the output of the C library. The default is True
     correct_pps: bool
         correct the pps signal. The default is False
-
+    ordering: str
+        memory ordering requested to convert data from NIKA eading library to python numpy array
+        The default is 'K' which speedup the conversion by keeping memory ordering. It can be changed to 'C'. This
+        variable must be really checked for further analysis and how it impact performances
     Returns
     -------
     dataSc : dict:
@@ -282,7 +302,7 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U,
                             dtype=np.double)
 
-    # logging.info('buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB'.format(buffer_dataS.nbytes / 1024 / 1024, 
+    # logging.info('buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB'.format(buffer_dataS.nbytes / 1024 / 1024,
     #                                                                                              buffer_dataU.nbytes / 1024 / 1024))
     nb_samples_read = read_nika_all(bytes(filename, 'ascii'),
                                     buffer_dataS.ctypes.data_as(p_double),
@@ -311,7 +331,7 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
 
     # WARNING : We need to copy the data, so that we loose previous
     # reference to buffer_data*, and hence we can really release its
-    # memory 
+    # memory
 
     # NOTE : This is causing a extra usage of RAM and CPU during
     # copy... Should be handled by the C library..
@@ -319,14 +339,14 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     dataSc = {name: data.copy()
                for name, data in zip(names.ComputedDataSc, _dataSc)}
     del(_dataSc)
-    dataSd = {name: data.astype(np.float32, order='C', casting='unsafe')
+    dataSd = {name: data.astype(np.float32, order=ordering, casting='unsafe')
                for name, data in zip(names.ComputedDataSd, _dataSd)}
     del(_dataSd, buffer_dataS)
 
     dataUc = {name: data.copy()
                for name, data in zip(names.ComputedDataUc, _dataUc)}
     del(_dataUc)
-    dataUd = {name: data.astype(np.float32, order='C', casting='unsafe')
+    dataUd = {name: data.astype(np.float32, order=ordering, casting='unsafe')
                for name, data in zip(names.ComputedDataUd, _dataUd)}
     del(_dataUd, buffer_dataU)
 
@@ -347,7 +367,8 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
             pps_diff['pps_diff'] = np.asarray(
                 list(pps_diff.values())).max(axis=0)
 
-            dataSc = {**dataSc, **pps_diff}
+            #dataSc = {**dataSc, **pps_diff}
+            dataSc.update(pps_diff)
 
         # Fake pps time if necessary
         if correct_pps:
