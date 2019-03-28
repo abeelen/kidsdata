@@ -15,8 +15,12 @@ from astropy.table import Table, MaskedColumn
 # atexit.register(profile.print_stats)
 
 # TODO: This should not be fixed here
-LIBPATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
-READNIKADATA = ctypes.cdll.LoadLibrary(LIBPATH + '/libreadnikadata.so')
+#LIBPATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
+#READNIKADATA = ctypes.cdll.LoadLibrary(LIBPATH + '/libreadnikadata.so')
+
+# For my mac
+libpath = '/Users/yixiancao/workCodes/NIKA_lib_AB_OB_gui/Readdata/C/'
+READNIKADATA = ctypes.cdll.LoadLibrary(libpath + '/libreadnikadata.dylib')
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
 TconfigHeader = namedtuple('TconfigHeader',
