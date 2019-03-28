@@ -7,7 +7,8 @@ Created on Fri Feb 22 14:47:51 2019
 """
 #import astropy
 
-import numpy as np 
+import numpy as np
+from functools import lru_cache
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
@@ -69,14 +70,23 @@ class KidsRawData(KidsData):
         self.Q = None
         self.A_masq = None
 
+    def __len__(self):
+        return self.nsamples
+        
+    @property
+    @lru_cache(maxsize=1)
+    def background(self):
+        """ Background based on calibration factors"""
+        assert (self.R0 is not None) & \
+               (self.P0 is not None) & \
+               (self.calfact is not None), "Calibration factors missing"
+        return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
         
     def listInfo(self):
         print ("KISS RAW DATA")
         print ("==================")
         print ("File name: " + self.filename)
        
-    def __len__(self):
-        return self.nsamples
 
     def read_data(self, *args, **kwargs):
         self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
@@ -93,8 +103,8 @@ class KidsRawData(KidsData):
                     
     def calib_raw(self, *args, **kwargs):
         assert (self.I is not None) & \
-            (self.Q is not None) & \
-            (self.A_masq is not None), "I, Q or A_masq data not present"
+               (self.Q is not None) & \
+               (self.A_masq is not None), "I, Q or A_masq data not present"
 
         self.calfact, self.Icc, self.Qcc,\
             self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)

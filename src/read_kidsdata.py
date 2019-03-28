@@ -7,7 +7,7 @@ from collections import namedtuple
 import numpy as np
 from astropy.table import Table, MaskedColumn
 
-# import logging
+import logging
 
 # import line_profiler
 # import atexit
@@ -54,6 +54,11 @@ TName = namedtuple('TName',
 
 DETECTORS_CODE = {'kid': 3, 'kod': 2, 'all': 1, 'a1': 4, 'a2': 5, 'a3': 6}
 
+def decode_ip(int32_val):
+    bin = np.binary_repr(int32_val, width = 32) 
+    int8_arr = [int(bin[0:8],2), int(bin[8:16],2), 
+                int(bin[16:24],2), int(bin[24:32],2)]
+    return int8_arr  
 
 # @profile
 def read_info(filename, det2read='KID', list_data='all', silent=True):
@@ -149,8 +154,22 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     name_param_c = var_name[idx:idx + header.nb_param_c]
     val_param_c = buffer_header[idx_param_c:idx_param_c + header.nb_param_c]
     param_c = dict(zip(name_param_c, val_param_c))
+
+    # Decode the name
     for key in ['nomexp1', 'nomexp2', 'nomexp3', 'nomexp4']:
         param_c[key] = param_c[key].tobytes().strip(b'\x00').decode('ascii')
+    
+    # Decode the IPs :
+    for key in param_c.keys():
+        if '_ip' in key:
+            param_c[key] = decode_ip(param_c[key])
+
+    # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
+    if param_c['div_kid'] > 0:
+        param_c['div_kid'] *= 4
+    else:
+        param_c['div_kid'] += 2  # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz
+
 
     # Not later in the original code, bugged anyway
     param_c['acqfreq'] = 5.0e8 / 2.0**19 / param_c['div_kid']
@@ -286,14 +305,17 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U,
                             dtype=np.double)
 
-    # logging.info('buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB'.format(buffer_dataS.nbytes / 1024 / 1024, 
-    #                                                                                              buffer_dataU.nbytes / 1024 / 1024))
+    logging.info('buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB'.format(buffer_dataS.nbytes / 1024 / 1024, 
+                                                                                                      buffer_dataU.nbytes / 1024 / 1024))
+    logging.debug('before read_nika_all')
     nb_samples_read = read_nika_all(bytes(filename, 'ascii'),
                                     buffer_dataS.ctypes.data_as(p_double),
                                     buffer_dataU.ctypes.data_as(p_double),
                                     bytes(list_data, 'ascii'),
                                     list_detector.ctypes.data_as(p_int32),
                                     start, end, silent)
+    logging.debug('after read_nika_all')
+
 
     assert nb_samples_read == nb_to_read, "Did not read all requested data"
 
