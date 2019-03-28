@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #pylint: disable=C0301,C0103
-import ctypes
-import gc
-from collections import namedtuple
-import numpy as np
-from astropy.table import Table, MaskedColumn
 import os
+import gc
 import sys
-# import logging
+import logging
+import ctypes
+import numpy as np
+from pathlib import Path
+from collections import namedtuple
+from astropy.table import Table, MaskedColumn
 
 # import line_profiler
 # import atexit
@@ -16,24 +17,13 @@ import sys
 # atexit.register(profile.print_stats)
 
 # TODO: This should not be fixed here
-try:
-    # try to load NIKA_LIB_PATH environment variable
-    NIKA_LIB_PATH=os.environ['NIKA_LIB_PATH']
-except:
-    # if empty, we set default path
-    NIKA_LIB_PATH = '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/'
+NIKA_LIB_PATH = os.getenv('NIKA_LIB_PATH', '/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/')
+NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
 
-NIKA_LIB_SO = NIKA_LIB_PATH + "/libreadnikadata.so"
+assert NIKA_LIB_SO.exists(), "Could not find NIKA LIB so File [%s] \n" % NIKA_LIB_SO + \
+                             "You might have forgotten to set $NIKA_LIB_PATH or compile the library"
 
-if os.path.exists(NIKA_LIB_SO):
-    READNIKADATA = ctypes.cdll.LoadLibrary(NIKA_LIB_SO)
-else:
-    print("\nNIKA LIB SO File [%s] does not exist\n"
-          "You might have forgot to set \'NIKA_LIB_PATH\' environ variable...\n"
-          "currently \'NIKA_LIB_PATH\' =%s\n\n"%(NIKA_LIB_SO,NIKA_LIB_PATH),
-          file=sys.stderr
-          )
-    sys.exit()
+READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
 TconfigHeader = namedtuple('TconfigHeader',
