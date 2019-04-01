@@ -31,6 +31,12 @@ fig.savefig(pltdir + 'calib.pdf')
 list_data = 'F_azimuth F_elevation F_state F_subsc F_nbsubsc E_X  E_status u_itfamp'
 kids.read_data(list_data = list_data)
 
-fig = kids.check_pointing()
+fig = kids.pointing_plot()
 fig.savefig(pltdir + 'pointing.pdf', bbox_inches='tight')
 #%% Photometry 
+fig = kids.photometry_plot()
+fig.savefig(pltdir + 'photometry.pdf')
+
+#%% Beammap
+fig = kids.beammap_plot(testikid = 195)
+fig.savefig(pltdir + 'beammap.pdf')
