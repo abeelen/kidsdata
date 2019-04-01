@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-import astropy
+# import astropy
 import warnings
 import numpy as np
 from functools import lru_cache
@@ -14,7 +13,6 @@ try:
     # One should not rely on Labtools_JM_KISS
     from Labtools_JM_KISS.kiss_pointing_model import KISSPmodel
 except ModuleNotFoundError:
-
     class KISSPmodel(object):
         def __init__(self, *args, **kwargs):
             warnings.warn('No pointing correction', Warning)
@@ -90,13 +88,12 @@ def project(x, y, data, shape, weight=None):
 
 
 class KidsData(object):
-    """ General KISS data.
+    """General KISS data.
 
     Attributes
     ----------
     filename: str
         KISS data file name.
-
     """
 
     def __init__(self, filename):
@@ -107,7 +104,64 @@ class KidsData(object):
 
 
 class KidsRawData(KidsData):
-    """ Arrays of (I,Q) with assiciated information from KISS raw data.
+    """ Arrays of (I,Q) with associated information from KIDs raw data.
+
+    Attributes
+    ----------
+    kidpar: :obj: Astropy.Table
+        KID parameter.
+    param_c: :dict
+        Global parameters.
+    I: array
+        Stokes I measured by KID detectors.
+    Q: array
+        Stokes Q measured by KID detectors.
+    __dataSc: obj:'ScData', optional
+        Sample data set.
+    __dataSd:
+        Sample data set.
+
+    Methods
+    ----------
+    listInfo()
+        Display the basic infomation about the data file.
+    read_data(list_data = 'all')
+        List selected data.
+    """
+    def __init__(self, filename):
+        self.filename = filename
+        info = read_kidsdata.read_info(self.filename)
+        self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
+        self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
+
+        # Minimum dataset
+        self.I = None
+        self.Q = None
+        self.A_masq = None
+
+    def __len__(self):
+        return self.nsamples
+
+    def listInfo(self):
+        print("RAW DATA")
+        print("==================")
+        print("File name: " + self.filename)
+
+    def read_data(self, *args, **kwargs):
+        self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
+            = read_kidsdata.read_all(self.filename, *args, **kwargs)
+
+        if 'indice' in self.__dataSc.keys():
+            assert self.nptint == np.int(self.__dataSc['indice'].max() - self.__dataSc['indice'].min() + 1), \
+                "Problem with 'indice' or header"
+        # Expand keys
+        for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
+            for ckey in _dict.keys():
+                self.__dict__[ckey] = _dict[ckey]
+
+
+class KissRawData(KidsRawData):
+    """Arrays of (I,Q) with associated information from KISS raw data.
 
     Attributes
     ----------
@@ -133,20 +187,9 @@ class KidsRawData(KidsData):
     """
 
     def __init__(self, filename):
-        self.filename = filename
-        info = read_kidsdata.read_info(self.filename)
-        self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
+        super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
-
-        # Minimum dataset
-        self.I = None
-        self.Q = None
-        self.A_masq = None
-
-    def __len__(self):
-        return self.nsamples
 
     @property
     @lru_cache(maxsize=1)
@@ -185,8 +228,7 @@ class KidsRawData(KidsData):
         bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
         return bgrd
 
-    @property
-    def beammap(self):
+    def beammap(self, testikid):
         assert (self.beamwcs is not None), "Beam wcs missing."
         assert (self.az_sky is not None) & \
             (self.el_sky is not None), "Sky pointing missing."
@@ -212,24 +254,10 @@ class KidsRawData(KidsData):
                  np.round(x.max()).astype(np.int) + 1)
         print(shape, x.max(), y.max())
 
-        return project(x, y, bgrd[self.testikid, mask_tel], shape)
-
-    def listInfo(self):
-        print("KISS RAW DATA")
-        print("==================")
-        print("File name: " + self.filename)
+        return project(x, y, bgrd[testikid, mask_tel], shape)
 
     def read_data(self, *args, **kwargs):
-        self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
-            = read_kidsdata.read_all(self.filename, *args, **kwargs)
-
-        if 'indice' in self.__dataSc.keys():
-            assert self.nptint == np.int(self.__dataSc['indice'].max() - self.__dataSc['indice'].min() + 1), \
-                "Problem with 'indice' or header"
-        # Expand keys
-        for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
-            for ckey in _dict.keys():
-                self.__dict__[ckey] = _dict[ckey]
+        super().read_data(*args, **kwargs)
 
         # Convert units azimuth and elevation to degs if present
         for ckey in ['F_azimuth', 'F_elevation']:
@@ -281,5 +309,4 @@ class KidsRawData(KidsData):
         return kids_plots.photometry(self, *args, **kwargs)
 
     def beammap_plot(self, testikid, *args, **kwarys):
-        self.testikid = testikid
-        return kids_plots.show_maps(self)
+        return kids_plots.show_maps(self, testikid)
