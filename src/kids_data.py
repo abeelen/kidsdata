@@ -95,11 +95,12 @@ class KidsRawData(KidsData):
         if 'indice' in self.__dataSc.keys():
             assert self.nptint == np.int(self.__dataSc['indice'].max() - self.__dataSc['indice'].min()+1), \
                                         "Problem with 'indice' or header"
-        
-        for ckey in self.__dataSc.keys():
-            self.__dict__[ckey] = self.__dataSc[ckey]
-        for dkey in self.__dataSd.keys():
-            self.__dict__[dkey] = self.__dataSd[dkey]
+
+        # Expand keys
+        for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
+            for ckey in _dict.key():
+                self.__dict__[ckey] = _dict[ckey]
+
                     
     def calib_raw(self, *args, **kwargs):
         assert (self.I is not None) & \
