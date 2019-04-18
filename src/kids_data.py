@@ -3,16 +3,22 @@
 # import astropy
 import warnings
 import numpy as np
+from scipy import ndimage
 from functools import lru_cache
 from astropy.wcs import WCS
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
+from .utils import project, build_wcs
 
 try:
-    # One should not rely on Labtools_JM_KISS
-    from Labtools_JM_KISS.kiss_pointing_model import KISSPmodel
+    try:
+        # One should not rely on Labtools_JM_KISS
+        from Labtools_JM_KISS.kiss_pointing_model import KISSPmodel
+    except ModuleNotFoundError:
+        from .kiss_pointing_model import KISSPmodel
 except ModuleNotFoundError:
+
     class KISSPmodel(object):
         def __init__(self, *args, **kwargs):
             warnings.warn('No pointing correction', Warning)
@@ -20,71 +26,6 @@ except ModuleNotFoundError:
 
         def telescope2sky(self, *args):
             return args
-
-
-def project(x, y, data, shape, weight=None):
-    """Project x,y, data TOIs on a 2D grid
-
-    Parameters
-    ----------
-    x, y : array_like
-        input pixel indexes, 0 indexed convention
-    data : array_like
-        input data to project
-    shape : int or tuple of int
-        the shape of the output projected map
-    weight : array_like
-        weight to be use to sum the data (by default, ones)
-
-    Returns
-    -------
-    proj_data : ndarray
-        the projected data set
-
-    Notes
-    -----
-    The pixel index must follow the 0 indexed convention, i.e. use `origin=0` in `*_worl2pix` methods from `~astropy.wcs.WCS`.
-
-    >>> data = project([0], [0], [1], 2)
-    >>> data
-    array([[ 1., nan],
-           [nan, nan]])
-
-    >>> data = project([-0.4], [0], [1], 2)
-    >>> data
-    array([[ 1., nan],
-           [nan, nan]])
-
-    There is no test for out of shape data
-
-    >>> data = project([-0.6, 1.6], [0, 0], [1, 1], 2)
-    >>> data
-    array([[nan, nan],
-           [nan, nan]])
-    Weighted means are also possible :
-
-    >>> data = project([-0.4, 0.4], [0, 0], [0.5, 2], 2, weight=[2, 1])
-    >>> data
-    array([[ 1., nan],
-           [nan, nan]))
-
-    """
-    if isinstance(shape, (int, np.integer,)):
-        shape = (shape, shape)
-
-    assert len(shape) == 2, "shape must be a int or have a length of 2"
-
-    if weight is None:
-        weight = np.ones_like(data)
-
-    _hits, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight)
-    _data, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight * np.asarray(data))
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        output = _data / _hits
-
-    return output
 
 
 class KidsData(object):
@@ -128,6 +69,7 @@ class KidsRawData(KidsData):
     read_data(list_data = 'all')
         List selected data.
     """
+
     def __init__(self, filename):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
@@ -151,9 +93,6 @@ class KidsRawData(KidsData):
         self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
             = read_kidsdata.read_all(self.filename, *args, **kwargs)
 
-        if 'indice' in self.__dataSc.keys():
-            assert self.nptint == np.int(self.__dataSc['indice'].max() - self.__dataSc['indice'].min() + 1), \
-                "Problem with 'indice' or header"
         # Expand keys
         for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
             for ckey in _dict.keys():
@@ -193,7 +132,7 @@ class KissRawData(KidsRawData):
 
     @property
     @lru_cache(maxsize=1)
-    def background(self):
+    def continuum(self):
         """ Background based on calibration factors"""
         assert (self.R0 is not None) & \
                (self.P0 is not None) & \
@@ -201,70 +140,70 @@ class KissRawData(KidsRawData):
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @property
-    def beamwcs(self):
-        assert (self.az_sky is not None) & \
-            (self.el_sky is not None), "Sky pointing missing."
-
-        az_sky, el_sky, mask_tel = self.az_sky, self.el_sky, self.mask_tel
-
-        cdelt = 6 / 60  # 5 arcmin pixel size   ???
-        wcs = WCS(naxis=2)
-#        wcs.ctype = ["Azimuth--DEG", "ELEVATION--DEG"]
-        wcs.wcs.cdelt = (cdelt, cdelt)
-        wcs.wcs.crval = ((az_sky[mask_tel].max() + az_sky[mask_tel].min()) / 2,
-                         (el_sky[mask_tel].max() + el_sky[mask_tel].min()) / 2)
-        x, y = wcs.all_world2pix(az_sky[mask_tel], el_sky[mask_tel], 0)
-        # Determine the center of the map to project all data
-        x_min, y_min = x.min(), y.min()
-        wcs.wcs.crpix = (x_min, y_min)
-
-        return wcs
-
-    @property
     @lru_cache(maxsize=1)
-    def bgrs(self):
-        # Rough Baseline
-        bgrd = self.background
+    def continuum_pipeline(self):
+        # Only a rough Baseline for now...
+        bgrd = self.continuum
+        # Try to flag the saturated part : where the signal change too much
+        diff_bgrd = np.gradient(bgrd, axis=1) / bgrd.std(axis=1)[:, np.newaxis]
+        diff_mask = np.abs(diff_bgrd) > 3 * diff_bgrd.std()
+        diff_mask = ndimage.binary_dilation(diff_mask, [[True, True, True]])
+        bgrd = np.ma.array(bgrd, mask=diff_mask)
         bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
         return bgrd
 
-    def beammap(self, testikid):
-        assert (self.beamwcs is not None), "Beam wcs missing."
-        assert (self.az_sky is not None) & \
-            (self.el_sky is not None), "Sky pointing missing."
+    def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
 
-        bgrd = self.bgrs
-        az_sky, el_sky, mask_tel = self.az_sky, self.el_sky, self.mask_tel
+        az_coord = 'az_{}'.format(coord)
+        el_coord = 'el_{}'.format(coord)
+        assert (hasattr(self, az_coord) &
+                (getattr(self, az_coord) is not None) &
+                hasattr(self, el_coord) &
+                (getattr(self, el_coord) is not None)), "Sky coordinate {} missing".format(coord)
 
-        cdelt = 6 / 60  # 5 arcmin pixel size   ???
-        wcs = WCS(naxis=2)
-#        wcs.ctype = ["Azimuth--DEG", "ELEVATION--DEG"]
-        wcs.wcs.cdelt = (cdelt, cdelt)
-        wcs.wcs.crval = ((az_sky[mask_tel].max() + az_sky[mask_tel].min()) / 2,
-                         (el_sky[mask_tel].max() + el_sky[mask_tel].min()) / 2)
-        x, y = wcs.all_world2pix(az_sky[mask_tel], el_sky[mask_tel], 0)
-        # Determine the center of the map to project all data
-        x_min, y_min = x.min(), y.min()
-        wcs.wcs.crpix = (x_min, y_min)
-        x -= x_min
-        y -= y_min
+        if ikid is None:
+            ikid = slice(None)
 
-        # Determine the size of the map
-        shape = (np.round(y.max()).astype(np.int) + 1,
-                 np.round(x.max()).astype(np.int) + 1)
-        print(shape, x.max(), y.max())
+        mask_tel = self.mask_tel
 
-        return project(x, y, bgrd[testikid, mask_tel], shape)
+        az = getattr(self, az_coord)[mask_tel]
+        el = getattr(self, el_coord)[mask_tel]
+
+        # Pipeline is here : simple baseline for now
+        bgrds = self.continuum_pipeline[ikid, mask_tel]
+
+        # In case we project only one detector
+        if len(bgrds.shape) == 1:
+            bgrds = [bgrds]
+
+        if wcs is None:
+            wcs, shape = build_wcs(az, el, **kwargs)
+            x, y = wcs.all_world2pix(az, el, 0)
+        else:
+            x, y = wcs.all_world2pix(az, el, 0)
+            shape = (np.round(y.max()).astype(np.int) + 1,
+                     np.round(x.max()).astype(np.int) + 1)
+
+        outputs = []
+        for bgrd in bgrds:
+            outputs.append(project(x, y, bgrd, shape))
+
+        return outputs, wcs
 
     def read_data(self, *args, **kwargs):
         super().read_data(*args, **kwargs)
+
+        if 'indice' in self._KidsRawData__dataSc.keys():
+            indice = self._KidsRawData__dataSc['indice']
+            assert self.nptint == np.int(indice.max() - indice.min() + 1), \
+                "Problem with 'indice' or header"
 
         # Convert units azimuth and elevation to degs if present
         for ckey in ['F_azimuth', 'F_elevation']:
             if ckey in self.__dict__:
                 self.__dict__[ckey] = np.rad2deg(self.__dict__[ckey] / 1000.0)
 
-        if ['F_azimuth', 'F_elevation'] <= list(self.__dict__.keys()):
+        if 'F_azimuth' in self.__dict__ and 'F_elevation' in self.__dict__:
             self.mask_pointing = (self.F_azimuth != 0) & (self.F_elevation != 0)
 
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
@@ -308,5 +247,5 @@ class KissRawData(KidsRawData):
 
         return kids_plots.photometry(self, *args, **kwargs)
 
-    def beammap_plot(self, testikid, *args, **kwarys):
-        return kids_plots.show_maps(self, testikid)
+    def beammap_plot(self, ikid, *args, **kwarys):
+        return kids_plots.show_maps(self, ikid)

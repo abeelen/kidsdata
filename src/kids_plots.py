@@ -16,7 +16,7 @@ from astropy.wcs import WCS
 #from Labtools_JM_KISS import kiss_map_proj as kmp
 
 
-def calibPlot(kids, ikid=195):
+def calibPlot(kids, ikid=0):
     """ Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
         show median calfact for all detectors in the last panel.
     """
@@ -141,7 +141,7 @@ def photometry(kids):
     return fig
 
 
-def show_maps(kids, testikid):
+def show_maps(kids, ikid=0):
     nrow = 1
     ncol = 1
     fig = plt.figure(figsize=(5 * ncol + 1, 4 * nrow + 0.5))
