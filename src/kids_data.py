@@ -139,23 +139,23 @@ class KissRawData(KidsRawData):
                (self.calfact is not None), "Calibration factors missing"
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
-    @property
     @lru_cache(maxsize=1)
-    def continuum_pipeline(self):
+    def continuum_pipeline(self, diff_mask=False):
         # Only a rough Baseline for now...
         bgrd = self.continuum
-        # Try to flag the saturated part : where the signal change too much
-        diff_bgrd = np.gradient(bgrd, axis=1) / bgrd.std(axis=1)[:, np.newaxis]
-        diff_mask = np.abs(diff_bgrd) > 3 * diff_bgrd.std()
-        diff_mask = ndimage.binary_dilation(diff_mask, [[True, True, True]])
-        bgrd = np.ma.array(bgrd, mask=diff_mask)
+        if diff_mask:
+            # Try to flag the saturated part : where the signal change too much
+            diff_bgrd = np.gradient(bgrd, axis=1) / bgrd.std(axis=1)[:, np.newaxis]
+            diff_mask = np.abs(diff_bgrd) > 3 * diff_bgrd.std()
+            diff_mask = ndimage.binary_dilation(diff_mask, [[True, True, True]])
+            bgrd = np.ma.array(bgrd, mask=diff_mask)
         bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
         return bgrd
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
 
-        az_coord = 'az_{}'.format(coord)
-        el_coord = 'el_{}'.format(coord)
+        az_coord = 'F_{}_Az'.format(coord)
+        el_coord = 'F_{}_El'.format(coord)
         assert (hasattr(self, az_coord) &
                 (getattr(self, az_coord) is not None) &
                 hasattr(self, el_coord) &
@@ -170,7 +170,7 @@ class KissRawData(KidsRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
-        bgrds = self.continuum_pipeline[ikid, mask_tel]
+        bgrds = self.continuum_pipeline()[ikid, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -199,7 +199,7 @@ class KissRawData(KidsRawData):
                 "Problem with 'indice' or header"
 
         # Convert units azimuth and elevation to degs if present
-        for ckey in ['F_azimuth', 'F_elevation']:
+        for ckey in ['F_azimuth', 'F_elevation', 'F_tl_Az', 'F_tl_El', 'F_sky_Az', 'F_sky_El']:
             if ckey in self.__dict__:
                 self.__dict__[ckey] = np.rad2deg(self.__dict__[ckey] / 1000.0)
 
@@ -209,17 +209,20 @@ class KissRawData(KidsRawData):
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
             if self.F_azimuth.shape == (self.nint * self.nptint, ):
                 warnings.warn("Interpolated positions", PendingDeprecationWarning)
-                self.az_tel = np.median(self.F_azimuth.reshape((self.nint, self.nptint)), axis=1)
-                self.el_tel = np.median(self.F_elevation.reshape((self.nint, self.nptint)), axis=1)
+                self.F_tl_Az = np.median(self.F_azimuth.reshape((self.nint, self.nptint)), axis=1)
+                self.F_tl_El = np.median(self.F_elevation.reshape((self.nint, self.nptint)), axis=1)
             elif self.F_azimuth.shape == (self.nint, ):
-                self.az_tel = self.F_azimuth
-                self.el_tel = self.F_elevation
+                self.F_tl_Az = self.F_azimuth
+                self.F_tl_El = self.F_elevation
 
-            self.mask_tel = (self.az_tel != 0) & (self.el_tel != 0)
 
             # This is for KISS only
-            self.az_sky, self.el_sky = KISSPmodel().telescope2sky(self.az_tel, self.el_tel)
-            self.az_skyQ1, self.el_skyQ1 = KISSPmodel(model='Q1').telescope2sky(self.az_tel, self.el_tel)
+            if 'F_sky_Az' not in self.__dict__ and 'F_sky_El' not in self.__dict__:
+                self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
+                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model='Q1').telescope2sky(self.F_tl_Az, self.F_tl_El)
+
+        if 'F_tl_Az' in self.__dict__ and 'F_tl_El' in self.__dict__:
+            self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
 
     def calib_raw(self, *args, **kwargs):
         assert (self.I is not None) & \

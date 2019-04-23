@@ -80,9 +80,9 @@ def checkPointing(kids):
     fig.suptitle(kids.filename)
 
     azimuth, elevation, mask_pointing = kids.F_azimuth, kids.F_elevation, kids.mask_pointing
-    az_tel, el_tel, mask_tel = kids.az_tel, kids.el_tel, kids.mask_tel
-    az_sky, el_sky = kids.az_sky, kids.el_sky
-    az_skyQ1, el_skyQ1 = kids.az_skyQ1, kids.el_skyQ1
+    az_tel, el_tel, mask_tel = kids.F_tl_Az, kids.F_tel_El, kids.mask_tel
+    az_sky, el_sky = kids.F_sky_Az, kids.F_sky_El
+    az_skyQ1, el_skyQ1 = kids.F_skyQ1_Az, kids.F_skyQ1_El
 
     ax = plt.subplot(2, 2, 1)
     ax.plot(azimuth[mask_pointing])

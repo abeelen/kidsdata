@@ -4,6 +4,7 @@
 import os
 import gc
 import sys
+import h5py
 import logging
 import ctypes
 import numpy as np
@@ -57,11 +58,14 @@ TName = namedtuple('TName',
 
 DETECTORS_CODE = {'kid': 3, 'kod': 2, 'all': 1, 'a1': 4, 'a2': 5, 'a3': 6}
 
+
 def decode_ip(int32_val):
-    bin = np.binary_repr(int32_val, width = 32)
-    int8_arr = [int(bin[0:8],2), int(bin[8:16],2),
-                int(bin[16:24],2), int(bin[24:32],2)]
+    """Decode an int32 bit into 4 8 bit int."""
+    bin = np.binary_repr(int32_val, width=32)
+    int8_arr = [int(bin[0:8], 2), int(bin[8:16], 2),
+                int(bin[16:24], 2), int(bin[24:32], 2)]
     return int8_arr
+
 
 # @profile
 def read_info(filename, det2read='KID', list_data='all', silent=True):
@@ -159,13 +163,15 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     param_c = dict(zip(name_param_c, val_param_c))
 
     # Decode the name
+    param_c['nomexp'] = ''
     for key in ['nomexp1', 'nomexp2', 'nomexp3', 'nomexp4']:
-        param_c[key] = param_c[key].tobytes().strip(b'\x00').decode('ascii')
+        param_c['nomexp'] +=  param_c[key].tobytes().strip(b'\x00').decode('ascii')
+        del(param_c[key])
 
     # Decode the IPs :
     for key in param_c.keys():
         if '_ip' in key:
-            param_c[key] = decode_ip(param_c[key])
+            param_c[key] = '.'.join([str(int8) for int8 in decode_ip(param_c[key])])
 
     # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
     if param_c['div_kid'] > 0:
@@ -173,8 +179,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     else:
         param_c['div_kid'] += 2  # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz
 
-
-    # Not later in the original code, bugged anyway
+    # Note: it was done later in the original code, bugged anyway
     param_c['acqfreq'] = 5.0e8 / 2.0**19 / param_c['div_kid']
 
     # Retrieve the param detector
@@ -226,7 +231,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False, ordering='K'):
+def read_all(filename, det2read='KID', list_data='indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False, ordering='K'):
     """Short summary.
 
     Parameters
@@ -322,21 +327,20 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
                                     start, end, silent)
     logging.debug('after read_nika_all')
 
-
     assert nb_samples_read == nb_to_read, "Did not read all requested data"
 
+    # Split the buffer into common and data part with proper shape
     _dataSc = buffer_dataS.reshape(nb_to_read, _sample_S)[:, 0:nb_Sc].T
-    _dataSd = np.moveaxis(
-        buffer_dataS.reshape(nb_to_read, _sample_S)[:, nb_Sc:]
-        .reshape(nb_to_read, nb_Sd, nb_detectors),
-        0, -1)
+    _dataSd = np.moveaxis(buffer_dataS.reshape(nb_to_read, _sample_S)[:, nb_Sc:]
+                                      .reshape(nb_to_read, nb_Sd, nb_detectors),
+                          0, -1)
+    del(buffer_dataS)  # Do not relase actual memory here...
 
-    _dataUc = buffer_dataU.reshape(
-        nb_to_read // np_pt_bloc, _sample_U)[:, 0:nb_Uc].T
-    _dataUd = np.moveaxis(
-        buffer_dataU.reshape(nb_to_read // np_pt_bloc, _sample_U)[:, nb_Uc:]
-        .reshape(nb_to_read // np_pt_bloc, nb_Ud, nb_detectors),
-        0, -1)
+    _dataUc = buffer_dataU.reshape(nb_to_read // np_pt_bloc, _sample_U)[:, 0:nb_Uc].T
+    _dataUd = np.moveaxis(buffer_dataU.reshape(nb_to_read // np_pt_bloc, _sample_U)[:, nb_Uc:]
+                                      .reshape(nb_to_read // np_pt_bloc, nb_Ud, nb_detectors),
+                          0, -1)
+    del(buffer_dataU)  # Do not relase actual memory here...
 
     # Split the data by name, here data are 1D or 2D numpy array,
     # Cast ?d data to float32
@@ -344,24 +348,22 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     # WARNING : We need to copy the data, so that we loose previous
     # reference to buffer_data*, and hence we can really release its
     # memory
-
     # NOTE : This is causing a extra usage of RAM and CPU during
-    # copy... Should be handled by the C library..
+    # copy... Could be handled by the C library..
 
     dataSc = {name: data.copy()
-               for name, data in zip(names.ComputedDataSc, _dataSc)}
+              for name, data in zip(names.ComputedDataSc, _dataSc)}
     del(_dataSc)
     dataSd = {name: data.astype(np.float32, order=ordering, casting='unsafe')
-               for name, data in zip(names.ComputedDataSd, _dataSd)}
-    del(_dataSd, buffer_dataS)
+              for name, data in zip(names.ComputedDataSd, _dataSd)}
+    del(_dataSd)
 
     dataUc = {name: data.copy()
-               for name, data in zip(names.ComputedDataUc, _dataUc)}
+              for name, data in zip(names.ComputedDataUc, _dataUc)}
     del(_dataUc)
     dataUd = {name: data.astype(np.float32, order=ordering, casting='unsafe')
-               for name, data in zip(names.ComputedDataUd, _dataUd)}
-    del(_dataUd, buffer_dataU)
-
+              for name, data in zip(names.ComputedDataUd, _dataUd)}
+    del(_dataUd)
 
     # Shift RF_didq if present
     if 'RF_didq' in dataSd:
@@ -371,15 +373,11 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     # Compute time pps_time difference
     if 'A_time' in dataSc:
         pps = dataSc['A_time']
-        other_time = [key for key in dataSc if key.endswith(
-            '_time') and key != 'A_time']
+        other_time = [key for key in dataSc if key.endswith('_time') and key != 'A_time']
         if other_time and 'sample' in dataSc:
-            pps_diff = {
-                'A_time-{}'.format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
-            pps_diff['pps_diff'] = np.asarray(
-                list(pps_diff.values())).max(axis=0)
+            pps_diff = {'A_time-{}'.format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
+            pps_diff['pps_diff'] = np.asarray(list(pps_diff.values())).max(axis=0)
 
-            #dataSc = {**dataSc, **pps_diff}
             dataSc.update(pps_diff)
 
         # Fake pps time if necessary
@@ -396,3 +394,40 @@ def read_all(filename, det2read='KID', list_data='sample indice A_masq C_laser1_
     ctypes._reset_cache()
 
     return dataSc, dataSd, dataUc, dataUd
+
+
+def data_to_hdf5(filename, dataset_name, dataset):
+    """Save a dictionnary of numpy arrays in an hdf5 group."""
+    with h5py.File(filename, 'a') as f:
+        if dataset_name in f:
+            grp = f[dataset_name]
+        else:
+            grp = f.create_group(dataset_name)
+        for ckey in dataset:
+            grp.create_dataset(ckey, data=dataset[ckey], compression="gzip", compression_opts=9)
+
+
+def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples):
+    """Save all header information to hdf5 attribute or group."""
+    with h5py.File(filename, 'a') as f:
+        if "header" in f:
+            grp = f["header"]
+        else:
+            grp = f.create_group("header", track_order=True) # Fails....
+        for key, item in header._asdict().items():
+            print(key)
+            grp.attrs[key] = item
+
+        f.attrs['version_header'] = version_header
+
+
+if __name__ == "__main__":
+    input = '/data/KISS/Raw/nika2c-data3/KISS/X20190319_0727_S0230_Jupiter_SCIENCEMAP'
+    output = "myfile.hdf5"
+    # TODO: Save read_info output
+    header, version_header, param_c, kidpar, names, nb_read_samples = read_info(input)
+    # TODO: Some of the data must be computed on-line... check that in C library
+    ComputedData = ["u_ph_IQ", "u_ph_rel", "ph_IQ", "logampl", "ph_rel", "amp_dIdQ", "amp_pIQ", "rap_pIQdIQ", "F_tone", "k_width", "k_flag", "dF_tone", "k_angle", "RF_didq"]
+    dataSc, dataSd, dataUc, dataUd = read_all(input, list_data="all")
+    for dataset_name, dataset in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
+        data_to_hdf5(output, dataset_name, dataset)

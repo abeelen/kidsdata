@@ -123,7 +123,7 @@ def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1):
     x_min, y_min = x.min(), y.min()
     wcs.wcs.crpix = (-x_min, -y_min)
 
-    shape = (np.round(y.max()).astype(np.int) + 1,
-             np.round(x.max()).astype(np.int) + 1)
+    shape = (np.round(y.max() - y.min()).astype(np.int) + 1,
+             np.round(x.max() - x.min()).astype(np.int) + 1)
 
     return wcs, shape
