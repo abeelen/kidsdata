@@ -4,7 +4,7 @@
 import os
 import gc
 import sys
-import h5py
+# import h5py
 import logging
 import ctypes
 import numpy as np
@@ -327,20 +327,24 @@ def read_all(filename, det2read='KID', list_data='indice A_mask I Q', list_detec
                                     start, end, silent)
     logging.debug('after read_nika_all')
 
-    assert nb_samples_read == nb_to_read, "Did not read all requested data"
+    if nb_samples_read != nb_to_read:
+        logging.warning("Did not read all requested data")
 
+        buffer_dataS = buffer_dataS[0:nb_samples_read * _sample_S]
+        buffer_dataU = buffer_dataU[0:nb_samples_read // np_pt_bloc * _sample_U]
+    
     # Split the buffer into common and data part with proper shape
-    _dataSc = buffer_dataS.reshape(nb_to_read, _sample_S)[:, 0:nb_Sc].T
-    _dataSd = np.moveaxis(buffer_dataS.reshape(nb_to_read, _sample_S)[:, nb_Sc:]
-                                      .reshape(nb_to_read, nb_Sd, nb_detectors),
+    _dataSc = buffer_dataS.reshape(nb_samples_read, _sample_S)[:, 0:nb_Sc].T
+    _dataSd = np.moveaxis(buffer_dataS.reshape(nb_samples_read, _sample_S)[:, nb_Sc:]
+                                      .reshape(nb_samples_read, nb_Sd, nb_detectors),
                           0, -1)
     del(buffer_dataS)  # Do not relase actual memory here...
 
-    _dataUc = buffer_dataU.reshape(nb_to_read // np_pt_bloc, _sample_U)[:, 0:nb_Uc].T
-    _dataUd = np.moveaxis(buffer_dataU.reshape(nb_to_read // np_pt_bloc, _sample_U)[:, nb_Uc:]
-                                      .reshape(nb_to_read // np_pt_bloc, nb_Ud, nb_detectors),
+    _dataUc = buffer_dataU.reshape(nb_samples_read // np_pt_bloc, _sample_U)[:, 0:nb_Uc].T
+    _dataUd = np.moveaxis(buffer_dataU.reshape(nb_samples_read // np_pt_bloc, _sample_U)[:, nb_Uc:]
+                                      .reshape(nb_samples_read // np_pt_bloc, nb_Ud, nb_detectors),
                           0, -1)
-    del(buffer_dataU)  # Do not relase actual memory here...
+    del(buffer_dataU)  # Do not release actual memory here...
 
     # Split the data by name, here data are 1D or 2D numpy array,
     # Cast ?d data to float32
@@ -393,7 +397,7 @@ def read_all(filename, det2read='KID', list_data='indice A_mask I Q', list_detec
     gc.collect()
     ctypes._reset_cache()
 
-    return dataSc, dataSd, dataUc, dataUd
+    return nb_samples_read, dataSc, dataSd, dataUc, dataUd
 
 
 def data_to_hdf5(filename, dataset_name, dataset):

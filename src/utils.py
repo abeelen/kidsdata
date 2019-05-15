@@ -81,7 +81,7 @@ def project(x, y, data, shape, weight=None):
     return output
 
 
-def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1):
+def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1, **kwargs):
     """Build the wcs for full projection.
 
     Arguments

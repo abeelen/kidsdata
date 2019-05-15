@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from scipy.ndimage.morphology import binary_erosion
 
@@ -70,6 +71,11 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         # remove first point in l3
         l3[:6] = False
 
+        # Check for cases with missing data
+        if np.all(l1 == False) or np.all(l2 == False) or np.all(l3 == False):
+            logging.warn('Interferogram {} could not be calibrated'.format(iint))
+            continue
+        
         x1 = np.median(Icurrent[:, l1], axis=1)
         y1 = np.median(Qcurrent[:, l1], axis=1)
         x2 = np.median(Icurrent[:, l2], axis=1)

@@ -4,6 +4,7 @@
 import warnings
 import numpy as np
 from scipy import ndimage
+from scipy.signal import medfilt
 from functools import lru_cache
 from astropy.wcs import WCS
 from . import read_kidsdata
@@ -90,14 +91,16 @@ class KidsRawData(KidsData):
         print("File name: " + self.filename)
 
     def read_data(self, *args, **kwargs):
-        self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
+        nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
             = read_kidsdata.read_all(self.filename, *args, **kwargs)
+
+        if self.nsamples != nb_samples_read:
+            self.nsamples = nb_samples_read
 
         # Expand keys
         for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
             for ckey in _dict.keys():
                 self.__dict__[ckey] = _dict[ckey]
-
 
 class KissRawData(KidsRawData):
     """Arrays of (I,Q) with associated information from KISS raw data.
@@ -140,7 +143,7 @@ class KissRawData(KidsRawData):
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=1)
-    def continuum_pipeline(self, diff_mask=False):
+    def continuum_pipeline(self, diff_mask=False, medfilt_size=None, **kwargs):
         # Only a rough Baseline for now...
         bgrd = self.continuum
         if diff_mask:
@@ -149,7 +152,10 @@ class KissRawData(KidsRawData):
             diff_mask = np.abs(diff_bgrd) > 3 * diff_bgrd.std()
             diff_mask = ndimage.binary_dilation(diff_mask, [[True, True, True]])
             bgrd = np.ma.array(bgrd, mask=diff_mask)
+        if medfilt_size is not None:
+            bgrd -= np.array([medfilt(_bgrd, medfilt_size) for _bgrd in bgrd])
         bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
+        
         return bgrd
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
@@ -170,7 +176,7 @@ class KissRawData(KidsRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
-        bgrds = self.continuum_pipeline()[ikid, mask_tel]
+        bgrds = self.continuum_pipeline(**kwargs)[ikid, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -192,6 +198,9 @@ class KissRawData(KidsRawData):
 
     def read_data(self, *args, **kwargs):
         super().read_data(*args, **kwargs)
+
+        # In case we do not read the full file, nsamples has changed
+        self.nint = self.nsamples // self.nptint
 
         if 'indice' in self._KidsRawData__dataSc.keys():
             indice = self._KidsRawData__dataSc['indice']
