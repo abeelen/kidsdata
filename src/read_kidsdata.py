@@ -231,7 +231,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     return header, version_header, param_c, kidpar, names, nb_read_samples
 
 
-def read_all(filename, det2read='KID', list_data='indice A_masq C_laser1_pos C_laser2_pos F_azimuth F_elevation E_X I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False, ordering='K'):
+def read_all(filename, det2read='KID', list_data='indice A_mask I Q', list_detector=None, start=None, end=None, silent=True, correct_pps=False, ordering='K'):
     """Short summary.
 
     Parameters

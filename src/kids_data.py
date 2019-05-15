@@ -199,7 +199,10 @@ class KissRawData(KidsRawData):
                 "Problem with 'indice' or header"
 
         # Convert units azimuth and elevation to degs if present
-        for ckey in ['F_azimuth', 'F_elevation', 'F_tl_Az', 'F_tl_El', 'F_sky_Az', 'F_sky_El']:
+        for ckey in ['F_azimuth', 'F_elevation', 
+                     'F_tl_Az', 'F_tl_El', 
+                     'F_sky_Az', 'F_sky_El', 
+                     'F_diff_Az', 'F_diff_El', ]:
             if ckey in self.__dict__:
                 self.__dict__[ckey] = np.rad2deg(self.__dict__[ckey] / 1000.0)
 
