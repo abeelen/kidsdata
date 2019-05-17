@@ -6,7 +6,7 @@ Created on Wed Mar 27 13:43:58 2019
 @author: yixiancao
 """
 
-from src import kids_data
+from src import kidsss_data
 
 #%%
 datadir = '/Users/yixiancao/Work/Concerto/Data/kissRaw/'
@@ -16,7 +16,6 @@ pltdir = '/Users/yixiancao/workCodes/kidsdata/plots/'
 filename = 'X_2018_12_14_11h58m14_AA_man'
 #filename = 'X_2018_12_14_11h55m15_AA_man'
 filename = datadir + filename
-
 kids = kids_data.KidsRawData(filename)
 
 #%% Calibration 
@@ -25,6 +24,15 @@ kids.calib_raw()
 
 fig = kids.calib_plot()
 fig.savefig(pltdir + 'calib.pdf')
+
+#%% Define time variables for interolation
+datadir = '/home/ycao/kiss/Raw/nika2c-data3/KISS/'
+filename = 'X20190427_0910_S0319_Moon_SCIENCEMAP' 
+filename = datadir + filename
+kiss = kids_data.KissRawData(filename)
+
+list_data = 'A_time_ntp A_time_pps A_time A_hours' 
+kiss.read_data(list_data = list_data)
 
 #%% Check pointing 
 
