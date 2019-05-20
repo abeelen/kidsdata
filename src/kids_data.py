@@ -3,10 +3,9 @@
 # import astropy
 import warnings
 import numpy as np
-from scipy import ndimage
-from scipy.signal import medfilt
 from functools import lru_cache
 from astropy.wcs import WCS
+from . import pipeline
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
@@ -102,6 +101,7 @@ class KidsRawData(KidsData):
             for ckey in _dict.keys():
                 self.__dict__[ckey] = _dict[ckey]
 
+
 class KissRawData(KidsRawData):
     """Arrays of (I,Q) with associated information from KISS raw data.
 
@@ -142,21 +142,9 @@ class KissRawData(KidsRawData):
                (self.calfact is not None), "Calibration factors missing"
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
-    @lru_cache(maxsize=1)
-    def continuum_pipeline(self, diff_mask=False, medfilt_size=None, **kwargs):
-        # Only a rough Baseline for now...
-        bgrd = self.continuum
-        if diff_mask:
-            # Try to flag the saturated part : where the signal change too much
-            diff_bgrd = np.gradient(bgrd, axis=1) / bgrd.std(axis=1)[:, np.newaxis]
-            diff_mask = np.abs(diff_bgrd) > 3 * diff_bgrd.std()
-            diff_mask = ndimage.binary_dilation(diff_mask, [[True, True, True]])
-            bgrd = np.ma.array(bgrd, mask=diff_mask)
-        if medfilt_size is not None:
-            bgrd -= np.array([medfilt(_bgrd, medfilt_size) for _bgrd in bgrd])
-        bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
-        
-        return bgrd
+    @lru_cache(maxsize=2)
+    def continuum_pipeline(self, pipeline_func=pipeline.basic_continuum, *args, **kwargs):
+        return pipeline_func(self, *args, **kwargs)
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
 
@@ -208,9 +196,9 @@ class KissRawData(KidsRawData):
                 "Problem with 'indice' or header"
 
         # Convert units azimuth and elevation to degs if present
-        for ckey in ['F_azimuth', 'F_elevation', 
-                     'F_tl_Az', 'F_tl_El', 
-                     'F_sky_Az', 'F_sky_El', 
+        for ckey in ['F_azimuth', 'F_elevation',
+                     'F_tl_Az', 'F_tl_El',
+                     'F_sky_Az', 'F_sky_El',
                      'F_diff_Az', 'F_diff_El', ]:
             if ckey in self.__dict__:
                 self.__dict__[ckey] = np.rad2deg(self.__dict__[ckey] / 1000.0)
@@ -226,7 +214,6 @@ class KissRawData(KidsRawData):
             elif self.F_azimuth.shape == (self.nint, ):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
-
 
             # This is for KISS only
             if 'F_sky_Az' not in self.__dict__ and 'F_sky_El' not in self.__dict__:
