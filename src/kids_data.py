@@ -10,6 +10,7 @@ from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
 from .utils import project, build_wcs
+from astropy.time import Time
 
 try:
     try:
@@ -75,6 +76,7 @@ class KidsRawData(KidsData):
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
         self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
+        self.getobs()
 
         # Minimum dataset
         self.I = None
@@ -84,10 +86,27 @@ class KidsRawData(KidsData):
     def __len__(self):
         return self.nsamples
 
+    def getobs(self):
+        # Future: From database/observation log. 
+        self.date = None
+        self.date_utc = None
+        self.source = None
+        self.n_scan = None
+        self.type_obs = None
+
     def listInfo(self):
         print("RAW DATA")
         print("==================")
         print("File name: " + self.filename)
+        print("------------------")
+        print("Source name: " + self.source)
+        print("Observed date: " + self.date)
+        print("Description: " + self.type_obs)
+        print("Scan number: " + self.n_scan)
+        
+        print("------------------")
+        print("No. of KIDS detectors:", self.ndet)
+        print("No. of time samples:", self.nsamples)
 
     def read_data(self, *args, **kwargs):
         nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
@@ -132,6 +151,23 @@ class KissRawData(KidsRawData):
         super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
+        self.getobs()
+    
+    def getobs(self):
+        #Get UTC date and source name from file name.
+        rawfile = self.filename.split('/')[-1]
+        rawstr = rawfile.split('_') 
+        datestr = rawstr[0][1:]
+        self.date = '-'.join([datestr[0:4],datestr[4:6], datestr[6:8]])# Observation date in iso format
+        self.date_utc = Time(self.date) # UTC Time object
+        self.source = rawstr[-2] # Source name
+        self.n_scan = rawstr[2] # Scan number
+        self.type_obs = rawstr[-1] # Type of the track: e.g. SCIENCEMAP, SKYRASTER
+
+    def listInfo(self):
+        super().listInfo()
+        print("No. of interfergrams:", self.nint)
+        print("No. of time samples per interfergram:", self.nptint)
 
     @property
     @lru_cache(maxsize=1)
