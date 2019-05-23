@@ -10,28 +10,47 @@ Created on Tue May 21 15:00:37 2019
 import numpy as np
 from scipy.interpolate import interp1d
 
-def kids_validate(kids, **kwargs):
-        # Compute time pps_time difference
+
+def kids_validate(kiss, correct_time = True, 
+                  **kwargs):
+    
+    # Compute time pps_time difference
+    if correct_time: kids_time_validate(kiss)
 
     return
+#%%
 
+def check_attr(self, attrlist):
+    if not all([hasattr(self, attr) for attr in attrlist]):
+        list_data = ' '.join(attrlist) 
+        self.read_data(list_data = list_data)
 
-def kids_time(kiss):
+#%%
+
+def kids_time_validate(kiss):
+    attrlist = ['A_time_ntp', 'A_time_pps',
+                  'A_time', 'A_hours']
+    
+    check_attr(kiss,attrlist)
+
     kids_itp_time(kiss, t_type = 'A_hours')
     kids_itp_time(kiss, t_type='A_time_pps') 
     
-# mdate = date[0:4]+'-'+date[4:6]+'-'+date[6:]    
-#     mdate = date[0:4]+'-'+date[4:6]+'-'+date[6:]
-    
-    # Median UT time for each interfergram
-    utt = (kiss.A_hours_itp + kiss.A_time_itp)/3600.0
-    utt = utt.reshape(kiss.nint, kiss.nptint)
-    uti = np.median(utt, axis = 1)
-    
-    return uti
+    return 
+
+#%%
 
 def kids_itp_time(kiss, t_type = 'A_hours'):
-    """ Replace bad time data by interpolated data"""
+    """ Replace bad time data by interpolated data.
+    
+    Parameters
+    ----------
+    kiss: :obj: KissRawData
+        Kiss Raw Data read from data files. 
+    t_type: str
+        Time to be interpolated. 
+    
+    """
     
     t_orig = kiss.__dict__[t_type]#.reshape(kiss.nint, kiss.nptint)    
 
@@ -45,42 +64,53 @@ def kids_itp_time(kiss, t_type = 'A_hours'):
     tidx = np.arange(kiss.nsamples, dtype =np.double)
     interp = interp1d(tidx[tflag],t_orig[tflag])
     
-    kiss.__dict__[t_type+'_itp'] = interp(tidx)
+#    kiss.__dict__[t_type+'_itp'] = interp(tidx)
+
+    kiss.__dict__[t_type] = interp(tidx)
+    kiss.logger.history("Replaced bad "+ t_type +" by interpolation." )    
     
-    return
+    return 
 
+#%%
 
-def kids_time(kiss):
-    """ 
+def kids_pfit_time(kiss):
+    """ Replace bad time data by polynomial linear fitting. 
+    
     Parameters
     ----------
-    kiss: KissRawData
-        Kiss Raw data 
+    kiss: :obj: KissRawData
+        Kiss Raw data read from data files.
     
     """
-    
-    list_data = 'A_time_ntp A_time_pps A_time A_hours' 
-    kiss.read_data(list_data = list_data)
-    
-    if 'A_time' in dataSc:
-        pps = dataSc['A_time']
-        other_time = [key for key in dataSc if key.endswith('_time') and key != 'A_time']
-        if other_time and 'sample' in dataSc:
-            pps_diff = {'A_time-{}'.format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
+    try:
+        pps = kiss.A_time
+        other_time = [key for key in kiss.__dict__ if key.endswith('_time') and key != 'A_time']
+        if hasattr(kiss, 'sample') and hasattr(kiss, 'sample'):
+            pps_diff = {'A_time-{}'.format(key): (pps - kiss.__dict__[key]) * 1e6 for key in other_time}
             pps_diff['pps_diff'] = np.asarray(list(pps_diff.values())).max(axis=0)
 
-            dataSc.update(pps_diff)
+            kiss.pps_diff = pps_diff
 
         # Fake pps time if necessary
-        if correct_pps:
-            dummy = np.diff(pps, append=0)
-            good = np.abs(dummy - 1 / param_c['acqfreq']) < 0.02
-            if any(~good):
-                param = np.polyfit(dataSc['sample'][good], pps[good], 1)
-                pps[~good] = np.polyval(param, dataSc['sample'][~good])
+        dummy = np.diff(pps, append=0)
+        good = np.abs(dummy - 1 / kiss.param_c['acqfreq']) < 0.02
+        if any(~good):
+            param = np.polyfit(kiss.sample[good], pps[good], 1)
+            pps[~good] = np.polyval(param, kiss.sample[~good])
 
-        dataSc['pps'] = pps
+        kiss.pps = pps
+        kiss.logger.history("Replaced bad A_time by polynomial linear fitting." )    
 
-    gc.collect()
-    ctypes._reset_cache()
+    except AttributeError: 
+        print ("Time data not read.")
 
+
+#%%
+
+def kids_pointing_validate(self):
+    attrlist = ['F_tl_Az', 'F_tl_El']
+    check_attr(self,attrlist)
+
+    fig = self.pointing_plot()
+
+    pflag = (self.F_tl_Az > 0) & (self.F_tl_El > 0)

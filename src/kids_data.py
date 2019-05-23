@@ -9,8 +9,10 @@ from . import pipeline
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
+from . import kids_log
 from .utils import project, build_wcs
 from astropy.time import Time
+
 
 try:
     try:
@@ -50,6 +52,10 @@ class KidsRawData(KidsData):
 
     Attributes
     ----------
+    filename: str
+        Name of the raw data file. 
+    obs: dict
+        Basic informaiton in observation log. 
     kidpar: :obj: Astropy.Table
         KID parameter.
     param_c: :dict
@@ -76,7 +82,6 @@ class KidsRawData(KidsData):
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
         self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
-        self.getobs()
 
         # Minimum dataset
         self.I = None
@@ -86,23 +91,30 @@ class KidsRawData(KidsData):
     def __len__(self):
         return self.nsamples
 
-    def getobs(self):
+    def obs(self):
         # Future: From database/observation log. 
-        self.date = None
-        self.date_utc = None
-        self.source = None
-        self.n_scan = None
-        self.type_obs = None
+        date = None
+        date_utc = None
+        source = None
+        n_scan = None
+        obstype = None
+        
+        return {"source": source,
+                "date" : date, 
+                "obstype" : obstype, 
+                "nscan" : n_scan,
+                "date_utc": date_utc
+                }
 
     def listInfo(self):
         print("RAW DATA")
         print("==================")
         print("File name: " + self.filename)
         print("------------------")
-        print("Source name: " + self.source)
-        print("Observed date: " + self.date)
-        print("Description: " + self.type_obs)
-        print("Scan number: " + self.n_scan)
+        print("Source name: " + self.obs['source'])
+        print("Observed date: " + self.obs["date"])
+        print("Description: " + self.obs["obstype"] )
+        print("Scan number: " + self.obs["nscan"])
         
         print("------------------")
         print("No. of KIDS detectors:", self.ndet)
@@ -151,24 +163,35 @@ class KissRawData(KidsRawData):
         super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
-        self.getobs()
-    
-    def getobs(self):
-        #Get UTC date and source name from file name.
+        self.logger = kids_log.history_logger(self.__class__.__name__)
+        
+    @property
+    def obs(self):
+        """ Parse date, source name, scan number and descrtiption 
+        from file name.
+        """
         rawfile = self.filename.split('/')[-1]
         rawstr = rawfile.split('_') 
         datestr = rawstr[0][1:]
-        self.date = '-'.join([datestr[0:4],datestr[4:6], datestr[6:8]])# Observation date in iso format
-        self.date_utc = Time(self.date) # UTC Time object
-        self.source = rawstr[-2] # Source name
-        self.n_scan = rawstr[2] # Scan number
-        self.type_obs = rawstr[-1] # Type of the track: e.g. SCIENCEMAP, SKYRASTER
+        date = '-'.join([datestr[0:4],datestr[4:6], datestr[6:8]])# Observation date in iso format
+        date_utc = Time(date) # UTC Time object
+        source = rawstr[-2] # Source name
+        n_scan = rawstr[2] # Scan number
+        type_obs = rawstr[-1] # Type of the track: e.g. SCIENCEMAP, SKYRASTER
 
+        return {"source": source,
+                "date" : date, 
+                "obstype" : type_obs, 
+                "nscan" : n_scan,
+                "date_utc": date_utc
+                    }
+        
     def listInfo(self):
         super().listInfo()
         print("No. of interfergrams:", self.nint)
         print("No. of time samples per interfergram:", self.nptint)
-
+        
+        
     @property
     @lru_cache(maxsize=1)
     def continuum(self):
