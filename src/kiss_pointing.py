@@ -21,14 +21,14 @@ def kiss_obstime(self): # self =  kiss
 
     obstime = self.obs['date_utc'] + time_mint
     
-    self.obstime = obstime
+    self.obstime = obstime 
     return obstime
 
 #%%
     
 
 def check_pointing_source(self): # self = kiss
-    """ Check pointing with a source. """
+    """ Check pointing with an expected source. """
     obstime = kiss_obstime(self)
     RDS, AES, tframe = kc.get_sourceAzEl(self.obs['source'],obstime)
     AzEl_S = kc.azel2coord(AES.az.deg,AES.alt.deg,obstime)

@@ -13,16 +13,18 @@ datadir = '/Users/yixiancao/Work/Concerto/Data/kissRaw/'
 pltdir = '/Users/yixiancao/workCodes/kidsdata/plots/'
 
 #filename = 'X_2018_12_13_19h09m31_AA_man' # This one show erros for header reading. 
-filename = 'X_2018_12_14_11h58m14_AA_man'
+#filename = 'X_2018_12_14_11h58m14_AA_man'
 #filename = 'X_2018_12_14_11h55m15_AA_man'
+filename = 'X20190427_0910_S0319_Moon_SCIENCEMAP' 
+
 filename = datadir + filename
-kids = kids_data.KidsRawData(filename)
+kiss = kids_data.KissRawData(filename)
 
 #%% Calibration 
-kids.read_data()
-kids.calib_raw()
+kiss.read_data()
+kiss.calib_raw()
 
-fig = kids.calib_plot()
+fig = kiss.calib_plot()
 fig.savefig(pltdir + 'calib.pdf')
 
 #%% Define time variables for interpolation
@@ -45,6 +47,7 @@ kiss.read_data(list_data = list_data)
 
 list_data = 'F_azimuth F_elevation F_state F_subsc F_nbsubsc E_X  E_status u_itfamp'
 kiss.read_data(list_data = list_data)
+#%%
 fig = kids.pointing_plot()
 fig.savefig(pltdir + 'pointing.pdf', bbox_inches='tight')
 #%% Photometry 

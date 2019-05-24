@@ -18,12 +18,6 @@ def kids_validate(kiss, correct_time = True,
     if correct_time: kids_time_validate(kiss)
 
     return
-#%%
-
-def check_attr(self, attrlist):
-    if not all([hasattr(self, attr) for attr in attrlist]):
-        list_data = ' '.join(attrlist) 
-        self.read_data(list_data = list_data)
 
 #%%
 
@@ -109,7 +103,7 @@ def kids_pfit_time(kiss):
 
 def kids_pointing_validate(self):
     attrlist = ['F_tl_Az', 'F_tl_El']
-    check_attr(self,attrlist)
+    self.check_attr(attrlist)
 
     fig = self.pointing_plot()
 
