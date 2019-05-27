@@ -5,6 +5,13 @@
 Created on Fri May 24 14:12:42 2019
 """
 
+import numpy as np
+from matplotlib import pyplot as plt
+from  scipy.ndimage.filters import uniform_filter1d as smooth
+from scipy.interpolate import interp1d
+from scipy.signal import medfilt
+
+#%%
 
 datadir = '/Users/yixiancao/Work/Concerto/Data/kissRaw/'
 pltdir = '/Users/yixiancao/workCodes/kidsdata/plots/'
@@ -15,6 +22,8 @@ pltdir = '/Users/yixiancao/workCodes/kidsdata/plots/'
 filename = 'X20190427_0910_S0319_Moon_SCIENCEMAP' 
 filename = datadir + filename
 kiss = kids_data.KissRawData(filename)
+kiss.calib_raw()
+
 #%%
 #def kids_spec(self):
     
@@ -47,18 +56,90 @@ dlaser2_pos = laser2_pos[:, npos:nneg]
 dlaser2_neg = laser2_pos[:, nneg:]
 
 
-#%% Need calibrated data
+#%% Compute baseline for each interferogram    
 dint_pos = self.kidfreq[:,:,npos:nneg]
 dint_neg = self.kidfreq[:,:,nneg:]
+nbaseline = 101
+dint_pos_base = smooth(dint_pos,size=nbaseline,axis=2)
+dint_neg_base = smooth(dint_neg,size=nbaseline,axis=2)
 
 
 #%%---Compute and correct positions of MP  
 
+def diffm(dlaser, append = 1):
+    """ Calculate the differences between laser positions at adjacent time sample 
+        
+    Parameters: 
+    dlaser: 
+        position of the laser 
+    append: 
+        Append value. Default:1 #Y.C. Why use 1? 
+    """
+    diffm = np.diff(dlaser,prepend = mpos1[-1])
+    diffm[-1] = 1
+
+    return diffm 
+#%%
+
 # Initial position of MP
 mpos1 = dlaser1_pos[0,:]
 mpos2 = dlaser2_pos[0,:]
+mneg1 = dlaser1_neg[0,:]
+mneg2 = dlaser2_neg[0,:]
 
-dmpos1 = np.diff(mpos1)
-dmpos2 = np.diff(mpos2)
+dmpos1 = diffm(mpos1)
+dmpos2 = diffm(mpos2)
+dmneg1 = diffm(mneg1)
+dmneg2 = diffm(mneg2)
+
+# Fix bad data
+mpos1b = kids_itp_flag(dmpos1, flag = dmpos1 > 1e-4)
+mpos2b = kids_itp_flag(dmpos2, flag = dmpos2 > 1e-4)
+mneg1b = kids_itp_flag(dmneg1, flag = dmpos1 > 1e-4)
+mneg2b = kids_itp_flag(dmneg2, flag = dmpos1 > 1e-4)
+
+
+
+#%%
+
+
+def kids_itp_flag(data, flag = None):
+    """ Replace bad (not flagged) data by interpolated the flagged data.
+    
+    Parameters
+    ----------
+    data: 1D array 
+        Data to be fixed
+    flag: boolean array
+        flag of the data. True for good data, False for bad data
+    
+    """
+
+    # Replace flagged out data by interpolation 
+    idx = np.arange(data.shape[0], dtype =np.double)
+    interp = interp1d(idx[flag],data[flag], kind = 'linear', fill_value="extrapolate" )
+    
+#    kiss.__dict__[t_type+'_itp'] = interp(tidx)
+
+    data[~flag] = interp(idx[~flag])
+    return data
+#%%
+plt_1d = lambda data, **kwargs: plt.plot(np.arange(data.shape[0]), data, **kwargs)
+
+#%%
+
+ikid = 123
+ibeg = 0
+plt.figure()
+plt.clf()
+isig =  np.median(dint_pos[ikid,:,:]-dint_pos_base[ikid,:,:], axis=0)
+plt.plot(mpos1b,isig, lw = 1, marker = '.', label = "iKID: "+str(ikid))
+
+intermed = np.median(dint_pos[ikid,ibeg:,:]-dint_pos_base[ikid,:,:],axis=0)
+#intermed -= np.mean(intermed)                                                                                                                                            
+intermed -=  medfilt(intermed,101)
+plt.plot(mpos1b,intermed, lw = 1, marker = '^', ms = 1, ls = 'None', label = '101 medianfit')
+plt.plot(mpos1b, intermed - isig)
+plt.xlim(0, 0.25)
 
 #return

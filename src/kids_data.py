@@ -84,9 +84,9 @@ class KidsRawData(KidsData):
         self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
 
         # Minimum dataset
-        self.I = None
-        self.Q = None
-        self.A_masq = None
+#        self.I = None
+#        self.Q = None
+#        self.A_masq = None
 
     def __len__(self):
         return self.nsamples
@@ -168,6 +168,8 @@ class KissRawData(KidsRawData):
     
     
     def calib_raw(self, *args, **kwargs):
+        
+        self.check_attr(attrlist = ['I', 'Q', 'A_masq'])
        
         assert (self.I is not None) & \
                (self.Q is not None) & \
@@ -190,7 +192,7 @@ class KissRawData(KidsRawData):
         return
      
     @property
-    @lru_cache(maxsize=1)
+    #@lru_cache(maxsize=1)
     def continuum(self):
         """ Background based on calibration factors"""
         assert (self.R0 is not None) & \
@@ -200,7 +202,14 @@ class KissRawData(KidsRawData):
 
     @lru_cache(maxsize=2)
     def continuum_pipeline(self, pipeline_func=pipeline.basic_continuum, *args, **kwargs):
-        return pipeline_func(self, *args, **kwargs)
+        """ Specifies the kind of the continuum pipeline
+        Parameters 
+        ----------
+        pipeline_function: 
+            Default: pipeline.basic_continuum. 
+            
+        """
+        return  pipeline_func(self, *args, **kwargs)
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
 
@@ -278,10 +287,10 @@ class KissRawData(KidsRawData):
 
 
     def plot_photometry(self, *args, **kwargs):
-        """  """
-
-        assert (self.F_azimuth is not None) & \
-            (self.F_elevation is not None), "Pointing(F_azimuth or F_elevation) data not present"
+#        self.check_attr(attrlist = ['F_azimuth',' F_elevation' ])
+#
+#        assert (self.F_azimuth is not None) & \
+#            (self.F_elevation is not None), "Pointing(F_azimuth or F_elevation) data not present"
 
         return kids_plots.photometry(self, *args, **kwargs)
 

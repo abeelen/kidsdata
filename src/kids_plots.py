@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
 from astropy.wcs import WCS
+from  scipy.ndimage.filters import minimum_filter
+#%%
 #from scipy.ndimage.filters import gaussian_filter1d
 
 #from Labtools_JM_KISS import kiss_map_proj as kmp
@@ -117,12 +119,12 @@ def checkPointing(kids):
 
     return fig
 
-
+#%%
 def photometry(kids):
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2 + 0.5))
     fig.suptitle(kids.filename)
 
-    bgrd = kids.background
+    bgrd = kids.continuum
     meds = np.median(bgrd, axis=1)
     stds = np.std(bgrd, axis=1)
 
@@ -139,7 +141,7 @@ def photometry(kids):
     fig.tight_layout()
 
     return fig
-
+#%%
 
 def show_maps(kids, ikid=0):
     nrow = 1

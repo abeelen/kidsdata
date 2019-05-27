@@ -21,10 +21,10 @@ filename = datadir + filename
 kiss = kids_data.KissRawData(filename)
 
 #%% Calibration 
-kiss.read_data()
+#kiss.read_data()
 kiss.calib_raw()
-
-fig = kiss.calib_plot()
+#%%
+fig = kiss.plot_calib()
 fig.savefig(pltdir + 'calib.pdf')
 
 #%% Define time variables for interpolation
@@ -39,7 +39,7 @@ kiss.read_data(list_data = list_data)
 from src import kids_validate
 kids_validate.kids_validate(kiss)
 
-#%% Check pointing 
+#%% Check pointing: new 
 list_data = 'F_sky_Az F_sky_El F_tl_Az F_tl_El F_diff_Az F_diff_El  F_state'
 kiss.read_data(list_data = list_data)
 
@@ -48,10 +48,10 @@ kiss.read_data(list_data = list_data)
 list_data = 'F_azimuth F_elevation F_state F_subsc F_nbsubsc E_X  E_status u_itfamp'
 kiss.read_data(list_data = list_data)
 #%%
-fig = kids.pointing_plot()
+fig = kiss.pointing_plot()
 fig.savefig(pltdir + 'pointing.pdf', bbox_inches='tight')
 #%% Photometry 
-fig = kids.photometry_plot()
+fig = kiss.plot_photometry()
 fig.savefig(pltdir + 'photometry.pdf')
 
 #%% Beammap
