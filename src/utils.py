@@ -53,7 +53,7 @@ def project(x, y, data, shape, weight=None):
            [nan, nan]))
 
     """
-    if isinstance(shape, (int, np.integer,)):
+    if isinstance(shape, (int, np.integer)):
         shape = (shape, shape)
 
     assert len(shape) == 2, "shape must be a int or have a length of 2"
@@ -65,14 +65,12 @@ def project(x, y, data, shape, weight=None):
         # Put weights as 0 for masked data
         weight = weight * ~data.mask
 
-    _hits, _, _ = np.histogram2d(y, x,
-                                 bins=shape,
-                                 range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)),
-                                 weights=weight)
-    _data, _, _ = np.histogram2d(y, x,
-                                 bins=shape,
-                                 range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)),
-                                 weights=weight * np.asarray(data))
+    _hits, _, _ = np.histogram2d(
+        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight
+    )
+    _data, _, _ = np.histogram2d(
+        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight * np.asarray(data)
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -81,7 +79,7 @@ def project(x, y, data, shape, weight=None):
     return output
 
 
-def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1, **kwargs):
+def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, **kwargs):
     """Build the wcs for full projection.
 
     Arguments
@@ -106,15 +104,14 @@ def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1, *
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ctype
 
-    if ctype is ('TLON-TAN' 'TLAT-TAN'):
-        wcs.wcs.name = 'Terrestrial coordinates'
+    if ctype is ("TLON-TAN" "TLAT-TAN"):
+        wcs.wcs.name = "Terrestrial coordinates"
 
     wcs.wcs.cdelt = (-cdelt, cdelt)
 
     if crval is None:
         # find the center of the projection
-        crval = ((lon.max() + lon.min()) / 2,
-                 (lat.max() + lat.min()) / 2)
+        crval = ((lon.max() + lon.min()) / 2, (lat.max() + lat.min()) / 2)
 
     wcs.wcs.crval = crval
 
@@ -123,7 +120,6 @@ def build_wcs(lon, lat, crval=None, ctype=('TLON-TAN', 'TLAT-TAN'), cdelt=0.1, *
     x_min, y_min = x.min(), y.min()
     wcs.wcs.crpix = (-x_min, -y_min)
 
-    shape = (np.round(y.max() - y.min()).astype(np.int) + 1,
-             np.round(x.max() - x.min()).astype(np.int) + 1)
+    shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
 
     return wcs, shape

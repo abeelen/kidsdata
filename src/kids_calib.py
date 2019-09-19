@@ -41,7 +41,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
     ndet = kids.ndet
     nptint, nint = kids.nptint, kids.nint
-    fmod = kids.param_c['1-modulFreq']  # value [Hz] for the calibration
+    fmod = kids.param_c["1-modulFreq"]  # value [Hz] for the calibration
 
     calfact = np.zeros((ndet, nint), np.float32)
     Icc, Qcc = np.zeros((ndet, nint), np.float32), np.zeros((ndet, nint), np.float32)
@@ -54,7 +54,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
     kidfreq = np.zeros_like(dataI)
 
-    for iint in range(nint):    # single interferogram
+    for iint in range(nint):  # single interferogram
 
         Icurrent = dataI[:, iint, :]
         Qcurrent = dataQ[:, iint, :]
@@ -73,9 +73,9 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
         # Check for cases with missing data
         if np.all(l1 == False) or np.all(l2 == False) or np.all(l3 == False):
-            logging.warn('Interferogram {} could not be calibrated'.format(iint))
+            logging.warn("Interferogram {} could not be calibrated".format(iint))
             continue
-        
+
         x1 = np.median(Icurrent[:, l1], axis=1)
         y1 = np.median(Qcurrent[:, l1], axis=1)
         x2 = np.median(Icurrent[:, l2], axis=1)
@@ -84,18 +84,12 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         y3 = np.median(Qcurrent[:, l3], axis=1)
 
         # Fit circle
-        den = 2.0 * (x1 * (y2 - y3) +
-                     x2 * (y3 - y1) +
-                     x3 * (y1 - y2))
+        den = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
 
-        Ic = (x1 * x1 + y1 * y1) * (y2 - y3) + \
-             (x2 * x2 + y2 * y2) * (y3 - y1) + \
-             (x3 * x3 + y3 * y3) * (y1 - y2)
+        Ic = (x1 * x1 + y1 * y1) * (y2 - y3) + (x2 * x2 + y2 * y2) * (y3 - y1) + (x3 * x3 + y3 * y3) * (y1 - y2)
         Ic /= den
 
-        Qc = (x1 * x1 + y1 * y1) * (x3 - x2) + \
-             (x2 * x2 + y2 * y2) * (x1 - x3) + \
-             (x3 * x3 + y3 * y3) * (x2 - x1)
+        Qc = (x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)
         Qc /= den
 
         # Filter
@@ -137,16 +131,14 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         calcoeff = 2 / diffangle
         calfact[:, iint] = calcoeff * fmod * Modfactor
 
+        #        r = np.arctan2(Icc[:,iint]-Icurrent,np.transpose(Qcc[:,iint])-Qcurrent)
+        r = np.arctan2(Icc[:, iint][:, np.newaxis] - Icurrent, Qcc[:, iint][:, np.newaxis] - Qcurrent)
 
-#        r = np.arctan2(Icc[:,iint]-Icurrent,np.transpose(Qcc[:,iint])-Qcurrent)
-        r = np.arctan2(Icc[:, iint][:, np.newaxis] - Icurrent,
-                       Qcc[:, iint][:, np.newaxis] - Qcurrent)
-
-#        r = angleto0(np.arctan2((Icc[:,iint]-Icurrent.transpose()),\
-#                                (Qcc[:,iint]-Qcurrent.transpose())) - r0).transpose()
+        #        r = angleto0(np.arctan2((Icc[:,iint]-Icurrent.transpose()),\
+        #                                (Qcc[:,iint]-Qcurrent.transpose())) - r0).transpose()
         ra = angle0(r - r0[:, np.newaxis])
 
-        if (docalib):
+        if docalib:
             kidfreq[:, iint, :] = calfact[:, iint][:, np.newaxis] * ra
         else:
             kidfreq[:, iint, :] = ra
