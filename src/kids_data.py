@@ -9,7 +9,10 @@ from . import pipeline
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
+from . import kids_log
 from .utils import project, build_wcs
+from astropy.time import Time
+
 
 try:
     try:
@@ -49,6 +52,10 @@ class KidsRawData(KidsData):
 
     Attributes
     ----------
+    filename: str
+        Name of the raw data file. 
+    obs: dict
+        Basic informaiton in observation log. 
     kidpar: :obj: Astropy.Table
         KID parameter.
     param_c: :dict
@@ -77,17 +84,41 @@ class KidsRawData(KidsData):
         self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors in the file
 
         # Minimum dataset
-        self.I = None
-        self.Q = None
-        self.A_masq = None
+#        self.I = None
+#        self.Q = None
+#        self.A_masq = None
 
     def __len__(self):
         return self.nsamples
+
+    def obs(self):
+        # Future: From database/observation log. 
+        date = None
+        date_utc = None
+        source = None
+        n_scan = None
+        obstype = None
+        
+        return {"source": source,
+                "date" : date, 
+                "obstype" : obstype, 
+                "nscan" : n_scan,
+                "date_utc": date_utc
+                }
 
     def listInfo(self):
         print("RAW DATA")
         print("==================")
         print("File name: " + self.filename)
+        print("------------------")
+        print("Source name: " + self.obs['source'])
+        print("Observed date: " + self.obs["date"])
+        print("Description: " + self.obs["obstype"] )
+        print("Scan number: " + self.obs["nscan"])
+        
+        print("------------------")
+        print("No. of KIDS detectors:", self.ndet)
+        print("No. of time samples:", self.nsamples)
 
     def read_data(self, *args, **kwargs):
         nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
@@ -135,9 +166,36 @@ class KissRawData(KidsRawData):
         super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
+        self.logger = kids_log.history_logger(self.__class__.__name__)
+        
+    
+    
+    def calib_raw(self, *args, **kwargs):
+        
+        self.check_attr(attrlist = ['I', 'Q', 'A_masq'])
+       
+        assert (self.I is not None) & \
+               (self.Q is not None) & \
+               (self.A_masq is not None), "I, Q or A_masq data not present"
 
+        self.calfact, self.Icc, self.Qcc,\
+            self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
+    
+    def check_attr(self, attrlist):
+        """ Check if the data needed is an attribute and read in it if not. 
+        """
+        not_in = [not hasattr(self, attr) for attr in attrlist]
+        if any(not_in):
+            attrlist = np.asarray(attrlist)[np.asarray(not_in)]
+            list_data = ' '.join(attrlist) 
+            print ("Missing data list: ", list_data)
+            print ("-----Now reading--------")
+            
+            self.read_data(list_data = list_data)    
+        return
+     
     @property
-    @lru_cache(maxsize=1)
+    #@lru_cache(maxsize=1)
     def continuum(self):
         """ Background based on calibration factors"""
         assert (self.R0 is not None) & \
@@ -147,7 +205,14 @@ class KissRawData(KidsRawData):
 
     @lru_cache(maxsize=2)
     def continuum_pipeline(self, pipeline_func=pipeline.basic_continuum, *args, **kwargs):
-        return pipeline_func(self, *args, **kwargs)
+        """ Specifies the kind of the continuum pipeline
+        Parameters 
+        ----------
+        pipeline_function: 
+            Default: pipeline.basic_continuum. 
+            
+        """
+        return  pipeline_func(self, *args, **kwargs)
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
 
@@ -186,6 +251,61 @@ class KissRawData(KidsRawData):
             outputs.append(project(x, y, bgrd, shape))
 
         return outputs, wcs
+
+
+    def listInfo(self):
+        """ List basic observation description and data set dimensions."""
+        super().listInfo()
+        print("No. of interfergrams:", self.nint)
+        print("No. of time samples per interfergram:", self.nptint)
+
+
+    @property
+    def obs(self):
+        """ Parse date, source name, scan number and descrtiption 
+        from file name.
+        """
+        rawfile = self.filename.split('/')[-1]
+        rawstr = rawfile.split('_') 
+        datestr = rawstr[0][1:]
+        date = '-'.join([datestr[0:4],datestr[4:6], datestr[6:8]])# Observation date in iso format
+        date_utc = Time(date) # UTC Time object
+        source = rawstr[-2] # Source name
+        n_scan = rawstr[2] # Scan number
+        type_obs = rawstr[-1] # Type of the track: e.g. SCIENCEMAP, SKYRASTER
+
+        return {"source": source,
+                "date" : date, 
+                "obstype" : type_obs, 
+                "nscan" : n_scan,
+                "date_utc": date_utc
+                    }       
+        
+
+    def plot_beammap(self, ikid, *args, **kwarys):
+        return kids_plots.show_maps(self, ikid)    
+    
+    def plot_calib(self, *args, **kwargs):
+        return kids_plots.calibPlot(self, *args, **kwargs)
+
+
+    def plot_photometry(self, *args, **kwargs):
+#        self.check_attr(attrlist = ['F_azimuth',' F_elevation' ])
+#
+#        assert (self.F_azimuth is not None) & \
+#            (self.F_elevation is not None), "Pointing(F_azimuth or F_elevation) data not present"
+
+        return kids_plots.photometry(self, *args, **kwargs)
+
+  
+      
+    def plot_pointing(self, *args, **kwargs):
+        """ Plot azimuth and elevation to check pointing."""
+
+        assert (self.F_azimuth is not None) & \
+               (self.F_elevation is not None), "F_azimuth or F_elevation data not present"
+        return kids_plots.checkPointing(self, *args, **kwargs)
+
 
     def read_data(self, *args, **kwargs):
         super().read_data(*args, **kwargs)
@@ -226,31 +346,6 @@ class KissRawData(KidsRawData):
         if 'F_tl_Az' in self.__dict__ and 'F_tl_El' in self.__dict__:
             self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
 
-    def calib_raw(self, *args, **kwargs):
-        assert (self.I is not None) & \
-               (self.Q is not None) & \
-               (self.A_masq is not None), "I, Q or A_masq data not present"
-
-        self.calfact, self.Icc, self.Qcc,\
-            self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
-
-    def calib_plot(self, *args, **kwargs):
-        return kids_plots.calibPlot(self, *args, **kwargs)
-
-    def pointing_plot(self, *args, **kwargs):
-        """ Plot azimuth and elevation to check pointing."""
-
-        assert (self.F_azimuth is not None) & \
-               (self.F_elevation is not None), "F_azimuth or F_elevation data not present"
-        return kids_plots.checkPointing(self, *args, **kwargs)
-
-    def photometry_plot(self, *args, **kwargs):
-        """  """
-
-        assert (self.F_azimuth is not None) & \
-            (self.F_elevation is not None), "Pointing(F_azimuth or F_elevation) data not present"
-
-        return kids_plots.photometry(self, *args, **kwargs)
-
-    def beammap_plot(self, ikid, *args, **kwarys):
-        return kids_plots.show_maps(self, ikid)
+    def spectra(self):
+        # Previous processings needed: calibration
+        return        
