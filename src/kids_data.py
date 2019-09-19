@@ -74,7 +74,7 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
+        self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors in the file
 
         # Minimum dataset
         self.I = None
@@ -92,6 +92,9 @@ class KidsRawData(KidsData):
     def read_data(self, *args, **kwargs):
         nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
             = read_kidsdata.read_all(self.filename, *args, **kwargs)
+
+        if 'list_detector' in kwargs:
+            self.ndet = kwargs['list_detector'][0]
 
         if self.nsamples != nb_samples_read:
             self.nsamples = nb_samples_read
