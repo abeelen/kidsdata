@@ -24,7 +24,7 @@ except ModuleNotFoundError:
 
     class KISSPmodel(object):
         def __init__(self, *args, **kwargs):
-            warnings.warn('No pointing correction', Warning)
+            warnings.warn("No pointing correction", Warning)
             pass
 
         def telescope2sky(self, *args):
@@ -53,9 +53,9 @@ class KidsRawData(KidsData):
     Attributes
     ----------
     filename: str
-        Name of the raw data file. 
+        Name of the raw data file.
     obs: dict
-        Basic informaiton in observation log. 
+        Basic information in observation log.
     kidpar: :obj: Astropy.Table
         KID parameter.
     param_c: :dict
@@ -81,56 +81,112 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.ndet = len(self.kidpar[~self.kidpar['index'].mask])  # Number of detectors.
-
-        # Minimum dataset
-#        self.I = None
-#        self.Q = None
-#        self.A_masq = None
+        self.ndet = len(self.kidpar[~self.kidpar["index"].mask])  # Number of detectors.
 
     def __len__(self):
         return self.nsamples
 
     def obs(self):
-        # Future: From database/observation log. 
+        # Future: From database/observation log.
         date = None
         date_utc = None
         source = None
         n_scan = None
         obstype = None
-        
-        return {"source": source,
-                "date" : date, 
-                "obstype" : obstype, 
-                "nscan" : n_scan,
-                "date_utc": date_utc
-                }
+
+        return {"source": source, "date": date, "obstype": obstype, "nscan": n_scan, "date_utc": date_utc}
 
     def listInfo(self):
         print("RAW DATA")
         print("==================")
         print("File name: " + self.filename)
         print("------------------")
-        print("Source name: " + self.obs['source'])
+        print("Source name: " + self.obs["source"])
         print("Observed date: " + self.obs["date"])
-        print("Description: " + self.obs["obstype"] )
+        print("Description: " + self.obs["obstype"])
         print("Scan number: " + self.obs["nscan"])
-        
+
         print("------------------")
         print("No. of KIDS detectors:", self.ndet)
         print("No. of time samples:", self.nsamples)
 
     def read_data(self, *args, **kwargs):
-        nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd \
-            = read_kidsdata.read_all(self.filename, *args, **kwargs)
+        nb_samples_read, dataSc, dataSd, dataUc, dataUd = read_kidsdata.read_all(self.filename, *args, **kwargs)
 
         if self.nsamples != nb_samples_read:
             self.nsamples = nb_samples_read
 
-        # Expand keys
-        for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
+        # Expand keys :
+        # Does not double memory, but it will not be possible to
+        # partially free memory : All attribute read at the same time
+        # must be deleted together
+        for _dict in [dataSc, dataSd, dataUc, dataUd]:
             for ckey in _dict.keys():
                 self.__dict__[ckey] = _dict[ckey]
+
+    # Check if we can merge that with the asserions in other functions
+    # Beware that some are read some are computed...
+
+    def __check_attributes(self, attr_list, dependancies=[]):
+        """Check if attributes have been read, read them if needed.
+
+        Parameters
+        ----------
+        attr_list: list
+            list of parameter to check
+        dependancies: list of tuple
+            list the parameters dependancies
+
+        Returns
+        -------
+        dependancies : list
+            if the dependancies keyword is set, return the list of
+            requested attributes for each dependancy (see Notes)
+
+        Notes
+        -----
+
+        If some parameters checks are inter-dependant, you can declare
+        them in the dependancies list. For example, any calibrated
+        quantity depends on the raw data themselves, thus, when
+        checking on 'P0' or 'R0', one should actually check for 'I', 'Q' and
+        'A_masq', this dependancy can be described with :
+
+        dependancies = [(['P0', 'R0'], ['I', 'Q', 'A_masq'])]
+
+        """
+
+        # Adapt the list if we have dependancies
+        _dependancies = []
+        if dependancies:
+            for request_keys, depend_keys in dependancies:
+                # Check if these attributes are requested...
+                _dependancy = [attr_list.pop(attr_list.index(key)) for key in request_keys if key in attr_list]
+                if _dependancy:
+                    # Replace them by the dependancies..
+                    attr_list += depend_keys
+                _dependancies.append(_dependancy)
+
+        missing = [attr for attr in attr_list if not hasattr(self, attr) and (getattr(self, attr) is not None)]
+        if missing:
+            # TODO: check that there attributes are present in the file
+            list_data = " ".join(missing)
+            print("Missing data list: ", list_data)
+            print("-----Now reading--------")
+
+            self.read_data(list_data=list_data)
+
+        # Check that everything was read
+        for key in attr_list:
+            assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
+
+        # Extra check for the dependancies
+        if dependancies:
+            for request_keys, depend_keys in dependancies:
+                for key in depend_keys:
+                    assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
+
+            return _dependancies
 
 
 class KissRawData(KidsRawData):
@@ -164,61 +220,62 @@ class KissRawData(KidsRawData):
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
         self.logger = kids_log.history_logger(self.__class__.__name__)
-        
-    
-    
-    def calib_raw(self, *args, **kwargs):
-        
-        self.check_attr(attrlist = ['I', 'Q', 'A_masq'])
-       
-        assert (self.I is not None) & \
-               (self.Q is not None) & \
-               (self.A_masq is not None), "I, Q or A_masq data not present"
 
-        self.calfact, self.Icc, self.Qcc,\
-            self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
-    
-    def check_attr(self, attrlist):
-        """ Check if the data needed is an attribute and read in it if not. 
+    def calib_raw(self, *args, **kwargs):
+
+        self.__check_attributes(["I", "Q", "A_masq"])
+
+        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
+
+    # Check if we can merge that with the asserions in other functions
+    # Beware that some are read so are computed...
+    def __check_attributes(self, attr_list):
+        """ Check if the data has been read an attribute and read in it if not.
         """
-        not_in = [not hasattr(self, attr) for attr in attrlist]
-        if any(not_in):
-            attrlist = np.asarray(attrlist)[np.asarray(not_in)]
-            list_data = ' '.join(attrlist) 
-            print ("Missing data list: ", list_data)
-            print ("-----Now reading--------")
-            
-            self.read_data(list_data = list_data)    
-        return
-     
+
+        dependancies = [
+            # Calibration data depends on the I, Q & A_masq raw data
+            (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
+            # For any requested telescope position, read them all
+            (
+                ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+                ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+            ),
+        ]
+
+        _dependancies = super().__check_attributes(*args, dependancies=dependancies)
+
+        if _dependancies[0]:
+            self.calib_raw()
+
     @property
-    #@lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)
     def continuum(self):
         """ Background based on calibration factors"""
-        assert (self.R0 is not None) & \
-               (self.P0 is not None) & \
-               (self.calfact is not None), "Calibration factors missing"
+        assert (self.R0 is not None) & (self.P0 is not None) & (self.calfact is not None), "Calibration factors missing"
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=2)
     def continuum_pipeline(self, pipeline_func=pipeline.basic_continuum, *args, **kwargs):
         """ Specifies the kind of the continuum pipeline
-        Parameters 
+        Parameters
         ----------
-        pipeline_function: 
-            Default: pipeline.basic_continuum. 
-            
+        pipeline_function:
+            Default: pipeline.basic_continuum.
+
         """
-        return  pipeline_func(self, *args, **kwargs)
+        return pipeline_func(self, *args, **kwargs)
 
-    def continuum_beammaps(self, ikid=None, wcs=None, coord='sky', **kwargs):
+    def continuum_beammaps(self, ikid=None, wcs=None, coord="sky", **kwargs):
 
-        az_coord = 'F_{}_Az'.format(coord)
-        el_coord = 'F_{}_El'.format(coord)
-        assert (hasattr(self, az_coord) &
-                (getattr(self, az_coord) is not None) &
-                hasattr(self, el_coord) &
-                (getattr(self, el_coord) is not None)), "Sky coordinate {} missing".format(coord)
+        az_coord = "F_{}_Az".format(coord)
+        el_coord = "F_{}_El".format(coord)
+        assert (
+            hasattr(self, az_coord)
+            & (getattr(self, az_coord) is not None)
+            & hasattr(self, el_coord)
+            & (getattr(self, el_coord) is not None)
+        ), "Sky coordinate {} missing".format(coord)
 
         if ikid is None:
             ikid = slice(None)
@@ -240,8 +297,7 @@ class KissRawData(KidsRawData):
             x, y = wcs.all_world2pix(az, el, 0)
         else:
             x, y = wcs.all_world2pix(az, el, 0)
-            shape = (np.round(y.max()).astype(np.int) + 1,
-                     np.round(x.max()).astype(np.int) + 1)
+            shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
 
         outputs = []
         for bgrd in bgrds:
@@ -249,60 +305,45 @@ class KissRawData(KidsRawData):
 
         return outputs, wcs
 
-
+    # Move most of that to __repr__ or __str__
     def listInfo(self):
         """ List basic observation description and data set dimensions."""
         super().listInfo()
         print("No. of interfergrams:", self.nint)
         print("No. of time samples per interfergram:", self.nptint)
 
+    # Move that to a simple function....
 
     @property
     def obs(self):
-        """ Parse date, source name, scan number and descrtiption 
+        """ Parse date, source name, scan number and descrtiption
         from file name.
         """
-        rawfile = self.filename.split('/')[-1]
-        rawstr = rawfile.split('_') 
+        rawfile = self.filename.split("/")[-1]
+        rawstr = rawfile.split("_")
         datestr = rawstr[0][1:]
-        date = '-'.join([datestr[0:4],datestr[4:6], datestr[6:8]])# Observation date in iso format
-        date_utc = Time(date) # UTC Time object
-        source = rawstr[-2] # Source name
-        n_scan = rawstr[2] # Scan number
-        type_obs = rawstr[-1] # Type of the track: e.g. SCIENCEMAP, SKYRASTER
+        date = "-".join([datestr[0:4], datestr[4:6], datestr[6:8]])  # Observation date in iso format
+        date_utc = Time(date)  # UTC Time object
+        source = rawstr[-2]  # Source name
+        n_scan = rawstr[2]  # Scan number
+        type_obs = rawstr[-1]  # Type of the track: e.g. SCIENCEMAP, SKYRASTER
 
-        return {"source": source,
-                "date" : date, 
-                "obstype" : type_obs, 
-                "nscan" : n_scan,
-                "date_utc": date_utc
-                    }       
-        
+        return {"source": source, "date": date, "obstype": type_obs, "nscan": n_scan, "date_utc": date_utc}
 
     def plot_beammap(self, ikid, *args, **kwarys):
-        return kids_plots.show_maps(self, ikid)    
-    
+        return kids_plots.show_maps(self, ikid)
+
     def plot_calib(self, *args, **kwargs):
         return kids_plots.calibPlot(self, *args, **kwargs)
 
-
     def plot_photometry(self, *args, **kwargs):
-#        self.check_attr(attrlist = ['F_azimuth',' F_elevation' ])
-#
-#        assert (self.F_azimuth is not None) & \
-#            (self.F_elevation is not None), "Pointing(F_azimuth or F_elevation) data not present"
-
+        self.__check_attributes(["F_azimuth", " F_elevation"])
         return kids_plots.photometry(self, *args, **kwargs)
 
-  
-      
     def plot_pointing(self, *args, **kwargs):
         """ Plot azimuth and elevation to check pointing."""
-
-        assert (self.F_azimuth is not None) & \
-               (self.F_elevation is not None), "F_azimuth or F_elevation data not present"
+        self.__check_attributes(["F_azimuth", " F_elevation"])
         return kids_plots.checkPointing(self, *args, **kwargs)
-
 
     def read_data(self, *args, **kwargs):
         super().read_data(*args, **kwargs)
@@ -310,39 +351,30 @@ class KissRawData(KidsRawData):
         # In case we do not read the full file, nsamples has changed
         self.nint = self.nsamples // self.nptint
 
-        if 'indice' in self._KidsRawData__dataSc.keys():
-            indice = self._KidsRawData__dataSc['indice']
-            assert self.nptint == np.int(indice.max() - indice.min() + 1), \
-                "Problem with 'indice' or header"
+        if "indice" in self._KidsRawData__dataSc.keys():
+            indice = self._KidsRawData__dataSc["indice"]
+            assert self.nptint == np.int(indice.max() - indice.min() + 1), "Problem with 'indice' or header"
 
-        # Convert units azimuth and elevation to degs if present
-        for ckey in ['F_azimuth', 'F_elevation',
-                     'F_tl_Az', 'F_tl_El',
-                     'F_sky_Az', 'F_sky_El',
-                     'F_diff_Az', 'F_diff_El', ]:
-            if ckey in self.__dict__:
-                self.__dict__[ckey] = np.rad2deg(self.__dict__[ckey] / 1000.0)
-
-        if 'F_azimuth' in self.__dict__ and 'F_elevation' in self.__dict__:
+        if "F_azimuth" in self.__dict__ and "F_elevation" in self.__dict__:
             self.mask_pointing = (self.F_azimuth != 0) & (self.F_elevation != 0)
 
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
-            if self.F_azimuth.shape == (self.nint * self.nptint, ):
+            if self.F_azimuth.shape == (self.nint * self.nptint,):
                 warnings.warn("Interpolated positions", PendingDeprecationWarning)
                 self.F_tl_Az = np.median(self.F_azimuth.reshape((self.nint, self.nptint)), axis=1)
                 self.F_tl_El = np.median(self.F_elevation.reshape((self.nint, self.nptint)), axis=1)
-            elif self.F_azimuth.shape == (self.nint, ):
+            elif self.F_azimuth.shape == (self.nint,):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
 
             # This is for KISS only
-            if 'F_sky_Az' not in self.__dict__ and 'F_sky_El' not in self.__dict__:
+            if "F_sky_Az" not in self.__dict__ and "F_sky_El" not in self.__dict__:
                 self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
-                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model='Q1').telescope2sky(self.F_tl_Az, self.F_tl_El)
+                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(self.F_tl_Az, self.F_tl_El)
 
-        if 'F_tl_Az' in self.__dict__ and 'F_tl_El' in self.__dict__:
+        if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
             self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
 
     def spectra(self):
         # Previous processings needed: calibration
-        return        
+        return
