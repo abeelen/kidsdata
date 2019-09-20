@@ -81,11 +81,16 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.ndet = len(self.kidpar[~self.kidpar["index"].mask])  # Number of detectors.
+        self.list_detector = np.where(~self.kidpar["index"].mask)
 
     def __len__(self):
         return self.nsamples
 
+    @property
+    def ndet(self):
+        return len(self.list_detector)
+
+    @property
     def obs(self):
         # Future: From database/observation log.
         date = None
@@ -116,7 +121,7 @@ class KidsRawData(KidsData):
         )
 
         if "list_detector" in kwargs:
-            self.ndet = kwargs["list_detector"][0]
+            self.list_detector = kwargs["list_detector"]
 
         if self.nsamples != nb_samples_read:
             self.nsamples = nb_samples_read
@@ -125,14 +130,13 @@ class KidsRawData(KidsData):
         # Does not double memory, but it will not be possible to
         # partially free memory : All attribute read at the same time
         # must be deleted together
-        for _dict in [dataSc, dataSd, dataUc, dataUd]:
+        for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
             for ckey in _dict.keys():
                 self.__dict__[ckey] = _dict[ckey]
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read some are computed...
-
-    def __check_attributes(self, attr_list, dependancies=[]):
+    def __check_attributes(self, attr_list, dependancies=None):
         """Check if attributes have been read, read them if needed.
 
         Parameters
@@ -150,7 +154,6 @@ class KidsRawData(KidsData):
 
         Notes
         -----
-
         If some parameters checks are inter-dependant, you can declare
         them in the dependancies list. For example, any calibrated
         quantity depends on the raw data themselves, thus, when
@@ -160,7 +163,6 @@ class KidsRawData(KidsData):
         dependancies = [(['P0', 'R0'], ['I', 'Q', 'A_masq'])]
 
         """
-
         # Adapt the list if we have dependancies
         _dependancies = []
         if dependancies:
@@ -193,7 +195,25 @@ class KidsRawData(KidsData):
 
             return _dependancies
 
+    def get_list_detector(self, pattern=None):
+        """Retrieve the valid detector list given a pattern.
 
+        Attributes
+        ----------
+        pattern: str
+            any string pattern a KID name should match in a `in` operation
+
+        Returns
+        -------
+        list_detector: list
+            the list which should be used for the `.read_data()` method
+        """
+        list_detector = np.where(~self.kidpar["index"].mask & [pattern in name for name in self.kidpar["namedet"]])[0]
+        list_detector = np.append(list_detector.shape, list_detector).astype(np.int32)
+        return list_detector
+
+
+# pylint: disable=no-member
 class KissRawData(KidsRawData):
     """Arrays of (I,Q) with associated information from KISS raw data.
 
@@ -213,7 +233,7 @@ class KissRawData(KidsRawData):
         Sample data set.
 
     Methods
-    ----------
+    -------
     listInfo()
         Display the basic infomation about the data file.
     read_data(list_data = 'all')
@@ -227,6 +247,7 @@ class KissRawData(KidsRawData):
         self.logger = kids_log.history_logger(self.__class__.__name__)
 
     def calib_raw(self, *args, **kwargs):
+        """Calibrate the KIDS timeline"""
 
         self.__check_attributes(["I", "Q", "A_masq"])
 
@@ -235,20 +256,19 @@ class KissRawData(KidsRawData):
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
     def __check_attributes(self, attr_list):
-        """ Check if the data has been read an attribute and read in it if not.
-        """
+        """ Check if the data has been read an attribute and read in it if not."""
 
         dependancies = [
             # Calibration data depends on the I, Q & A_masq raw data
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (
-                ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
-                ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
             ),
         ]
 
-        _dependancies = super().__check_attributes(*args, dependancies=dependancies)
+        _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
 
         if _dependancies[0]:
             self.calib_raw()
@@ -256,17 +276,22 @@ class KissRawData(KidsRawData):
     @property
     @lru_cache(maxsize=1)
     def continuum(self):
-        """ Background based on calibration factors"""
+        """Background based on calibration factors."""
         assert (self.R0 is not None) & (self.P0 is not None) & (self.calfact is not None), "Calibration factors missing"
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=2)
-    def continuum_pipeline(self, pipeline_func=pipeline.basic_continuum, *args, **kwargs):
-        """ Specifies the kind of the continuum pipeline
+    def continuum_pipeline(self, *args, pipeline_func=pipeline.basic_continuum, **kwargs):
+        """Return the continuum data processed by given pipeline.
+
         Parameters
         ----------
         pipeline_function:
             Default: pipeline.basic_continuum.
+
+        Notes
+        -----
+        Any other args and kwargs are given to the pipeline function.
 
         """
         return pipeline_func(self, *args, **kwargs)
@@ -275,12 +300,8 @@ class KissRawData(KidsRawData):
 
         az_coord = "F_{}_Az".format(coord)
         el_coord = "F_{}_El".format(coord)
-        assert (
-            hasattr(self, az_coord)
-            & (getattr(self, az_coord) is not None)
-            & hasattr(self, el_coord)
-            & (getattr(self, el_coord) is not None)
-        ), "Sky coordinate {} missing".format(coord)
+
+        self.__check_attributes([az_coord, el_coord])
 
         if ikid is None:
             ikid = slice(None)
@@ -289,6 +310,10 @@ class KissRawData(KidsRawData):
 
         az = getattr(self, az_coord)[mask_tel]
         el = getattr(self, el_coord)[mask_tel]
+
+        if coord == "diff":
+            self.logger.warning("test on diff correction")
+            az = az * np.cos(np.radians(self.F_sky_El[mask_tel]))
 
         # Pipeline is here : simple baseline for now
         bgrds = self.continuum_pipeline(**kwargs)[ikid, mask_tel]
@@ -312,16 +337,14 @@ class KissRawData(KidsRawData):
 
     # Move most of that to __repr__ or __str__
     def listInfo(self):
-        """ List basic observation description and data set dimensions."""
+        """List basic observation description and data set dimensions."""
         super().listInfo()
         print("No. of interfergrams:", self.nint)
         print("No. of time samples per interfergram:", self.nptint)
 
     @property
     def obs(self):
-        """ Parse date, source name, scan number and descrtiption
-        from file name.
-        """
+        """Parse date, source name, scan number and descrtiption from file name."""
         rawfile = self.filename.split("/")[-1]
         rawstr = rawfile.split("_")
         datestr = rawstr[0][1:]
@@ -337,15 +360,15 @@ class KissRawData(KidsRawData):
         return kids_plots.show_maps(self, ikid)
 
     def plot_calib(self, *args, **kwargs):
+        self.__check_attributes(["Icc", "Qcc", "calfact", "kidfreq"])
         return kids_plots.calibPlot(self, *args, **kwargs)
 
     def plot_photometry(self, *args, **kwargs):
-        self.__check_attributes(["F_azimuth", " F_elevation"])
         return kids_plots.photometry(self, *args, **kwargs)
 
     def plot_pointing(self, *args, **kwargs):
-        """ Plot azimuth and elevation to check pointing."""
-        self.__check_attributes(["F_azimuth", " F_elevation"])
+        """Plot azimuth and elevation to check pointing."""
+        self.__check_attributes(["F_tl_az", " F_tl_el"])
         return kids_plots.checkPointing(self, *args, **kwargs)
 
     def read_data(self, *args, **kwargs):
