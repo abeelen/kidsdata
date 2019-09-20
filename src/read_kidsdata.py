@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#pylint: disable=C0301,C0103
+# pylint: disable=C0301,C0103
 import os
 import gc
 import sys
@@ -165,7 +165,7 @@ def read_info(filename, det2read='KID', list_data='all', silent=True):
     # Decode the name
     param_c['nomexp'] = ''
     for key in ['nomexp1', 'nomexp2', 'nomexp3', 'nomexp4']:
-        param_c['nomexp'] +=  param_c[key].tobytes().strip(b'\x00').decode('ascii')
+        param_c['nomexp'] += param_c[key].tobytes().strip(b'\x00').decode('ascii')
         del(param_c[key])
 
     # Decode the IPs :
@@ -332,7 +332,7 @@ def read_all(filename, det2read='KID', list_data='indice A_mask I Q', list_detec
 
         buffer_dataS = buffer_dataS[0:nb_samples_read * _sample_S]
         buffer_dataU = buffer_dataU[0:nb_samples_read // np_pt_bloc * _sample_U]
-    
+
     # Split the buffer into common and data part with proper shape
     _dataSc = buffer_dataS.reshape(nb_samples_read, _sample_S)[:, 0:nb_Sc].T
     _dataSd = np.moveaxis(buffer_dataS.reshape(nb_samples_read, _sample_S)[:, nb_Sc:]
@@ -373,6 +373,15 @@ def read_all(filename, det2read='KID', list_data='indice A_mask I Q', list_detec
     if 'RF_didq' in dataSd:
         shift_rf_didq = -49
         dataSd['RF_didq'] = np.roll(dataSd['RF_didq'], shift_rf_didq, axis=1)
+
+    # Convert units azimuth and elevation to degrees
+    for ckey in ['F_azimuth', 'F_elevation',
+                 'F_tl_Az', 'F_tl_El',
+                 'F_sky_Az', 'F_sky_El',
+                 'F_diff_Az', 'F_diff_El', ]:
+        for data in [dataSc, dataUc]:
+            if ckey in data:
+                data[ckey] = np.rad2deg(data[ckey] / 1000.0)
 
     # Compute time pps_time difference
     if 'A_time' in dataSc:
@@ -417,7 +426,7 @@ def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_re
         if "header" in f:
             grp = f["header"]
         else:
-            grp = f.create_group("header", track_order=True) # Fails....
+            grp = f.create_group("header", track_order=True)  # Fails....
         for key, item in header._asdict().items():
             print(key)
             grp.attrs[key] = item
