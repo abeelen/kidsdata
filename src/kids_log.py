@@ -1,28 +1,17 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Configure loggers for KIDS pipeline.
-
-Created on Thu May 23 11:36:30 2019
-
-"""
-import logging
 import sys
+import logging
+import logging.handlers
 
 # from datetime import datetime
 
 HISTORY = 5
+FORMATTER = logging.Formatter("%(asctime)s  %(levelname)-10s %(processName)s  %(name)s %(message)s")
+LOG_FILE = "kiss_history.log"
 
 
 def history(self, message, *args, **kws):
     if self.isEnabledFor(HISTORY):
         self._log(HISTORY, "PIPELINE HISTORY: " + message, args, **kws)
-
-
-FORMATTER = logging.Formatter("%(asctime)s  %(levelname)-10s %(processName)s  %(name)s %(message)s")
-LOG_FILE = "kiss_history.log"
-# Add more into log_file string later.
-#%%
 
 
 def get_console_handler():
@@ -48,8 +37,3 @@ def history_logger(logger_name, **kwargs):
     l.propagate = False
 
     return l
-
-
-#%% Tests
-# l = history_logger('log_name')
-# l.history('test')
