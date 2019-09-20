@@ -301,7 +301,7 @@ def read_all(
 
     Notes
     -----
-    `list_detector` is an :class:`~numpy.array` of int listing the index of the requested KIDs. The first element being the length of the array
+    `list_detector` is an :class:`~numpy.array` of int listing the index of the requested KIDs.
 
     """
     # Read the basic header from the file and the name of the data
@@ -311,7 +311,9 @@ def read_all(
 
     if list_detector is None:
         list_detector = np.where(~kidpar["index"].mask)[0]
-        list_detector = np.append(list_detector.shape, list_detector).astype(np.int32)
+
+    # Append the number of detectors as expected by the C library
+    list_detector = np.append(len(list_detector), list_detector).astype(np.int32)
 
     assert len(names.RawDataDetector) >= list_detector[0]
 
