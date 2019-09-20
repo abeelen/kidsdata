@@ -111,7 +111,12 @@ class KidsRawData(KidsData):
         print("No. of time samples:", self.nsamples)
 
     def read_data(self, *args, **kwargs):
-        nb_samples_read, dataSc, dataSd, dataUc, dataUd = read_kidsdata.read_all(self.filename, *args, **kwargs)
+        nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd = read_kidsdata.read_all(
+            self.filename, *args, **kwargs
+        )
+
+        if "list_detector" in kwargs:
+            self.ndet = kwargs["list_detector"][0]
 
         if self.nsamples != nb_samples_read:
             self.nsamples = nb_samples_read
@@ -311,8 +316,6 @@ class KissRawData(KidsRawData):
         super().listInfo()
         print("No. of interfergrams:", self.nint)
         print("No. of time samples per interfergram:", self.nptint)
-
-    # Move that to a simple function....
 
     @property
     def obs(self):
