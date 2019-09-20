@@ -81,29 +81,31 @@ def checkPointing(kids):
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2))
     fig.suptitle(kids.filename)
 
-    azimuth, elevation, mask_pointing = kids.F_azimuth, kids.F_elevation, kids.mask_pointing
+    mask_pointing = kids.mask_pointing
     az_tel, el_tel, mask_tel = kids.F_tl_Az, kids.F_tel_El, kids.mask_tel
     az_sky, el_sky = kids.F_sky_Az, kids.F_sky_El
     az_skyQ1, el_skyQ1 = kids.F_skyQ1_Az, kids.F_skyQ1_El
 
-    ax = plt.subplot(2, 2, 1)
-    ax.plot(azimuth[mask_pointing])
-    ax.set_ylabel("Azimuth [deg]")
-    ax.set_xlabel("Sample number [dummy units]")
-    ax.grid()
+    if hasattr(kids, 'F_azimuth') & hasattr(kids, 'F_elevation'):
+        azimuth, elevation = kids.F_azimuth, kids.F_Elevation
+        ax = plt.subplot(2, 2, 1)
+        ax.plot(azimuth[mask_pointing])
+        ax.set_ylabel("Azimuth [deg]")
+        ax.set_xlabel("Sample number [dummy units]")
+        ax.grid()
 
-    ax = plt.subplot(2, 2, 2)
-    ax.plot(elevation[mask_pointing])
-    ax.set_xlabel("Sample number [dummy units]")
-    ax.set_ylabel("Elevation [deg]")
-    ax.grid()
+        ax = plt.subplot(2, 2, 2)
+        ax.plot(elevation[mask_pointing])
+        ax.set_xlabel("Sample number [dummy units]")
+        ax.set_ylabel("Elevation [deg]")
+        ax.grid()
 
-    ax = plt.subplot(2, 2, 3)
-    ax.plot(azimuth[mask_pointing], elevation[mask_pointing], ".")
-    ax.set_xlabel("Azimuth [deg]")
-    ax.set_ylabel("Elevation [deg]")
-    ax.set_title("Pointing")
-    ax.grid()
+        ax = plt.subplot(2, 2, 3)
+        ax.plot(azimuth[mask_pointing], elevation[mask_pointing], ".")
+        ax.set_xlabel("Azimuth [deg]")
+        ax.set_ylabel("Elevation [deg]")
+        ax.set_title("Pointing")
+        ax.grid()
 
     ax = plt.subplot(2, 2, 4)
     plt.plot(az_tel[mask_tel], el_tel[mask_tel], "+", ms=12, label="Telescope")
