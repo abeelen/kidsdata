@@ -3,16 +3,25 @@
 # import astropy
 import warnings
 import numpy as np
+from pathlib import Path
+
 from functools import lru_cache
+
+from dateutil.parser import parse
+from scipy.interpolate import interp1d
+
+import astropy.units as u
+from astropy.time import Time
 from astropy.wcs import WCS
+from astropy.utils.console import ProgressBar
+from astropy.coordinates import Latitude, Longitude, get_body, AltAz, EarthLocation
+
 from . import pipeline
 from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
 from . import kids_log
-from .utils import project, build_wcs
-from astropy.time import Time
-
+from . utils import project, build_wcs
 
 try:
     try:
@@ -29,6 +38,19 @@ except ModuleNotFoundError:
 
         def telescope2sky(self, *args):
             return args
+
+# TODO: should not be defined here....
+# Add used observatories
+EarthLocation._get_site_registry()
+
+# Alessandro Fasano Private Comm
+EarthLocation._site_registry.add_site(['Quijote', 'KISS'],
+                                      EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m))
+# JMP code
+EarthLocation._site_registry.add_site(['Teide', 'Tenerife'],
+                                      EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m))
+EarthLocation._site_registry.add_site(['IRAM30m', '30m', 'NIKA', 'NIKA2'],
+                                      EarthLocation(lat=37.066111111111105 * u.deg, lon=-3.392777777777778 * u.deg, height=2850 * u.m))
 
 
 class KidsData(object):
@@ -81,7 +103,7 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.list_detector = np.where(~self.kidpar["index"].mask)
+        self.list_detector = np.where(~self.kidpar["index"].mask)[0]
 
     def __len__(self):
         return self.nsamples
@@ -91,29 +113,43 @@ class KidsRawData(KidsData):
         return len(self.list_detector)
 
     @property
-    def obs(self):
-        # Future: From database/observation log.
-        date = None
-        date_utc = None
-        source = None
-        n_scan = None
-        obstype = None
+    @lru_cache(maxsize=1)
+    def obsdate(self):
+        """Return the obsdate of the observation, based on filename."""
+        date = Path(self.filename).name[1:].split('_')[0]
+        return Time(parse(date), scale='utc', out_subfmt='date')  # UTC ??
 
-        return {"source": source, "date": date, "obstype": obstype, "nscan": n_scan, "date_utc": date_utc}
+    @property
+    @lru_cache(maxsize=1)
+    def scan(self):
+        """Return the scan number of the observation, based on filename."""
+        return Path(self.filename).name[1:].split('_')[2]
 
-    def listInfo(self):
+    @property
+    @lru_cache(maxsize=1)
+    def source(self):
+        """Return the source name, based on filename."""
+        return Path(self.filename).name[1:].split('_')[3]
+
+    @property
+    @lru_cache(maxsize=1)
+    def obstype(self):
+        """Return the observation type, based on filename."""
+        return Path(self.filename).name[1:].split('_')[4]
+
+    def info(self):
         print("RAW DATA")
         print("==================")
-        print("File name: " + self.filename)
+        print("File name:\t" + self.filename)
         print("------------------")
-        print("Source name: " + self.obs["source"])
-        print("Observed date: " + self.obs["date"])
-        print("Description: " + self.obs["obstype"])
-        print("Scan number: " + self.obs["nscan"])
+        print("Source name:\t" + self.source)
+        print("Observed date:\t" + self.obsdate.iso)
+        print("Description:\t" + self.obstype)
+        print("Scan number:\t" + self.scan)
 
         print("------------------")
-        print("No. of KIDS detectors:", self.ndet)
-        print("No. of time samples:", self.nsamples)
+        print("No. of KIDS detectors:\t", self.ndet)
+        print("No. of time samples:\t", self.nsamples)
 
     def read_data(self, *args, **kwargs):
         nb_samples_read, self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd = read_kidsdata.read_all(
@@ -174,7 +210,7 @@ class KidsRawData(KidsData):
                     attr_list += depend_keys
                 _dependancies.append(_dependancy)
 
-        missing = [attr for attr in attr_list if not hasattr(self, attr) and (getattr(self, attr) is not None)]
+        missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
         if missing:
             # TODO: check that there attributes are present in the file
             list_data = " ".join(missing)
@@ -188,8 +224,8 @@ class KidsRawData(KidsData):
             assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
 
         # Extra check for the dependancies
-        if dependancies:
-            for request_keys, depend_keys in dependancies:
+        if _dependancies[0]:
+            for request_keys, depend_keys in _dependancies:
                 for key in depend_keys:
                     assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
 
@@ -209,7 +245,6 @@ class KidsRawData(KidsData):
             the list which should be used for the `.read_data()` method
         """
         list_detector = np.where(~self.kidpar["index"].mask & [pattern in name for name in self.kidpar["namedet"]])[0]
-        list_detector = np.append(list_detector.shape, list_detector).astype(np.int32)
         return list_detector
 
 
@@ -234,7 +269,7 @@ class KissRawData(KidsRawData):
 
     Methods
     -------
-    listInfo()
+    info()
         Display the basic infomation about the data file.
     read_data(list_data = 'all')
         List selected data.
@@ -270,7 +305,7 @@ class KissRawData(KidsRawData):
 
         _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
 
-        if _dependancies[0]:
+        if _dependancies is not None:
             self.calib_raw()
 
     @property
@@ -296,7 +331,77 @@ class KissRawData(KidsRawData):
         """
         return pipeline_func(self, *args, **kwargs)
 
-    def continuum_beammaps(self, ikid=None, wcs=None, coord="sky", **kwargs):
+
+    @property
+    @lru_cache(maxsize=1)
+    def obstime(self):
+        """Recompute the proper obs time in UTC per interferograms."""
+        times = ['A_hours', 'A_time_pps']
+        self._KissRawData__check_attributes(times)
+
+        # TODO: Correction should be done at reading time
+        for time in times:
+            idx = np.arange(self.nsamples)
+            _time = getattr(self, time)
+            bad = (np.abs(np.diff(_time, append=0)) > 2) | (_time == 0)
+            if any(bad):
+                # Still not correct anyway, the timing goes on and off....
+                func = interp1d(idx[~bad], _time[~bad], kind='linear', fill_value="extrapolate")
+                _time[bad] = func(idx[bad])
+
+        obstime = self.obsdate
+
+        # Getting only time per interferograms here :
+        return obstime + np.median((self.A_hours + self.A_time_pps).reshape((self.nint, self.nptint)), axis=1) * u.s
+
+    @lru_cache(maxsize=2)
+    def get_object_altaz(self, npoints=None):
+        """Get object position interpolator."""
+        if npoints is None:
+            anchor_time = self.obstime
+        else:
+            # Find npoints between first and last observing time
+            anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints),
+                               format="mjd", scale="utc")
+        alts = []
+        azs = []
+
+        for time in ProgressBar(anchor_time):
+            frame = AltAz(obstime=time, location=EarthLocation.of_site('KISS'))
+            coord = get_body(self.source.lower(), time).transform_to(frame)
+            alts.append(coord.alt)
+            azs.append(coord.az)
+
+        alts_deg = Latitude(alts).to(u.deg).value
+        azs_deg = Longitude(azs).to(u.deg).value
+
+        return interp1d(anchor_time.mjd, azs_deg), interp1d(anchor_time.mjd, alts_deg)
+
+    @property
+    @lru_cache(maxsize=1)
+    def F_pdiff_Az(self):
+        """Return corrected diff Azimuths."""
+        self.__check_attributes(["F_sky_Az", "F_sky_El"])
+
+        # Fast interpolation
+        obstime = self.obstime
+        interp_az, _ = self.get_object_altaz(npoints=100)
+        return (self.F_sky_Az - interp_az(obstime.mjd)) * np.cos(np.radians(self.F_sky_El))
+
+    @property
+    @lru_cache(maxsize=1)
+    def F_pdiff_El(self):
+        """Return corrected diff Elevation."""
+        self.__check_attributes(["F_sky_El"])
+
+        # Fast interpolation
+        obstime = self.obstime
+        _, interp_el = self.get_object_altaz(npoints=100)
+        return self.F_sky_El - interp_el(obstime.mjd)
+
+    def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
+
+        assert "diff" in coord, "beammaps should be done of `diff` coordinates"
 
         az_coord = "F_{}_Az".format(coord)
         el_coord = "F_{}_El".format(coord)
@@ -311,10 +416,6 @@ class KissRawData(KidsRawData):
         az = getattr(self, az_coord)[mask_tel]
         el = getattr(self, el_coord)[mask_tel]
 
-        if coord == "diff":
-            self.logger.warning("test on diff correction")
-            az = az * np.cos(np.radians(self.F_sky_El[mask_tel]))
-
         # Pipeline is here : simple baseline for now
         bgrds = self.continuum_pipeline(**kwargs)[ikid, mask_tel]
 
@@ -323,11 +424,16 @@ class KissRawData(KidsRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, shape = build_wcs(az, el, **kwargs)
-            x, y = wcs.all_world2pix(az, el, 0)
+            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
+            x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
+            x_min, y_min = x.min(), y.min()
+            wcs.wcs.crpix = (-x_min, -y_min)
+            x -= x_min
+            y -= y_min
         else:
             x, y = wcs.all_world2pix(az, el, 0)
-            shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
+
+        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
 
         outputs = []
         for bgrd in bgrds:
@@ -336,25 +442,11 @@ class KissRawData(KidsRawData):
         return outputs, wcs
 
     # Move most of that to __repr__ or __str__
-    def listInfo(self):
+    def info(self):
         """List basic observation description and data set dimensions."""
-        super().listInfo()
-        print("No. of interfergrams:", self.nint)
-        print("No. of time samples per interfergram:", self.nptint)
-
-    @property
-    def obs(self):
-        """Parse date, source name, scan number and descrtiption from file name."""
-        rawfile = self.filename.split("/")[-1]
-        rawstr = rawfile.split("_")
-        datestr = rawstr[0][1:]
-        date = "-".join([datestr[0:4], datestr[4:6], datestr[6:8]])  # Observation date in iso format
-        date_utc = Time(date)  # UTC Time object
-        source = rawstr[-2]  # Source name
-        n_scan = rawstr[2]  # Scan number
-        type_obs = rawstr[-1]  # Type of the track: e.g. SCIENCEMAP, SKYRASTER
-
-        return {"source": source, "date": date, "obstype": type_obs, "nscan": n_scan, "date_utc": date_utc}
+        super().info()
+        print("No. of interfergrams:\t", self.nint)
+        print("No. of points per interfergram:\t", self.nptint)
 
     def plot_beammap(self, ikid, *args, **kwarys):
         return kids_plots.show_maps(self, ikid)
@@ -381,8 +473,9 @@ class KissRawData(KidsRawData):
             indice = self._KidsRawData__dataSc["indice"]
             assert self.nptint == np.int(indice.max() - indice.min() + 1), "Problem with 'indice' or header"
 
+        # Support for old parameters
         if "F_azimuth" in self.__dict__ and "F_elevation" in self.__dict__:
-            self.mask_pointing = (self.F_azimuth != 0) & (self.F_elevation != 0)
+            warnings.warn("F_azimuth and F_elevation are deprecated", DeprecationWarning)
 
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
             if self.F_azimuth.shape == (self.nint * self.nptint,):

@@ -97,14 +97,14 @@ def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, *
     -------
     wcs: `~astropy.wcs.WCS`
         the wcs for the projection
-    shape: tuple of int
-        the shape to porject all the data
+    x, y: list of floats
+        the projected positions
     """
 
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ctype
 
-    if ctype is ("TLON-TAN" "TLAT-TAN"):
+    if ctype == ("TLON-TAN" "TLAT-TAN"):
         wcs.wcs.name = "Terrestrial coordinates"
 
     wcs.wcs.cdelt = (-cdelt, cdelt)
@@ -120,6 +120,4 @@ def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, *
     x_min, y_min = x.min(), y.min()
     wcs.wcs.crpix = (-x_min, -y_min)
 
-    shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
-
-    return wcs, shape
+    return wcs, x, y

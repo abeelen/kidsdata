@@ -432,6 +432,10 @@ def read_all(
             if ckey in data:
                 data[ckey] = np.rad2deg(data[ckey] / 1000.0)
 
+    # if "F_diff_Az" in dataUc:
+    #     logging.warn("Correcting diff corrdinates")
+    #     dataUc['F_diff_Az'] = dataUc['F_diff_Az'] * np.cos(np.radians(dataUc['F_sky_El']))
+
     # Compute time pps_time difference
     if "A_time" in dataSc:
         pps = dataSc["A_time"]
