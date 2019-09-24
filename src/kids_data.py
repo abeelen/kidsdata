@@ -6,13 +6,14 @@ import numpy as np
 from pathlib import Path
 
 from functools import lru_cache
+from itertools import chain
 
 from dateutil.parser import parse
 from scipy.interpolate import interp1d
 
 import astropy.units as u
 from astropy.time import Time
-from astropy.wcs import WCS
+from astropy.table import Table, join
 from astropy.utils.console import ProgressBar
 from astropy.coordinates import Latitude, Longitude, get_body, AltAz, EarthLocation
 
@@ -21,7 +22,7 @@ from . import read_kidsdata
 from . import kids_calib
 from . import kids_plots
 from . import kids_log
-from . utils import project, build_wcs
+from .utils import project, build_wcs, fit_gaussian
 
 try:
     try:
@@ -39,18 +40,23 @@ except ModuleNotFoundError:
         def telescope2sky(self, *args):
             return args
 
+
 # TODO: should not be defined here....
 # Add used observatories
 EarthLocation._get_site_registry()
 
 # Alessandro Fasano Private Comm
-EarthLocation._site_registry.add_site(['Quijote', 'KISS'],
-                                      EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m))
+EarthLocation._site_registry.add_site(
+    ["Quijote", "KISS"], EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m)
+)
 # JMP code
-EarthLocation._site_registry.add_site(['Teide', 'Tenerife'],
-                                      EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m))
-EarthLocation._site_registry.add_site(['IRAM30m', '30m', 'NIKA', 'NIKA2'],
-                                      EarthLocation(lat=37.066111111111105 * u.deg, lon=-3.392777777777778 * u.deg, height=2850 * u.m))
+EarthLocation._site_registry.add_site(
+    ["Teide", "Tenerife"], EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m)
+)
+EarthLocation._site_registry.add_site(
+    ["IRAM30m", "30m", "NIKA", "NIKA2"],
+    EarthLocation(lat=37.066111111111105 * u.deg, lon=-3.392777777777778 * u.deg, height=2850 * u.m),
+)
 
 
 class KidsData(object):
@@ -116,26 +122,26 @@ class KidsRawData(KidsData):
     @lru_cache(maxsize=1)
     def obsdate(self):
         """Return the obsdate of the observation, based on filename."""
-        date = Path(self.filename).name[1:].split('_')[0]
-        return Time(parse(date), scale='utc', out_subfmt='date')  # UTC ??
+        date = Path(self.filename).name[1:].split("_")[0]
+        return Time(parse(date), scale="utc", out_subfmt="date")  # UTC ??
 
     @property
     @lru_cache(maxsize=1)
     def scan(self):
         """Return the scan number of the observation, based on filename."""
-        return Path(self.filename).name[1:].split('_')[2]
+        return Path(self.filename).name[1:].split("_")[2]
 
     @property
     @lru_cache(maxsize=1)
     def source(self):
         """Return the source name, based on filename."""
-        return Path(self.filename).name[1:].split('_')[3]
+        return Path(self.filename).name[1:].split("_")[3]
 
     @property
     @lru_cache(maxsize=1)
     def obstype(self):
         """Return the observation type, based on filename."""
-        return Path(self.filename).name[1:].split('_')[4]
+        return Path(self.filename).name[1:].split("_")[4]
 
     def info(self):
         print("RAW DATA")
@@ -214,22 +220,18 @@ class KidsRawData(KidsData):
         if missing:
             # TODO: check that there attributes are present in the file
             list_data = " ".join(missing)
-            print("Missing data list: ", list_data)
+            print("Missing data : ", list_data)
             print("-----Now reading--------")
 
-            self.read_data(list_data=list_data)
+            self.read_data(list_data=list_data, list_detector=self.list_detector)
 
         # Check that everything was read
         for key in attr_list:
             assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
 
-        # Extra check for the dependancies
-        if _dependancies[0]:
-            for request_keys, depend_keys in _dependancies:
-                for key in depend_keys:
-                    assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
-
-            return _dependancies
+        if _dependancies:
+            return list(chain(*_dependancies)) or None
+        return None
 
     def get_list_detector(self, pattern=None):
         """Retrieve the valid detector list given a pattern.
@@ -246,6 +248,19 @@ class KidsRawData(KidsData):
         """
         list_detector = np.where(~self.kidpar["index"].mask & [pattern in name for name in self.kidpar["namedet"]])[0]
         return list_detector
+
+    def _extend_kidpar(self, extra):
+        """Extend the kidpar with extra values.
+
+        Parameters
+        ----------
+        extra: :~astropy.Table.table:
+            the extra parameters with a column 'index' corresponding to the kidpar
+        """
+        mask = self.kidpar["index"].mask
+        self.kidpar["index"].mask = False
+        self.kidpar = join(self.kidpar, extra, join_type="outer", keys="index")
+        self.kidpar["index"].mask = mask
 
 
 # pylint: disable=no-member
@@ -312,7 +327,7 @@ class KissRawData(KidsRawData):
     @lru_cache(maxsize=1)
     def continuum(self):
         """Background based on calibration factors."""
-        assert (self.R0 is not None) & (self.P0 is not None) & (self.calfact is not None), "Calibration factors missing"
+        self.__check_attributes(["R0", "P0", "calfact"])
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=2)
@@ -331,12 +346,11 @@ class KissRawData(KidsRawData):
         """
         return pipeline_func(self, *args, **kwargs)
 
-
     @property
     @lru_cache(maxsize=1)
     def obstime(self):
         """Recompute the proper obs time in UTC per interferograms."""
-        times = ['A_hours', 'A_time_pps']
+        times = ["A_hours", "A_time_pps"]
         self._KissRawData__check_attributes(times)
 
         # TODO: Correction should be done at reading time
@@ -346,7 +360,7 @@ class KissRawData(KidsRawData):
             bad = (np.abs(np.diff(_time, append=0)) > 2) | (_time == 0)
             if any(bad):
                 # Still not correct anyway, the timing goes on and off....
-                func = interp1d(idx[~bad], _time[~bad], kind='linear', fill_value="extrapolate")
+                func = interp1d(idx[~bad], _time[~bad], kind="linear", fill_value="extrapolate")
                 _time[bad] = func(idx[bad])
 
         obstime = self.obsdate
@@ -361,13 +375,12 @@ class KissRawData(KidsRawData):
             anchor_time = self.obstime
         else:
             # Find npoints between first and last observing time
-            anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints),
-                               format="mjd", scale="utc")
+            anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints), format="mjd", scale="utc")
         alts = []
         azs = []
 
         for time in ProgressBar(anchor_time):
-            frame = AltAz(obstime=time, location=EarthLocation.of_site('KISS'))
+            frame = AltAz(obstime=time, location=EarthLocation.of_site("KISS"))
             coord = get_body(self.source.lower(), time).transform_to(frame)
             alts.append(coord.alt)
             azs.append(coord.az)
@@ -436,10 +449,24 @@ class KissRawData(KidsRawData):
         shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
 
         outputs = []
+        popts = []
         for bgrd in bgrds:
-            outputs.append(project(x, y, bgrd, shape))
+            output = project(x, y, bgrd, shape)
+            outputs.append(output)
+            if np.any(~np.isnan(output)):
+                popts.append(fit_gaussian(output))
+            else:
+                popts.append([np.nan] * 7)
 
-        return outputs, wcs
+        idx = self.kidpar[self.list_detector[ikid]]["index"]
+        popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
+        for item in ["x0", "fwhm_x"]:
+            popts[item] *= wcs.wcs.cdelt[0]
+        for item in ["y0", "fwhm_y"]:
+            popts[item] *= wcs.wcs.cdelt[1]
+        popts.add_column(idx, 0)
+
+        return outputs, wcs, popts
 
     # Move most of that to __repr__ or __str__
     def info(self):
@@ -448,8 +475,14 @@ class KissRawData(KidsRawData):
         print("No. of interfergrams:\t", self.nint)
         print("No. of points per interfergram:\t", self.nptint)
 
-    def plot_beammap(self, ikid, *args, **kwarys):
-        return kids_plots.show_maps(self, ikid)
+    def plot_beammap(self, *args, **kwargs):
+        datas, wcs, popts = self.continuum_beammaps(*args, **kwargs)
+        return kids_plots.show_beammaps(self, datas, wcs, popts), datas, wcs, popts
+
+    def plot_kidpar(self, *args, **kwargs):
+        fig_geometry = kids_plots.show_kidpar(self)
+        fig_fwhm = kids_plots.show_kidpar_fwhm(self)
+        return fig_geometry, fig_fwhm
 
     def plot_calib(self, *args, **kwargs):
         self.__check_attributes(["Icc", "Qcc", "calfact", "kidfreq"])

@@ -8,6 +8,7 @@ Created on Thu Mar 14 20:38:32 2019
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
 from astropy.wcs import WCS
@@ -19,58 +20,58 @@ from scipy.ndimage.filters import minimum_filter
 # from Labtools_JM_KISS import kiss_map_proj as kmp
 
 
-def calibPlot(kids, ikid=0):
+def calibPlot(self, ikid=0):
     """ Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
         show median calfact for all detectors in the last panel.
     """
     fig = plt.figure(figsize=(5 * 3, 4 * 2))
 
     ax = plt.subplot(2, 3, 1)
-    ax.plot(kids.Icc[ikid, :], label="Original")
-    ax.plot(smooth(kids.Icc[ikid, :], 21), label="Smoothed")
+    ax.plot(self.Icc[ikid, :], label="Original")
+    ax.plot(smooth(self.Icc[ikid, :], 21), label="Smoothed")
     ax.grid()
     ax.set_ylabel("I circle center [arbitrary units]")
     ax.set_xlabel("Sample Number")
     ax.legend()
 
     ax = plt.subplot(2, 3, 2)
-    ax.plot(kids.Qcc[ikid, :], label="Original")
-    ax.plot(smooth(kids.Qcc[ikid, :], 21), label="Smoothed")
+    ax.plot(self.Qcc[ikid, :], label="Original")
+    ax.plot(smooth(self.Qcc[ikid, :], 21), label="Smoothed")
     ax.grid()
     ax.set_ylabel("Q circle center [arbitrary units]")
     ax.set_xlabel("Sample Number")
     ax.legend()
 
     ax = plt.subplot(2, 3, 3)
-    ax.plot(kids.calfact[ikid, :], label="Original")
-    ax.plot(smooth(kids.calfact[ikid, :], 21), label="Smoothed")
+    ax.plot(self.calfact[ikid, :], label="Original")
+    ax.plot(smooth(self.calfact[ikid, :], 21), label="Smoothed")
     ax.grid()
     ax.set_ylabel("Calibration Factor [Hz/rad]")
     ax.set_xlabel("Sample Number")
     ax.legend()
 
     ax = plt.subplot(2, 3, 4)
-    ax.plot(kids.kidfreq[ikid, 4:12].ravel(), label="Detector:" + kids.kidpar["namedet"][ikid])
+    ax.plot(self.kidfreq[ikid, 4:12].ravel(), label="Detector:" + self.kidpar["namedet"][ikid])
     ax.grid()
     ax.set_ylabel("Signal [Hz]")
     ax.set_xlabel("Sample Number")
     ax.legend()
 
     ax = plt.subplot(2, 3, 5)
-    ax.plot(np.median(kids.calfact, axis=1), label="Original")
-    ax.plot(medfilt(np.median(kids.calfact, axis=1), 5), label="Fitted")
+    ax.plot(np.median(self.calfact, axis=1), label="Original")
+    ax.plot(medfilt(np.median(self.calfact, axis=1), 5), label="Fitted")
     ax.grid()
     ax.set_ylabel("Median Calibration Factor [Hz/rad]")
     ax.set_xlabel("Detector Number")
     ax.legend()
 
-    fig.suptitle(kids.filename)
+    fig.suptitle(self.filename)
     fig.tight_layout()
 
     return fig
 
 
-def checkPointing(kids):
+def checkPointing(self):
     """ Plot:
         1. Azimuth distribution of samples.
         2. Elevation distribuiton of samples.
@@ -79,15 +80,15 @@ def checkPointing(kids):
         compared with pointing models.
     """
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2))
-    fig.suptitle(kids.filename)
+    fig.suptitle(self.filename)
 
-    mask_pointing = kids.mask_pointing
-    az_tel, el_tel, mask_tel = kids.F_tl_Az, kids.F_tel_El, kids.mask_tel
-    az_sky, el_sky = kids.F_sky_Az, kids.F_sky_El
-    az_skyQ1, el_skyQ1 = kids.F_skyQ1_Az, kids.F_skyQ1_El
+    mask_pointing = self.mask_pointing
+    az_tel, el_tel, mask_tel = self.F_tl_Az, self.F_tel_El, self.mask_tel
+    az_sky, el_sky = self.F_sky_Az, self.F_sky_El
+    az_skyQ1, el_skyQ1 = self.F_skyQ1_Az, self.F_skyQ1_El
 
-    if hasattr(kids, 'F_azimuth') & hasattr(kids, 'F_elevation'):
-        azimuth, elevation = kids.F_azimuth, kids.F_Elevation
+    if hasattr(self, "F_azimuth") & hasattr(self, "F_elevation"):
+        azimuth, elevation = self.F_azimuth, self.F_Elevation
         ax = plt.subplot(2, 2, 1)
         ax.plot(azimuth[mask_pointing])
         ax.set_ylabel("Azimuth [deg]")
@@ -122,11 +123,11 @@ def checkPointing(kids):
 
 
 #%%
-def photometry(kids):
+def photometry(self):
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2 + 0.5))
-    fig.suptitle(kids.filename)
+    fig.suptitle(self.filename)
 
-    bgrd = kids.continuum
+    bgrd = self.continuum
     meds = np.median(bgrd, axis=1)
     stds = np.std(bgrd, axis=1)
 
@@ -148,24 +149,120 @@ def photometry(kids):
 #%%
 
 
-def show_maps(kids, ikid=0):
+def show_maps(self, ikid=0):
     nrow = 1
     ncol = 1
     fig = plt.figure(figsize=(5 * ncol + 1, 4 * nrow + 0.5))
 
     subtitle = str(testikid)
-    fig.suptitle(kids.filename + subtitle)
+    fig.suptitle(self.filename + subtitle)
 
     ax = plt.subplot(ncol, nrow, 1)
-    ax.imshow(kids.beammap)
+    ax.imshow(self.beammap)
 
-    #    wcs = kids.beamwcs
+    #    wcs = self.beamwcs
     #    ax = plt.subplot(ncol, nrow, 1, projection=wcs)
-    #    bgrs = kids.bgrs[153, kids.mask_tel]
+    #    bgrs = self.bgrs[153, self.mask_tel]
     #    ax.imshow(bgrs)
 
     ax.grid(color="white", ls="solid")
     #    ax.set_xlabel('Az [deg]')
     #    ax.set_ylabel('El [deg]')
 
+    return fig
+
+
+def show_beammaps(self, datas, wcs, popts):
+    # Plot all det
+    nx = np.ceil(np.sqrt(self.ndet)).astype(np.int)
+    ny = np.ceil(self.ndet / nx).astype(np.int)
+    fig_beammap, axes = plt.subplots(nx, ny, sharex=True, sharey=True, subplot_kw={"projection": wcs})
+    fig_beammap.set_size_inches(10, 11)
+    fig_beammap.subplots_adjust(hspace=0, wspace=0)
+    for _data, popt, ax in zip(datas, popts, axes.flatten()):
+        ax.imshow(_data, origin="lower")
+        ax.set_aspect("equal", "box")
+        if popt is not None:
+            ax.add_patch(
+                Ellipse(
+                    xy=[popt["x0"] / wcs.wcs.cdelt[0], popt["y0"] / wcs.wcs.cdelt[1]],
+                    width=popt["fwhm_x"] / wcs.wcs.cdelt[0],
+                    height=popt["fwhm_y"] / wcs.wcs.cdelt[1],
+                    angle=np.degrees(popt["theta"]),
+                    edgecolor="r",
+                    fc="None",
+                    lw=2,
+                )
+            )
+
+    for ax in axes.ravel():
+        if ax.images == []:
+            ax.set_axis_off()
+            if getattr(ax, "coords"):
+                ax.coords[0].set_ticklabel_visible(False)
+                ax.coords[0].set_ticks_visible(False)
+                ax.coords[0].set_axislabel("")
+                ax.coords[1].set_ticklabel_visible(False)
+                ax.coords[1].set_ticks_visible(False)
+                ax.coords[1].set_axislabel("")
+                ax.set_visible(False)
+
+    for ax in axes[0:-1, 1:].ravel():
+        ax.coords[0].set_ticklabel_visible(False)
+        ax.coords[1].set_ticklabel_visible(False)
+
+    for ax in axes[:-1, 0:].ravel():
+        ax.coords[0].set_ticklabel_visible(False)
+
+    for ax in axes[-1, 1:].ravel():
+        ax.coords[1].set_ticklabel_visible(False)
+
+    fig_beammap.suptitle(self.filename)
+
+
+def show_kidpar(self, show_beam=True):
+    # Geometry
+    popt = self.kidpar[self.list_detector]
+    pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
+
+    # Remove median value, to get relative offsets
+    pos -= np.nanmedian(pos, axis=0)
+    fig, ax = plt.subplots()
+    ax.plot(pos[:, 0], pos[:, 1], "o")
+
+    if show_beam:
+        for _popt, _pos in zip(popt, pos):
+            ax.add_patch(
+                Ellipse(
+                    xy=_pos,
+                    width=_popt["fwhm_x"] * 60,
+                    height=_popt["fwhm_y"] * 60,
+                    angle=np.degrees(_popt["theta"]),
+                    edgecolor="r",
+                    fc="None",
+                    lw=2,
+                )
+            )
+
+    ax.set_aspect("equal")
+    ax.set_xlabel("median lon offset [arcmin]")
+    ax.set_ylabel("median lat offset [arcmin]")
+    fig.suptitle(self.filename)
+    ax.set_xlim(-0.62 * 60, 0.62 * 60)
+    ax.set_ylim(-0.62 * 60, 0.62 * 60)
+
+    return fig
+
+
+def show_kidpar_fwhm(self):
+
+    sizes = (
+        np.array([self.kidpar[self.list_detector]["fwhm_x"], self.kidpar[self.list_detector]["fwhm_y"]]).T * 60
+    )  # arcmin
+    fig, ax = plt.subplots()
+    for _sizes, label in zip(sizes.T, ["major", "minor"]):
+        ax.hist(np.abs(_sizes), label=label, alpha=0.5, range=(0, 40), bins=50)
+    ax.legend()
+    ax.set_xlabel("FWHM [arcmin]")
+    fig.suptitle(self.filename)
     return fig

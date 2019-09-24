@@ -121,3 +121,38 @@ def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, *
     wcs.wcs.crpix = (-x_min, -y_min)
 
     return wcs, x, y
+
+
+def elliptical_gaussian(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
+    """Ellipcital gaussian function."""
+    x, y = X
+    xo = float(xo)
+    yo = float(yo)
+    sigma_x_sqr = (fwhm_x * gaussian_fwhm_to_sigma) ** 2
+    sigma_y_sqr = (fwhm_y * gaussian_fwhm_to_sigma) ** 2
+    a = np.cos(theta) ** 2 / (2 * sigma_x_sqr) + np.sin(theta) ** 2 / (2 * sigma_y_sqr)
+    b = np.sin(2 * theta) / (4 * sigma_x_sqr) - np.sin(2 * theta) / (4 * sigma_y_sqr)
+    c = np.sin(theta) ** 2 / (2 * sigma_x_sqr) + np.cos(theta) ** 2 / (2 * sigma_y_sqr)
+    g = offset + amplitude * np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2)))
+    return g.ravel()
+
+
+def fit_gaussian(data, func=elliptical_gaussian):
+    """Return (height, x, y, width_x, width_y, theta, offset)
+    the gaussian parameters of a 2D distribution found by a fit"""
+    Y, X = np.indices(data.shape)
+    mask = np.isnan(data)
+
+    x = X[~mask].flatten()
+    y = Y[~mask].flatten()
+    d = data[~mask].flatten()
+
+    params = [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 5, 5, 0, 0]
+
+    params = np.asarray(params)
+    try:
+        popt, pcov = optimize.curve_fit(func, (x, y), d, p0=params)
+    except RuntimeError:
+        popt = [np.nan] * len(params)
+
+    return popt
