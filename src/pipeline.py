@@ -3,10 +3,10 @@ from scipy import ndimage
 from scipy.signal import medfilt
 
 
-def basic_continuum(self, diff_mask=False, medfilt_size=None, **kwargs):
+def basic_continuum(self, ikid, diff_mask=False, medfilt_size=None, **kwargs):
 
     # Only a rough Baseline for now...
-    bgrd = self.continuum
+    bgrd = self.continuum[ikid]
     if diff_mask:
         # Try to flag the saturated part : where the signal change too much
         diff_bgrd = np.gradient(bgrd, axis=1) / bgrd.std(axis=1)[:, np.newaxis]

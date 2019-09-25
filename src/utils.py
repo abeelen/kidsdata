@@ -187,15 +187,15 @@ def elliptical_disk_start_params(data):
     ]
 
 
-def fit_gaussian(data, sigma=None, func=elliptical_gaussian):
+def fit_gaussian(data, weight=None, func=elliptical_gaussian):
     """Fit a gaussian on a map.
 
     Parameters
     ----------
     data : array_like
         the input 2D map
-    sigma : array_like (optional)
-        the corresponding uncertainty
+    weight : array_like (optional)
+        the corresponding weights
     func : function
         the fitted function
 
@@ -215,10 +215,12 @@ def fit_gaussian(data, sigma=None, func=elliptical_gaussian):
     x = X[~mask].flatten()
     y = Y[~mask].flatten()
     d = data[~mask].flatten()
-    if sigma is None:
+    if weight is None:
         s = np.ones_like(d)
     else:
-        s = sigma[~mask].flatten()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            s = 1 / np.sqrt(weight[~mask].flatten())
 
     start_params_func = globals().get("{}_start_params".format(func.__name__))
     if start_params_func is not None:

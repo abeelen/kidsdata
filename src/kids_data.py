@@ -345,20 +345,28 @@ class KissRawData(KidsRawData):
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=2)
-    def continuum_pipeline(self, *args, pipeline_func=pipeline.basic_continuum, **kwargs):
+    def continuum_pipeline(self, ikid, *args, pipeline_func=pipeline.basic_continuum, **kwargs):
         """Return the continuum data processed by given pipeline.
 
         Parameters
         ----------
-        pipeline_function:
+        ikid : tuple
+            the list of kid index in self.list_detector to use
+        pipeline_function : function
             Default: pipeline.basic_continuum.
 
         Notes
         -----
         Any other args and kwargs are given to the pipeline function.
+        ikid *must* be a tuple when calling the function, for lru_cache to work
 
         """
-        return pipeline_func(self, *args, **kwargs)
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+        else:
+            ikid = np.asarray(ikid)
+
+        return pipeline_func(self, ikid, *args, **kwargs)
 
     @property
     @lru_cache(maxsize=1)
@@ -435,7 +443,7 @@ class KissRawData(KidsRawData):
         self.__check_attributes([az_coord, el_coord])
 
         if ikid is None:
-            ikid = slice(None)
+            ikid = np.arange(len(self.list_detector))
 
         mask_tel = self.mask_tel
 
@@ -443,7 +451,7 @@ class KissRawData(KidsRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
-        bgrds = self.continuum_pipeline(**kwargs)[ikid][:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
         kidspars = self.kidpar[self.list_detector[ikid]]
 
         # In case we project only one detector
@@ -482,7 +490,7 @@ class KissRawData(KidsRawData):
         self.__check_attributes([az_coord, el_coord])
 
         if ikid is None:
-            ikid = slice(None)
+            ikid = np.arange(len(self.list_detector))
 
         mask_tel = self.mask_tel
 
@@ -490,7 +498,7 @@ class KissRawData(KidsRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
-        bgrds = self.continuum_pipeline(**kwargs)[ikid][:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -514,7 +522,7 @@ class KissRawData(KidsRawData):
             output, weight, _ = project(x, y, bgrd, shape)
             outputs.append(output)
             if np.any(~np.isnan(output)):
-                popts.append(fit_gaussian(output, sigma=1 / np.sqrt(weight)))
+                popts.append(fit_gaussian(output, weight))
             else:
                 popts.append([np.nan] * 7)
 
