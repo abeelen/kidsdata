@@ -449,11 +449,15 @@ class KissRawData(KidsRawData):
 
         shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
 
-        _x = (x[:, np.newaxis] - kidspars['x0'] / wcs.wcs.cdelt[0]).T
-        _y = (y[:, np.newaxis] - kidspars['y0'] / wcs.wcs.cdelt[1]).T
+        _x = (x[:, np.newaxis] - kidspars["x0"] / wcs.wcs.cdelt[0]).T
+        _y = (y[:, np.newaxis] - kidspars["y0"] / wcs.wcs.cdelt[1]).T
         output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape)
 
-        return ImageHDU(output, header=wcs.to_header(), name="data"), ImageHDU(weight, header=wcs.to_header(), name="weight"), ImageHDU(hits, header=wcs.to_header(), name="hits")
+        return (
+            ImageHDU(output, header=wcs.to_header(), name="data"),
+            ImageHDU(weight, header=wcs.to_header(), name="weight"),
+            ImageHDU(hits, header=wcs.to_header(), name="hits"),
+        )
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
         """Project individual detectors into square map in AltAz coordinates."""

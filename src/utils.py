@@ -77,9 +77,7 @@ def project(x, y, data, shape, weight=None):
         # Put weights as 0 for masked data
         weight = weight * ~data.mask
 
-    _hits, _, _ = np.histogram2d(
-        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)),
-    )
+    _hits, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)))
 
     _weight, _, _ = np.histogram2d(
         y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight
@@ -190,11 +188,12 @@ def fit_gaussian(data, sigma=None, func=elliptical_gaussian):
     else:
         s = sigma[~mask].flatten()
 
-    start_params_func = globals().get('{}_start_params'.format(func.__name__))
+    start_params_func = globals().get("{}_start_params".format(func.__name__))
     if start_params_func is not None:
         params = start_params_func(data)
     else:
         from inspect import signature
+
         n_params = len(signature(func).parameters) - 1
         params = np.zeros(n_params)
 

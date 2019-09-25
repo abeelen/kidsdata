@@ -182,10 +182,10 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
     param_c = dict(zip(name_param_c, val_param_c))
 
     # Decode the name
-    param_c['nomexp'] = ''
-    for key in ['nomexp1', 'nomexp2', 'nomexp3', 'nomexp4']:
-        param_c['nomexp'] += param_c[key].tobytes().strip(b'\x00').decode('ascii')
-        del(param_c[key])
+    param_c["nomexp"] = ""
+    for key in ["nomexp1", "nomexp2", "nomexp3", "nomexp4"]:
+        param_c["nomexp"] += param_c[key].tobytes().strip(b"\x00").decode("ascii")
+        del param_c[key]
 
     # Decode the IPs :
     for key in param_c.keys():
@@ -373,8 +373,8 @@ def read_all(
     if nb_samples_read != nb_to_read:
         logging.warning("Did not read all requested data")
 
-        buffer_dataS = buffer_dataS[0:nb_samples_read * _sample_S]
-        buffer_dataU = buffer_dataU[0:nb_samples_read // np_pt_bloc * _sample_U]
+        buffer_dataS = buffer_dataS[0 : nb_samples_read * _sample_S]
+        buffer_dataU = buffer_dataU[0 : nb_samples_read // np_pt_bloc * _sample_U]
 
     # Split the buffer into common and data part with proper shape
     _dataSc = buffer_dataS.reshape(nb_samples_read, _sample_S)[:, 0:nb_Sc].T
@@ -424,10 +424,7 @@ def read_all(
         dataSd["RF_didq"] = np.roll(dataSd["RF_didq"], shift_rf_didq, axis=1)
 
     # Convert units azimuth and elevation to degrees
-    for ckey in ['F_azimuth', 'F_elevation',
-                 'F_tl_Az', 'F_tl_El',
-                 'F_sky_Az', 'F_sky_El',
-                 'F_diff_Az', 'F_diff_El', ]:
+    for ckey in ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"]:
         for data in [dataSc, dataUc]:
             if ckey in data:
                 data[ckey] = np.rad2deg(data[ckey] / 1000.0)
