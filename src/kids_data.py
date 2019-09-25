@@ -132,7 +132,7 @@ class KidsRawData(KidsData):
     @lru_cache(maxsize=1)
     def scan(self):
         """Return the scan number of the observation, based on filename."""
-        return Path(self.filename).name[1:].split("_")[2]
+        return int(Path(self.filename).name[1:].split("_")[2][1:])
 
     @property
     @lru_cache(maxsize=1)
