@@ -7,7 +7,7 @@ from astropy.stats import gaussian_fwhm_to_sigma
 
 
 def project(x, y, data, shape, weight=None):
-    """Project x,y, data TOIs on a 2D grid
+    """Project x,y, data TOIs on a 2D grid.
 
     Parameters
     ----------
@@ -22,36 +22,48 @@ def project(x, y, data, shape, weight=None):
 
     Returns
     -------
-    proj_data : ndarray
-        the projected data set
+    data, weight, hits : ndarray
+        the projected data set and corresponding weights and hits
 
     Notes
     -----
     The pixel index must follow the 0 indexed convention, i.e. use `origin=0` in `*_worl2pix` methods from `~astropy.wcs.WCS`.
 
-    >>> data = project([0], [0], [1], 2)
+    >>> data, weight, hits = project([0], [0], [1], 2)
     >>> data
     array([[ 1., nan],
            [nan, nan]])
+    >>> weight
+    array([[1., 0.],
+           [0., 0.]])
+    >>> hits
+    array([[1, 0],
+           [0, 0]]))
 
-    >>> data = project([-0.4], [0], [1], 2)
+    >>> data, _, _ = project([-0.4], [0], [1], 2)
     >>> data
     array([[ 1., nan],
            [nan, nan]])
 
     There is no test for out of shape data
 
-    >>> data = project([-0.6, 1.6], [0, 0], [1, 1], 2)
+    >>> data, _, _ = project([-0.6, 1.6], [0, 0], [1, 1], 2)
     >>> data
     array([[nan, nan],
            [nan, nan]])
+
     Weighted means are also possible :
 
-    >>> data = project([-0.4, 0.4], [0, 0], [0.5, 2], 2, weight=[2, 1])
+    >>> data, weight, hits = project([-0.4, 0.4], [0, 0], [0.5, 2], 2, weight=[2, 1])
     >>> data
     array([[ 1., nan],
            [nan, nan]))
-
+    >>> weight
+    array([[3., 0.],
+           [0., 0.]])
+    >>> hits
+    array([[2, 0],
+           [0, 0]])
     """
     if isinstance(shape, (int, np.integer)):
         shape = (shape, shape)
@@ -66,6 +78,10 @@ def project(x, y, data, shape, weight=None):
         weight = weight * ~data.mask
 
     _hits, _, _ = np.histogram2d(
+        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)),
+    )
+
+    _weight, _, _ = np.histogram2d(
         y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight
     )
     _data, _, _ = np.histogram2d(
@@ -74,9 +90,9 @@ def project(x, y, data, shape, weight=None):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        output = _data / _hits
+        output = _data / _weight
 
-    return output
+    return output, _weight, _hits.astype(np.int)
 
 
 def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, **kwargs):
@@ -100,7 +116,6 @@ def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, *
     x, y: list of floats
         the projected positions
     """
-
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ctype
 
