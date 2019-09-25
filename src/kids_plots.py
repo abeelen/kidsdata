@@ -219,6 +219,8 @@ def show_beammaps(self, datas, wcs, popts):
 
     fig_beammap.suptitle(self.filename)
 
+    return fig_beammap
+
 
 def show_kidpar(self, show_beam=True):
     # Geometry
