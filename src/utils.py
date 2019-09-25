@@ -152,21 +152,55 @@ def elliptical_gaussian(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
     return g.ravel()
 
 
-def fit_gaussian(data, func=elliptical_gaussian):
-    """Return (height, x, y, width_x, width_y, theta, offset)
-    the gaussian parameters of a 2D distribution found by a fit"""
+def elliptical_gaussian_start_params(data):
+    """Get starting parameters for ellipcital gaussian."""
+    return [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 5, 5, 0, 0]
+
+
+def fit_gaussian(data, sigma=None, func=elliptical_gaussian):
+    """Fit a gaussian on a map.
+
+    Parameters
+    ----------
+    data : array_like
+        the input 2D map
+    sigma : array_like (optional)
+        the corresponding uncertainty
+    func : function
+        the fitted function
+
+    Returns
+    -------
+    tuple :
+        the optimal parameters for the fitted function or nan if problem
+
+    Notes
+    -----
+    a global function will also be used to get the starting parameters with name `{func}_start_params`
+    for e.g (height, x, y, width_x, width_y, theta, offset) for ellipcital_gaussian
+    """
     Y, X = np.indices(data.shape)
     mask = np.isnan(data)
 
     x = X[~mask].flatten()
     y = Y[~mask].flatten()
     d = data[~mask].flatten()
+    if sigma is None:
+        s = np.ones_like(d)
+    else:
+        s = sigma[~mask].flatten()
 
-    params = [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 5, 5, 0, 0]
+    start_params_func = globals().get('{}_start_params'.format(func.__name__))
+    if start_params_func is not None:
+        params = start_params_func(data)
+    else:
+        from inspect import signature
+        n_params = len(signature(func).parameters) - 1
+        params = np.zeros(n_params)
 
     params = np.asarray(params)
     try:
-        popt, pcov = optimize.curve_fit(func, (x, y), d, p0=params)
+        popt, pcov = optimize.curve_fit(func, (x, y), d, sigma=s, p0=params)
     except RuntimeError:
         popt = [np.nan] * len(params)
 
