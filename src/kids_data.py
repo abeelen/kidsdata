@@ -16,6 +16,7 @@ from astropy.time import Time
 from astropy.table import Table, join
 from astropy.utils.console import ProgressBar
 from astropy.coordinates import Latitude, Longitude, get_body, AltAz, EarthLocation
+from astropy.io.fits import ImageHDU
 
 from . import pipeline
 from . import read_kidsdata
@@ -412,8 +413,50 @@ class KissRawData(KidsRawData):
         _, interp_el = self.get_object_altaz(npoints=100)
         return self.F_sky_El - interp_el(obstime.mjd)
 
-    def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
+    def continuum_map(self, ikid=None, wcs=None, coord="diff", **kwargs):
+        """Project all data into one map."""
 
+        az_coord = "F_{}_Az".format(coord)
+        el_coord = "F_{}_El".format(coord)
+
+        self.__check_attributes([az_coord, el_coord])
+
+        if ikid is None:
+            ikid = slice(None)
+
+        mask_tel = self.mask_tel
+
+        az = getattr(self, az_coord)[mask_tel]
+        el = getattr(self, el_coord)[mask_tel]
+
+        # Pipeline is here : simple baseline for now
+        bgrds = self.continuum_pipeline(**kwargs)[ikid][:, mask_tel]
+        kidspars = self.kidpar[self.list_detector[ikid]]
+
+        # In case we project only one detector
+        if len(bgrds.shape) == 1:
+            bgrds = [bgrds]
+
+        if wcs is None:
+            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
+            x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
+            x_min, y_min = x.min(), y.min()
+            wcs.wcs.crpix = (-x_min, -y_min)
+            x -= x_min
+            y -= y_min
+        else:
+            x, y = wcs.all_world2pix(az, el, 0)
+
+        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
+
+        _x = (x[:, np.newaxis] - kidspars['x0'] / wcs.wcs.cdelt[0]).T
+        _y = (y[:, np.newaxis] - kidspars['y0'] / wcs.wcs.cdelt[1]).T
+        output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape)
+
+        return ImageHDU(output, header=wcs.to_header(), name="data"), ImageHDU(weight, header=wcs.to_header(), name="weight"), ImageHDU(hits, header=wcs.to_header(), name="hits")
+
+    def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
+        """Project individual detectors into square map in AltAz coordinates."""
         assert "diff" in coord, "beammaps should be done of `diff` coordinates"
 
         az_coord = "F_{}_Az".format(coord)
@@ -430,7 +473,7 @@ class KissRawData(KidsRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
-        bgrds = self.continuum_pipeline(**kwargs)[ikid, mask_tel]
+        bgrds = self.continuum_pipeline(**kwargs)[ikid][:, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -451,10 +494,10 @@ class KissRawData(KidsRawData):
         outputs = []
         popts = []
         for bgrd in bgrds:
-            output = project(x, y, bgrd, shape)
+            output, weight, _ = project(x, y, bgrd, shape)
             outputs.append(output)
             if np.any(~np.isnan(output)):
-                popts.append(fit_gaussian(output))
+                popts.append(fit_gaussian(output, sigma=1 / np.sqrt(weight)))
             else:
                 popts.append([np.nan] * 7)
 
