@@ -225,8 +225,6 @@ def show_kidpar(self, show_beam=True):
     popt = self.kidpar[self.list_detector]
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
 
-    # Remove median value, to get relative offsets
-    pos -= np.nanmedian(pos, axis=0)
     fig, ax = plt.subplots()
     ax.plot(pos[:, 0], pos[:, 1], "o")
 
@@ -245,8 +243,8 @@ def show_kidpar(self, show_beam=True):
             )
 
     ax.set_aspect("equal")
-    ax.set_xlabel("median lon offset [arcmin]")
-    ax.set_ylabel("median lat offset [arcmin]")
+    ax.set_xlabel("lon offset [arcmin]")
+    ax.set_ylabel("lat offset [arcmin]")
     fig.suptitle(self.filename)
     ax.set_xlim(-0.62 * 60, 0.62 * 60)
     ax.set_ylim(-0.62 * 60, 0.62 * 60)
