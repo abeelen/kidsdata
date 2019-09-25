@@ -155,6 +155,38 @@ def elliptical_gaussian_start_params(data):
     return [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 5, 5, 0, 0]
 
 
+def elliptical_disk(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
+    """Ellipcital disk function.
+
+    Absolutely not optimal...
+
+    """
+    x, y = X
+    xo = float(xo)
+    yo = float(yo)
+    sigma_x_sqr = (fwhm_x * gaussian_fwhm_to_sigma) ** 2
+    sigma_y_sqr = (fwhm_y * gaussian_fwhm_to_sigma) ** 2
+    a = np.cos(theta) ** 2 / (2 * sigma_x_sqr) + np.sin(theta) ** 2 / (2 * sigma_y_sqr)
+    b = np.sin(2 * theta) / (4 * sigma_x_sqr) - np.sin(2 * theta) / (4 * sigma_y_sqr)
+    c = np.sin(theta) ** 2 / (2 * sigma_x_sqr) + np.cos(theta) ** 2 / (2 * sigma_y_sqr)
+    g = offset + np.select(
+        [np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))) > 0.5], [amplitude]
+    )
+    return g.ravel()
+
+
+def elliptical_disk_start_params(data):
+    """Get starting parameters for ellipcital disk."""
+    return [
+        np.nanmax(data),
+        *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1],
+        10,
+        10,
+        0,
+        np.nanmedian(data),
+    ]
+
+
 def fit_gaussian(data, sigma=None, func=elliptical_gaussian):
     """Fit a gaussian on a map.
 
