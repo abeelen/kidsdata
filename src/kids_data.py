@@ -230,8 +230,12 @@ class KidsRawData(KidsData):
         for key in attr_list:
             assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
 
+        # Check in _dependancies that everything was read, if not we are missing something
         if _dependancies:
-            return list(chain(*_dependancies)) or None
+            missing = [
+                attr for attr in chain(*_dependancies) if not hasattr(self, attr) or (getattr(self, attr) is None)
+            ]
+            return missing or None
         return None
 
     def get_list_detector(self, pattern=None):
@@ -298,8 +302,7 @@ class KissRawData(KidsRawData):
         self.logger = kids_log.history_logger(self.__class__.__name__)
 
     def calib_raw(self, *args, **kwargs):
-        """Calibrate the KIDS timeline"""
-
+        """Calibrate the KIDS timeline."""
         self.__check_attributes(["I", "Q", "A_masq"])
 
         self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
@@ -308,7 +311,6 @@ class KissRawData(KidsRawData):
     # Beware that some are read so are computed...
     def __check_attributes(self, attr_list):
         """ Check if the data has been read an attribute and read in it if not."""
-
         dependancies = [
             # Calibration data depends on the I, Q & A_masq raw data
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
