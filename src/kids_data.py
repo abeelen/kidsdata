@@ -4,6 +4,7 @@
 import warnings
 import numpy as np
 from pathlib import Path
+from copy import copy
 
 from functools import lru_cache
 from itertools import chain
@@ -109,8 +110,9 @@ class KidsRawData(KidsData):
     def __init__(self, filename):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
-        self.header, self.version_header, self.param_c, self.kidpar, self.names, self.nsamples = info
-        self.list_detector = np.where(~self.kidpar["index"].mask)[0]
+        self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = info
+        self.list_detector = np.where(~self._kidpar["index"].mask)[0]
+        self._extended_kidpar = None
 
     def __len__(self):
         return self.nsamples
@@ -251,21 +253,29 @@ class KidsRawData(KidsData):
         list_detector: list
             the list which should be used for the `.read_data()` method
         """
-        list_detector = np.where(~self.kidpar["index"].mask & [pattern in name for name in self.kidpar["namedet"]])[0]
+        list_detector = np.where(~self._kidpar["index"].mask & [pattern in name for name in self._kidpar["namedet"]])[0]
         return list_detector
 
-    def _extend_kidpar(self, extra):
-        """Extend the kidpar with extra values.
+    @property
+    def kidpar(self):
+        """Retrieve the kidpar of the observation.
 
-        Parameters
-        ----------
-        extra: :~astropy.Table.table:
-            the extra parameters with a column 'index' corresponding to the kidpar
+        Notes
+        -----
+        If there is an extended kidpar, it will be merge with the data kidpar
+
         """
-        mask = self.kidpar["index"].mask
-        self.kidpar["index"].mask = False
-        self.kidpar = join(self.kidpar, extra, join_type="outer", keys="index")
-        self.kidpar["index"].mask = mask
+        if self._extended_kidpar:
+            kidpar = copy(self._kidpar)
+            # astropy.table.join fails when index is masked so..
+            mask = kidpar["index"].mask
+            kidpar["index"].mask = False
+            kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="index")
+            kidpar["index"].mask = mask
+        else:
+            kidpar = self._kidpar
+
+        return kidpar
 
 
 # pylint: disable=no-member
@@ -293,6 +303,7 @@ class KissRawData(KidsRawData):
         Display the basic infomation about the data file.
     read_data(list_data = 'all')
         List selected data.
+
     """
 
     def __init__(self, filename):
@@ -507,7 +518,7 @@ class KissRawData(KidsRawData):
             else:
                 popts.append([np.nan] * 7)
 
-        idx = self.kidpar[self.list_detector[ikid]]["index"]
+        idx = self._kidpar[self.list_detector[ikid]]["index"]
         popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
         for item in ["x0", "fwhm_x"]:
             popts[item] *= wcs.wcs.cdelt[0]
