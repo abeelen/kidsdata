@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-from copy import copy
+from copy import deepcopy
 
 from functools import lru_cache
 from itertools import chain
@@ -220,9 +220,10 @@ class KidsRawData(KidsData):
 
         """
         if self._extended_kidpar:
-            kidpar = copy(self._kidpar)
+            kidpar = deepcopy(self._kidpar)
             # astropy.table.join fails when index is masked so..
-            mask = kidpar["index"].mask
+            # See astropy #9289
+            mask = deepcopy(kidpar["index"].mask)
             kidpar["index"].mask = False
             kidpar.remove_indices('namedet')
             kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="index")
