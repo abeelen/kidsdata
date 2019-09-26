@@ -63,7 +63,7 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = info
-        self.list_detector = np.where(~self._kidpar["index"].mask)[0]
+        self.list_detector = np.array(self.kidpar[~self._kidpar["index"].mask]['namedet'])
         self._extended_kidpar = None
 
         self.logger = kids_log.history_logger(self.__class__.__name__)
@@ -194,21 +194,28 @@ class KidsRawData(KidsData):
             return missing or None
         return None
 
-    def get_list_detector(self, pattern=None):
+    def get_list_detector(self, namedet=None, flag=None):
         """Retrieve the valid detector list given a pattern.
 
         Attributes
         ----------
-        pattern: str
+        namedet: str
             any string pattern a KID name should match in a `in` operation
+        flag: int
+            select only KIDs with the given flag
 
         Returns
         -------
         list_detector: list
             the list which should be used for the `.read_data()` method
         """
-        list_detector = np.where(~self._kidpar["index"].mask & [pattern in name for name in self._kidpar["namedet"]])[0]
-        return list_detector
+        mask = ~self._kidpar["index"].mask
+        if namedet is not None:
+            mask &= [namedet in name for name in self._kidpar["namedet"]]
+        if flag is not None:
+            mask &= self._kidpar["flag"] == flag
+
+        return np.array(self.kidpar[mask]['namedet'])
 
     @property
     def kidpar(self):
