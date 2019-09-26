@@ -10,7 +10,7 @@ from functools import wraps
 from astropy.table import Table, join  # for now
 from astropy.utils.console import ProgressBar
 
-from src.kids_data import KissRawData
+from src.kids_data import KidsRawData
 
 BASE_DIRS = [Path(os.getenv("KISS_DATA", "/data/KISS/Raw/nika2c-data3/KISS"))]
 DATABASE_SCAN = None
