@@ -1,7 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# import astropy
-import warnings
 import numpy as np
 from pathlib import Path
 from copy import copy
@@ -228,8 +224,10 @@ class KidsRawData(KidsData):
             # astropy.table.join fails when index is masked so..
             mask = kidpar["index"].mask
             kidpar["index"].mask = False
+            kidpar.remove_indices('namedet')
             kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="index")
             kidpar["index"].mask = mask
+            kidpar.add_index('namedet')
         else:
             kidpar = self._kidpar
 
