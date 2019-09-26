@@ -300,13 +300,13 @@ class KissRawData(KidsRawData):
             else:
                 popts.append([np.nan] * 7)
 
-        idx = self._kidpar[self.list_detector[ikid]]["index"]
+        namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
         popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
         for item in ["x0", "fwhm_x"]:
             popts[item] *= wcs.wcs.cdelt[0]
         for item in ["y0", "fwhm_y"]:
             popts[item] *= wcs.wcs.cdelt[1]
-        popts.add_column(idx, 0)
+        popts.add_column(namedet, 0)
 
         return outputs, wcs, popts
 
