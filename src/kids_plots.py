@@ -1,23 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Mar 14 20:38:32 2019
-
-@author: yixiancao
-"""
-import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
-from astropy.wcs import WCS
-from scipy.ndimage.filters import minimum_filter
-
-#%%
-# from scipy.ndimage.filters import gaussian_filter1d
-
-# from Labtools_JM_KISS import kiss_map_proj as kmp
+from astropy.stats import mad_std
 
 
 def calibPlot(self, ikid=0):
@@ -228,33 +214,30 @@ def show_kidpar(self, show_beam=True):
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
     sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
 
-    fwhms = np.max(sizes, axis=1)
-    ellipticities = (major - np.min(sizes, axis=1)) / major
-    amplitudes
+    values = {
+        "fwhms [arcmin]": np.max(np.abs(sizes), axis=1),
+        "ellipticities": (np.max(np.abs(sizes), axis=1) - np.min(np.abs(sizes), axis=1))
+        / np.max(np.abs(sizes), axis=1),
+        "amplitudes [rel. abu]": np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"]),
+    }
 
-    fig, ax = plt.subplots()
-    ax.plot(pos[:, 0], pos[:, 1], "o")
+    fig, axes = plt.subplots(2, 3)
+    for (item, value), ax_top, ax_bottom in zip(values.items(), axes[0], axes[1]):
+        mean_value = np.nanmedian(value)
+        std_value = mad_std(value, ignore_nan=True)
+        range_value = np.array([-3, 3]) * std_value + mean_value
+        ax_bottom.hist(value, range=range_value)
 
-    if show_beam:
-        for _popt, _pos in zip(popt, pos):
-            ax.add_patch(
-                Ellipse(
-                    xy=_pos,
-                    width=_popt["fwhm_x"] * 60,
-                    height=_popt["fwhm_y"] * 60,
-                    angle=np.degrees(_popt["theta"]),
-                    edgecolor="r",
-                    fc="None",
-                    lw=2,
-                )
-            )
-
-    ax.set_aspect("equal")
-    ax.set_xlabel("lon offset [arcmin]")
-    ax.set_ylabel("lat offset [arcmin]")
+        scatter = ax_top.scatter(pos[:, 0], pos[:, 1], c=np.clip(value, *range_value))
+        cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
+        cbar.set_label(item)
+        ax_top.set_xlim(-0.62 * 60, 0.62 * 60)
+        ax_top.set_ylim(-0.62 * 60, 0.62 * 60)
+        ax_top.set_aspect("equal")
+        ax_top.set_xlabel("lon offset [arcmin]")
+        ax_top.set_ylabel("lat offset [arcmin]")
     fig.suptitle(self.filename)
-    ax.set_xlim(-0.62 * 60, 0.62 * 60)
-    ax.set_ylim(-0.62 * 60, 0.62 * 60)
+    fig.tight_layout()
 
     return fig
 
