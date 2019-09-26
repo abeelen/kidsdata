@@ -275,7 +275,7 @@ def read_all(
     list_data : str ('all', '...')
         A string containing the list of data to be read, could be 'all'
     list_detector : :class:`~numpy.array`
-        The list of detector to read, by default `None` read all available KIDs.
+        The names of detectors to read, by default `None` read all available KIDs.
     start : int
         The starting block, default 0.
     end : type
@@ -311,6 +311,8 @@ def read_all(
 
     if list_detector is None:
         list_detector = np.where(~kidpar["index"].mask)[0]
+    else:
+        list_detector = np.array(kidpar.loc_indices[list_detector])
 
     # Append the number of detectors as expected by the C library
     list_detector = np.append(len(list_detector), list_detector).astype(np.int32)

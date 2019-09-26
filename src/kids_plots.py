@@ -210,7 +210,7 @@ def show_beammaps(self, datas, wcs, popts):
 
 def show_kidpar(self, show_beam=True):
     # Geometry
-    popt = self.kidpar[self.list_detector]
+    popt = self.kidpar.loc[self.list_detector]
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
     sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
 
@@ -245,7 +245,7 @@ def show_kidpar(self, show_beam=True):
 def show_kidpar_fwhm(self):
 
     sizes = (
-        np.array([self.kidpar[self.list_detector]["fwhm_x"], self.kidpar[self.list_detector]["fwhm_y"]]).T * 60
+        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
     )  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):

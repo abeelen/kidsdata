@@ -63,7 +63,7 @@ class KidsRawData(KidsData):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
         self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = info
-        self.list_detector = np.array(self.kidpar[~self._kidpar["index"].mask]['namedet'])
+        self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]['namedet'])
         self._extended_kidpar = None
 
         self.logger = kids_log.history_logger(self.__class__.__name__)
@@ -215,7 +215,7 @@ class KidsRawData(KidsData):
         if flag is not None:
             mask &= self._kidpar["flag"] == flag
 
-        return np.array(self.kidpar[mask]['namedet'])
+        return np.array(self._kidpar[mask]['namedet'])
 
     @property
     def kidpar(self):
@@ -233,7 +233,7 @@ class KidsRawData(KidsData):
             mask = deepcopy(kidpar["index"].mask)
             kidpar["index"].mask = False
             kidpar.remove_indices('namedet')
-            kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="index")
+            kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="namedet")
             kidpar["index"].mask = mask
             kidpar.add_index('namedet')
         else:

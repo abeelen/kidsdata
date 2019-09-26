@@ -15,8 +15,8 @@ from astropy.io.fits import ImageHDU
 from . import pipeline
 from . import kids_calib
 from . import kids_plots
-from . utils import project, build_wcs, fit_gaussian
-from . kids_data import KidsRawData
+from .utils import project, build_wcs, fit_gaussian
+from .kids_data import KidsRawData
 
 try:
     try:
@@ -226,7 +226,7 @@ class KissRawData(KidsRawData):
 
         # Pipeline is here : simple baseline for now
         bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
-        kidspars = self.kidpar[self.list_detector[ikid]]
+        kidspars = self.kidpar.loc[self.list_detector[ikid]]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -300,13 +300,13 @@ class KissRawData(KidsRawData):
             else:
                 popts.append([np.nan] * 7)
 
-        idx = self._kidpar[self.list_detector[ikid]]["index"]
+        namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
         popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
         for item in ["x0", "fwhm_x"]:
             popts[item] *= wcs.wcs.cdelt[0]
         for item in ["y0", "fwhm_y"]:
             popts[item] *= wcs.wcs.cdelt[1]
-        popts.add_column(idx, 0)
+        popts.add_column(namedet, 0)
 
         return outputs, wcs, popts
 
