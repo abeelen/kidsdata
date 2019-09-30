@@ -245,7 +245,7 @@ def show_kidpar(self, show_beam=True):
 def show_kidpar_fwhm(self):
 
     sizes = (
-        np.array([self.kidpar[self.list_detector]["fwhm_x"], self.kidpar[self.list_detector]["fwhm_y"]]).T * 60
+        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
     )  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):
