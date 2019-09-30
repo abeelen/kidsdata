@@ -7,6 +7,7 @@ from itertools import chain
 from datetime import datetime
 from functools import wraps
 
+import astropy.units as u
 from astropy.table import Table, join  # for now
 from astropy.utils.console import ProgressBar
 
@@ -37,10 +38,27 @@ def fill_database(dirs=None):
         date, hour, scan, source, obsmode = filename.name[1:].split("_")
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
         scan = int(scan[1:])
-        data_rows.append((filename.as_posix(), dtime, scan, source, obsmode))
+        stat = filename.stat()
+        data_rows.append(
+            (
+                filename.as_posix(),
+                dtime,
+                scan,
+                source,
+                obsmode,
+                stat.st_size,
+                datetime.fromtimestamp(stat.st_ctime),
+                datetime.fromtimestamp(stat.st_ctime),
+            )
+        )
 
-    DATABASE_SCAN = Table(names=["filename", "date", "scan", "source", "obsmode"], rows=data_rows)
+    DATABASE_SCAN = Table(
+        names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
+    )
     DATABASE_SCAN.sort("date")
+    DATABASE_SCAN["size"].unit = "byte"
+    DATABASE_SCAN["size"] = DATABASE_SCAN["size"].to(u.MiB)
+    DATABASE_SCAN["size"].info.format = "7.3f"
 
 
 def auto_fill(func):
@@ -61,7 +79,7 @@ def extend_database():
     data_rows = []
     param_rows = {}
     for filename in ProgressBar(DATABASE_SCAN["filename"]):
-        kd = KissRawData(filename)
+        kd = KidsRawData(filename)
         hash_param = hash(str(kd.param_c))
         data_row = {"filename": filename, "param_id": hash_param}
         param_row = {"param_id": hash_param}
@@ -131,4 +149,4 @@ def list_scan(**kwargs):
             else:
                 _database = _database[_database[key] == kwargs[key]]
 
-    print(_database[["date", "scan", "source", "obsmode"]])
+    print(_database[["date", "scan", "source", "obsmode", "size"]])
