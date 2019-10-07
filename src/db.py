@@ -1,7 +1,4 @@
 import os
-import logging
-
-logging.basicConfig(level=logging.INFO)
 from pathlib import Path
 from itertools import chain
 from datetime import datetime
@@ -39,26 +36,15 @@ def fill_database(dirs=None):
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
         scan = int(scan[1:])
         stat = filename.stat()
-        data_rows.append(
-            (
-                filename.as_posix(),
-                dtime,
-                scan,
-                source,
-                obsmode,
-                stat.st_size,
-                datetime.fromtimestamp(stat.st_ctime),
-                datetime.fromtimestamp(stat.st_ctime),
-            )
-        )
+        data_rows.append((filename.as_posix(), dtime, scan, source, obsmode,
+                          stat.st_size,
+                          datetime.fromtimestamp(stat.st_ctime), datetime.fromtimestamp(stat.st_ctime)))
 
-    DATABASE_SCAN = Table(
-        names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
-    )
+    DATABASE_SCAN = Table(names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows)
     DATABASE_SCAN.sort("date")
-    DATABASE_SCAN["size"].unit = "byte"
-    DATABASE_SCAN["size"] = DATABASE_SCAN["size"].to(u.MiB)
-    DATABASE_SCAN["size"].info.format = "7.3f"
+    DATABASE_SCAN['size'].unit = "byte"
+    DATABASE_SCAN['size'] = DATABASE_SCAN['size'].to(u.MiB)
+    DATABASE_SCAN['size'].info.format = '7.3f'
 
 
 def auto_fill(func):
