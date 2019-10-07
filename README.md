@@ -2,6 +2,13 @@
 
 New python package for KIDS / Kiss Data.
 
+Before using the package, you must setup two environment variables
+
+```bash
+export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
+export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
+```
+
 An full example can be found as a `jupyter notebook` in the `notebooks` repository.
 
 ```bash
@@ -9,13 +16,7 @@ cd notebooks
 ipython3 notebook
 ```
 
-The most basic setup would need to define two variables : 
-```bash
-export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
-export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
-```
-
-Then you can have a quick look with :
+Alternatively, you can have a quick look beam map analysis with :
 
 ```python
 import numpy as np
