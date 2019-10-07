@@ -1,11 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 # pylint: disable=C0301,C0103
 import os
 import gc
-import sys
 
-# import h5py
+import h5py
 import logging
 import ctypes
 import numpy as np
