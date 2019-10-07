@@ -48,7 +48,7 @@ kd._extended_kidpar = popts
 geometry, fwhm = kd.plot_kidpar()
 
 # select good detector, ie within 60 arcmin of the center and fwhm 25 +- 10
-kidpar = kd.kidpar[kd.list_detector]
+kidpar = kd.kidpar.loc[kd.list_detector]
 pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
 fwhm = np.array(np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
 ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) < 10))[0]
