@@ -2,12 +2,22 @@
 
 New python package for KIDS / Kiss Data.
 
+## Prerequesite
+
 Before using the package, you must setup two environment variables
 
 ```bash
 export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
 export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
 ```
+
+
+## Developer note
+
+Before contributing, please check [this page](./developer_note.md).
+
+
+## Usage
 
 An full example can be found as a `jupyter notebook` in the `notebooks` repository.
 
@@ -59,3 +69,4 @@ plt.subplot(projection=WCS(data.header))
 plt.imshow(data.data, origin='lower')
 
 ```
+
