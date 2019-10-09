@@ -91,7 +91,7 @@ def kids_pfit_time(kiss):
             kiss.pps_diff = pps_diff
 
         # Fake pps time if necessary
-        dummy = np.diff(pps, append=0)
+        dummy = np.append(np.diff(pps), 0)
         good = np.abs(dummy - 1 / kiss.param_c["acqfreq"]) < 0.02
         if any(~good):
             param = np.polyfit(kiss.sample[good], pps[good], 1)
