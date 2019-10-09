@@ -167,7 +167,7 @@ def show_beammaps(self, datas, wcs, popts):
     fig_beammap.subplots_adjust(hspace=0, wspace=0)
     for _data, popt, ax in zip(datas, popts, axes.flatten()):
         ax.imshow(_data, origin="lower")
-        ax.set_aspect("equal", "box")
+        ax.set_aspect("equal", "datalim")
         if popt is not None:
             ax.add_patch(
                 Ellipse(
