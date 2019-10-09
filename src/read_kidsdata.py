@@ -444,7 +444,7 @@ def read_all(
 
         # Fake pps time if necessary
         if correct_pps:
-            dummy = np.diff(pps, append=0)
+            dummy = np.append(np.diff(pps), 0)
             good = np.abs(dummy - 1 / param_c["acqfreq"]) < 0.02
             if any(~good):
                 param = np.polyfit(dataSc["sample"][good], pps[good], 1)

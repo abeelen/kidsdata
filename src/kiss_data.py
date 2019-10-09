@@ -41,15 +41,21 @@ EarthLocation._get_site_registry()
 
 # Alessandro Fasano Private Comm
 EarthLocation._site_registry.add_site(
-    ["Quijote", "KISS"], EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m)
+    ["Quijote", "KISS"],
+    EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m),
 )
 # JMP code
 EarthLocation._site_registry.add_site(
-    ["Teide", "Tenerife"], EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m)
+    ["Teide", "Tenerife"],
+    EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m),
 )
 EarthLocation._site_registry.add_site(
     ["IRAM30m", "30m", "NIKA", "NIKA2"],
-    EarthLocation(lat=37.066111111111105 * u.deg, lon=-3.392777777777778 * u.deg, height=2850 * u.m),
+    EarthLocation(
+        lat=37.066111111111105 * u.deg,
+        lon=-3.392777777777778 * u.deg,
+        height=2850 * u.m,
+    ),
 )
 
 
@@ -90,7 +96,9 @@ class KissRawData(KidsRawData):
         """Calibrate the KIDS timeline."""
         self.__check_attributes(["I", "Q", "A_masq"])
 
-        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
+        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(
+            self, *args, **kwargs
+        )
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
@@ -101,12 +109,28 @@ class KissRawData(KidsRawData):
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (
-                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
-                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+                [
+                    "F_tl_Az",
+                    "F_tl_El",
+                    "F_sky_Az",
+                    "F_sky_El",
+                    "F_diff_Az",
+                    "F_diff_El",
+                ],
+                [
+                    "F_tl_Az",
+                    "F_tl_El",
+                    "F_sky_Az",
+                    "F_sky_El",
+                    "F_diff_Az",
+                    "F_diff_El",
+                ],
             ),
         ]
 
-        _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
+        _dependancies = self._KidsRawData__check_attributes(
+            attr_list, dependancies=dependancies
+        )
 
         if _dependancies is not None:
             self.calib_raw()
@@ -119,7 +143,9 @@ class KissRawData(KidsRawData):
         return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
 
     @lru_cache(maxsize=2)
-    def continuum_pipeline(self, ikid, *args, pipeline_func=pipeline.basic_continuum, **kwargs):
+    def continuum_pipeline(
+        self, ikid, *args, pipeline_func=pipeline.basic_continuum, **kwargs
+    ):
         """Return the continuum data processed by given pipeline.
 
         Parameters
@@ -153,16 +179,25 @@ class KissRawData(KidsRawData):
         for time in times:
             idx = np.arange(self.nsamples)
             _time = getattr(self, time)
-            bad = (np.abs(np.diff(_time, append=0)) > 2) | (_time == 0)
+            bad = (np.abs(np.append(np.diff(_time), 0)) > 2) | (_time == 0)
             if any(bad):
                 # Still not correct anyway, the timing goes on and off....
-                func = interp1d(idx[~bad], _time[~bad], kind="linear", fill_value="extrapolate")
+                func = interp1d(
+                    idx[~bad], _time[~bad], kind="linear", fill_value="extrapolate"
+                )
                 _time[bad] = func(idx[bad])
 
         obstime = self.obsdate
 
         # Getting only time per interferograms here :
-        return obstime + np.median((self.A_hours + self.A_time_pps).reshape((self.nint, self.nptint)), axis=1) * u.s
+        return (
+            obstime
+            + np.median(
+                (self.A_hours + self.A_time_pps).reshape((self.nint, self.nptint)),
+                axis=1,
+            )
+            * u.s
+        )
 
     @lru_cache(maxsize=2)
     def get_object_altaz(self, npoints=None):
@@ -171,7 +206,11 @@ class KissRawData(KidsRawData):
             anchor_time = self.obstime
         else:
             # Find npoints between first and last observing time
-            anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints), format="mjd", scale="utc")
+            anchor_time = Time(
+                np.linspace(*self.obstime[[0, -1]].mjd, npoints),
+                format="mjd",
+                scale="utc",
+            )
         alts = []
         azs = []
 
@@ -195,7 +234,9 @@ class KissRawData(KidsRawData):
         # Fast interpolation
         obstime = self.obstime
         interp_az, _ = self.get_object_altaz(npoints=100)
-        return (self.F_sky_Az - interp_az(obstime.mjd)) * np.cos(np.radians(self.F_sky_El))
+        return (self.F_sky_Az - interp_az(obstime.mjd)) * np.cos(
+            np.radians(self.F_sky_El)
+        )
 
     @property
     @lru_cache(maxsize=1)
@@ -233,7 +274,9 @@ class KissRawData(KidsRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
+            wcs, dummy_x, dummy_y = build_wcs(
+                az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs
+            )
             x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
             x_min, y_min = x.min(), y.min()
             wcs.wcs.crpix = (-x_min, -y_min)
@@ -242,11 +285,16 @@ class KissRawData(KidsRawData):
         else:
             x, y = wcs.all_world2pix(az, el, 0)
 
-        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
+        shape = (
+            np.round(y.max() - y.min()).astype(np.int) + 1,
+            np.round(x.max() - x.min()).astype(np.int) + 1,
+        )
 
         _x = (x[:, np.newaxis] - kidspars["x0"] / wcs.wcs.cdelt[0]).T
         _y = (y[:, np.newaxis] - kidspars["y0"] / wcs.wcs.cdelt[1]).T
-        output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape)
+        output, weight, hits = project(
+            _x.flatten(), _y.flatten(), bgrds.flatten(), shape
+        )
 
         return (
             ImageHDU(output, header=wcs.to_header(), name="data"),
@@ -279,7 +327,9 @@ class KissRawData(KidsRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
+            wcs, dummy_x, dummy_y = build_wcs(
+                az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs
+            )
             x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
             x_min, y_min = x.min(), y.min()
             wcs.wcs.crpix = (-x_min, -y_min)
@@ -288,7 +338,10 @@ class KissRawData(KidsRawData):
         else:
             x, y = wcs.all_world2pix(az, el, 0)
 
-        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
+        shape = (
+            np.round(y.max() - y.min()).astype(np.int) + 1,
+            np.round(x.max() - x.min()).astype(np.int) + 1,
+        )
 
         outputs = []
         popts = []
@@ -301,7 +354,10 @@ class KissRawData(KidsRawData):
                 popts.append([np.nan] * 7)
 
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
-        popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
+        popts = Table(
+            np.array(popts),
+            names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"],
+        )
         for item in ["x0", "fwhm_x"]:
             popts[item] *= wcs.wcs.cdelt[0]
         for item in ["y0", "fwhm_y"]:
@@ -319,7 +375,7 @@ class KissRawData(KidsRawData):
 
     def plot_beammap(self, *args, **kwargs):
         datas, wcs, popts = self.continuum_beammaps(*args, **kwargs)
-        return kids_plots.show_beammaps(self, datas, wcs, popts), datas, wcs, popts
+        return kids_plots.show_beammaps(self, datas, wcs, popts), (datas, wcs, popts)
 
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)
@@ -346,25 +402,37 @@ class KissRawData(KidsRawData):
 
         if "indice" in self._KidsRawData__dataSc.keys():
             indice = self._KidsRawData__dataSc["indice"]
-            assert self.nptint == np.int(indice.max() - indice.min() + 1), "Problem with 'indice' or header"
+            assert self.nptint == np.int(
+                indice.max() - indice.min() + 1
+            ), "Problem with 'indice' or header"
 
         # Support for old parameters
         if "F_azimuth" in self.__dict__ and "F_elevation" in self.__dict__:
-            warnings.warn("F_azimuth and F_elevation are deprecated", DeprecationWarning)
+            warnings.warn(
+                "F_azimuth and F_elevation are deprecated", DeprecationWarning
+            )
 
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
             if self.F_azimuth.shape == (self.nint * self.nptint,):
                 warnings.warn("Interpolated positions", PendingDeprecationWarning)
-                self.F_tl_Az = np.median(self.F_azimuth.reshape((self.nint, self.nptint)), axis=1)
-                self.F_tl_El = np.median(self.F_elevation.reshape((self.nint, self.nptint)), axis=1)
+                self.F_tl_Az = np.median(
+                    self.F_azimuth.reshape((self.nint, self.nptint)), axis=1
+                )
+                self.F_tl_El = np.median(
+                    self.F_elevation.reshape((self.nint, self.nptint)), axis=1
+                )
             elif self.F_azimuth.shape == (self.nint,):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
 
             # This is for KISS only
             if "F_sky_Az" not in self.__dict__ and "F_sky_El" not in self.__dict__:
-                self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
-                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(self.F_tl_Az, self.F_tl_El)
+                self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(
+                    self.F_tl_Az, self.F_tl_El
+                )
+                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(
+                    self.F_tl_Az, self.F_tl_El
+                )
 
         if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
             self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
