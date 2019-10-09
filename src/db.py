@@ -16,21 +16,21 @@ DATABASE_EXTRA = None
 DATABASE_PARAM = None
 
 
-def fill_database(dirs=None):
-    """Fill the database with the filenames.
+def fill_scan_database(dirs=None):
+    """Fill the scan database with the filenames.
 
     Parameters
     ----------
     dirs : list
         list of directories to scan
     """
-    global DATABASE_SCAN, DATABASE_EXTRA
+    global DATABASE_SCAN
 
     if dirs is None:
         dirs = BASE_DIRS
 
     # Regular scan files
-    filenames = chain(*[Path(path).glob("X*_*_S????_*_*") for path in dirs])
+    filenames = chain(*[Path(path).glob("**/X*_*_S????_*_*") for path in dirs])
 
     data_rows = []
     for filename in filenames:
@@ -38,40 +38,87 @@ def fill_database(dirs=None):
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
         scan = int(scan[1:])
         stat = filename.stat()
-        data_rows.append((filename.as_posix(), dtime, scan, source, obsmode,
-                          stat.st_size,
-                          datetime.fromtimestamp(stat.st_ctime), datetime.fromtimestamp(stat.st_ctime)))
+        data_rows.append(
+            (
+                filename.as_posix(),
+                dtime,
+                scan,
+                source,
+                obsmode,
+                stat.st_size,
+                datetime.fromtimestamp(stat.st_ctime),
+                datetime.fromtimestamp(stat.st_ctime),
+            )
+        )
 
-    DATABASE_SCAN = Table(names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows)
+    DATABASE_SCAN = Table(
+        names=[
+            "filename",
+            "date",
+            "scan",
+            "source",
+            "obsmode",
+            "size",
+            "ctime",
+            "mtime",
+        ],
+        rows=data_rows,
+    )
     DATABASE_SCAN.sort("date")
-    DATABASE_SCAN['size'].unit = "byte"
-    DATABASE_SCAN['size'] = DATABASE_SCAN['size'].to(u.MiB)
-    DATABASE_SCAN['size'].info.format = '7.3f'
+    DATABASE_SCAN["size"].unit = "byte"
+    DATABASE_SCAN["size"] = DATABASE_SCAN["size"].to(u.MiB)
+    DATABASE_SCAN["size"].info.format = "7.3f"
+
+
+def fill_extra_database(dirs=None):
+    """Fill the extra database with the filenames.
+
+    Parameters
+    ----------
+    dirs : list
+        list of directories to scan
+    """
+    global DATABASE_EXTRA
+
+    if dirs is None:
+        dirs = BASE_DIRS
 
     # Extra files for skydips
-    filenames = chain(*[Path(path).glob("X_*_AA_man") for path in dirs])
+    filenames = chain(*[Path(path).glob("**/X_*_AA_man") for path in dirs])
 
     data_rows = []
     for filename in filenames:
         year, month, day, hour = filename.name[2:].split("_")[0:4]
-        dtime = datetime.strptime(" ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S")
+        dtime = datetime.strptime(
+            " ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S"
+        )
         stat = filename.stat()
-        data_rows.append((filename.as_posix(), filename.name, dtime, stat.st_size,
-                          datetime.fromtimestamp(stat.st_ctime), datetime.fromtimestamp(stat.st_ctime)))
-    
-    DATABASE_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
-    DATABASE_EXTRA.sort("date")
-    DATABASE_EXTRA['size'].unit = "byte"
-    DATABASE_EXTRA['size'] = DATABASE_EXTRA['size'].to(u.MiB)
-    DATABASE_EXTRA['size'].info.format = '7.3f'
+        data_rows.append(
+            (
+                filename.as_posix(),
+                filename.name,
+                dtime,
+                stat.st_size,
+                datetime.fromtimestamp(stat.st_ctime),
+                datetime.fromtimestamp(stat.st_ctime),
+            )
+        )
 
+    DATABASE_EXTRA = Table(
+        names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows
+    )
+    DATABASE_EXTRA.sort("date")
+    DATABASE_EXTRA["size"].unit = "byte"
+    DATABASE_EXTRA["size"] = DATABASE_EXTRA["size"].to(u.MiB)
+    DATABASE_EXTRA["size"].info.format = "7.3f"
 
 
 def auto_fill(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         if DATABASE_SCAN is None:
-            fill_database()
+            fill_scan_database()
+            fill_extra_database()
         return func(*args, **kwargs)
 
     return wrapper
