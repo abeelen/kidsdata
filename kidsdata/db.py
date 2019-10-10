@@ -5,18 +5,20 @@ from datetime import datetime
 from functools import wraps
 
 import astropy.units as u
-from astropy.table import Table, join  # for now
+from astropy.table import Table, join, vstack  # for now
 from astropy.utils.console import ProgressBar
 
-from . kids_data import KidsRawData
+from .kids_data import KidsRawData
 
 BASE_DIRS = [Path(os.getenv("KISS_DATA", "/data/KISS/Raw/nika2c-data3/KISS"))]
 DATABASE_SCAN = None
 DATABASE_EXTRA = None
 DATABASE_PARAM = None
 
+__all__ = ["list_scan", "get_scan", "list_extra", "get_extra"]
 
-def fill_scan_database(dirs=None):
+
+def update_scan_database(dirs=None):
     """Fill the scan database with the filenames.
 
     Parameters
@@ -34,6 +36,8 @@ def fill_scan_database(dirs=None):
 
     data_rows = []
     for filename in filenames:
+        if DATABASE_SCAN is not None and filename not in DATABASE_SCAN["filename"]:
+            continue
         date, hour, scan, source, obsmode = filename.name[1:].split("_")
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
         scan = int(scan[1:])
@@ -51,26 +55,33 @@ def fill_scan_database(dirs=None):
             )
         )
 
-    DATABASE_SCAN = Table(
-        names=[
-            "filename",
-            "date",
-            "scan",
-            "source",
-            "obsmode",
-            "size",
-            "ctime",
-            "mtime",
-        ],
-        rows=data_rows,
-    )
-    DATABASE_SCAN.sort("date")
-    DATABASE_SCAN["size"].unit = "byte"
-    DATABASE_SCAN["size"] = DATABASE_SCAN["size"].to(u.MiB)
-    DATABASE_SCAN["size"].info.format = "7.3f"
+    if len(data_rows) > 0:
+
+        NEW_SCAN = Table(
+            names=[
+                "filename",
+                "date",
+                "scan",
+                "source",
+                "obsmode",
+                "size",
+                "ctime",
+                "mtime",
+            ],
+            rows=data_rows,
+        )
+        NEW_SCAN.sort("date")
+        NEW_SCAN["size"].unit = "byte"
+        NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MiB)
+        NEW_SCAN["size"].info.format = "7.3f"
+
+        if DATABASE_SCAN is not None:
+            DATABASE_SCAN = vstack(DATABASE_SCAN, NEW_SCAN)
+        else:
+            DATABASE_SCAN = NEW_SCAN
 
 
-def fill_extra_database(dirs=None):
+def update_extra_database(dirs=None):
     """Fill the extra database with the filenames.
 
     Parameters
@@ -88,6 +99,8 @@ def fill_extra_database(dirs=None):
 
     data_rows = []
     for filename in filenames:
+        if DATABASE_EXTRA is not None and filename not in DATABASE_EXTRA["filename"]:
+            continue
         year, month, day, hour = filename.name[2:].split("_")[0:4]
         dtime = datetime.strptime(
             " ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S"
@@ -104,27 +117,33 @@ def fill_extra_database(dirs=None):
             )
         )
 
-    DATABASE_EXTRA = Table(
-        names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows
-    )
-    DATABASE_EXTRA.sort("date")
-    DATABASE_EXTRA["size"].unit = "byte"
-    DATABASE_EXTRA["size"] = DATABASE_EXTRA["size"].to(u.MiB)
-    DATABASE_EXTRA["size"].info.format = "7.3f"
+    if len(data_rows) > 0:
+        NEW_EXTRA = Table(
+            names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows
+        )
+        NEW_EXTRA.sort("date")
+        NEW_EXTRA["size"].unit = "byte"
+        NEW_EXTRA["size"] = NEW_EXTRA["size"].to(u.MiB)
+        NEW_EXTRA["size"].info.format = "7.3f"
+
+        if DATABASE_EXTRA is not None:
+            DATABASE_EXTRA = vstack(DATABASE_EXTRA, NEW_EXTRA)
+        else:
+            DATABASE_EXTRA = NEW_EXTRA
 
 
-def auto_fill(func):
+def auto_update(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         if DATABASE_SCAN is None:
-            fill_scan_database()
-            fill_extra_database()
+            update_scan_database()
+            update_extra_database()
         return func(*args, **kwargs)
 
     return wrapper
 
 
-@auto_fill
+@auto_update
 def extend_database():
     """Read the header of each file and construct the parameter database."""
     global DATABASE_SCAN, DATABASE_PARAM
@@ -155,7 +174,7 @@ def extend_database():
     DATABASE_SCAN = join(DATABASE_SCAN, Table(data_rows))
 
 
-@auto_fill
+@auto_update
 def get_scan(scan=None):
     """Get filename of corresponding scan number.
 
@@ -173,9 +192,9 @@ def get_scan(scan=None):
     return DATABASE_SCAN[mask]["filename"].data[0]
 
 
-@auto_fill
+@auto_update
 def get_extra(start=None, end=None):
-    """Get filename for extra scans (skydips) between two timestamp
+    """Get filename for extra scans (skydips) between two timestamp.
 
     Parameters
     ----------
@@ -191,7 +210,7 @@ def get_extra(start=None, end=None):
     return DATABASE_EXTRA[mask]["filename"].data
 
 
-@auto_fill
+@auto_update
 def list_scan(**kwargs):
     """List (with filtering) all scans in the database.
 
@@ -208,6 +227,10 @@ def list_scan(**kwargs):
 
     will return all the scan greather than 400
     """
+
+    if DATABASE_SCAN is None:
+        raise ValueError("No scans found, check the KISS_DATA variable")
+
     _database = DATABASE_SCAN
 
     # Filtering on all possible key from table
@@ -223,7 +246,7 @@ def list_scan(**kwargs):
     print(_database[["date", "scan", "source", "obsmode", "size"]])
 
 
-@auto_fill
+@auto_update
 def list_extra(**kwargs):
     """List (with filtering) all extra scans in the database.
 
@@ -231,6 +254,9 @@ def list_extra(**kwargs):
     -----
     You can filter the list see `list_scan`
     """
+    if DATABASE_EXTRA is None:
+        raise ValueError("No scans found, check the KISS_DATA variable")
+
     _database = DATABASE_EXTRA
 
     # Filtering on all possible key from table

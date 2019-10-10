@@ -62,8 +62,12 @@ class KidsRawData(KidsData):
     def __init__(self, filename):
         self.filename = filename
         info = read_kidsdata.read_info(self.filename)
-        self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = info
-        self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]['namedet'])
+        self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = (
+            info
+        )
+        self.list_detector = np.array(
+            self._kidpar[~self._kidpar["index"].mask]["namedet"]
+        )
         self._extended_kidpar = None
 
         self.logger = kids_log.history_logger(self.__class__.__name__)
@@ -79,7 +83,11 @@ class KidsRawData(KidsData):
     @lru_cache(maxsize=1)
     def obsdate(self):
         """Return the obsdate of the observation, based on filename."""
-        date = Path(self.filename).name[1:].split("_")[0]
+        split_name = Path(self.filename).name[1:].split("_")
+        if len(split_name) == 5:  # Regular scans
+            date = split_name[0]
+        elif len(split_name) == 7:  # Extra scans.... WHY !!!
+            date = "".join(split_name[1:4])
         return Time(parse(date), scale="utc", out_subfmt="date")  # UTC ??
 
     @property
@@ -167,13 +175,21 @@ class KidsRawData(KidsData):
         if dependancies:
             for request_keys, depend_keys in dependancies:
                 # Check if these attributes are requested...
-                _dependancy = [attr_list.pop(attr_list.index(key)) for key in request_keys if key in attr_list]
+                _dependancy = [
+                    attr_list.pop(attr_list.index(key))
+                    for key in request_keys
+                    if key in attr_list
+                ]
                 if _dependancy:
                     # Replace them by the dependancies..
                     attr_list += depend_keys
                 _dependancies.append(_dependancy)
 
-        missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
+        missing = [
+            attr
+            for attr in attr_list
+            if not hasattr(self, attr) or (getattr(self, attr) is None)
+        ]
         if missing:
             # TODO: check that there attributes are present in the file
             list_data = " ".join(missing)
@@ -184,12 +200,16 @@ class KidsRawData(KidsData):
 
         # Check that everything was read
         for key in attr_list:
-            assert hasattr(self, key) & (getattr(self, key) is not None), "Missing data {}".format(key)
+            assert hasattr(self, key) & (
+                getattr(self, key) is not None
+            ), "Missing data {}".format(key)
 
         # Check in _dependancies that everything was read, if not we are missing something
         if _dependancies:
             missing = [
-                attr for attr in chain(*_dependancies) if not hasattr(self, attr) or (getattr(self, attr) is None)
+                attr
+                for attr in chain(*_dependancies)
+                if not hasattr(self, attr) or (getattr(self, attr) is None)
             ]
             return missing or None
         return None
@@ -215,7 +235,7 @@ class KidsRawData(KidsData):
         if flag is not None:
             mask &= self._kidpar["flag"] == flag
 
-        return np.array(self._kidpar[mask]['namedet'])
+        return np.array(self._kidpar[mask]["namedet"])
 
     @property
     def kidpar(self):
@@ -232,10 +252,12 @@ class KidsRawData(KidsData):
             # See astropy #9289
             mask = deepcopy(kidpar["index"].mask)
             kidpar["index"].mask = False
-            kidpar.remove_indices('namedet')
-            kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="namedet")
+            kidpar.remove_indices("namedet")
+            kidpar = join(
+                kidpar, self._extended_kidpar, join_type="outer", keys="namedet"
+            )
             kidpar["index"].mask = mask
-            kidpar.add_index('namedet')
+            kidpar.add_index("namedet")
         else:
             kidpar = self._kidpar
 

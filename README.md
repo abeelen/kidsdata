@@ -51,7 +51,27 @@ export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
 Before contributing, please check [this page](./developer_note.md).
 
 
-## Usage
+## Basic Usage
+There are a few basic function that can be used easily to check data :
+```python
+from datetime import datetime
+from kidsdata import list_scan, list_extra, get_extra, beammap, skydip, check_pointing
+
+list_scan() # Will printout the list of scans found in KISS_DATA
+kd, figs = beammap(431) # Will project the data as a beam map
+check_pointing(kd=kd) # Will plot the pointing of the scan and the source reusing the previously read KissRawData object
+
+# To reduce skydips :
+list_extra() # Will printout all the additionnal scans used for skydips in KISS_DATA
+# select the scans
+
+scans = get_extra(start=datetime(2019, 5, 1, 19, 14, 24),
+                  end=datetime(2019, 5, 1, 19, 52, 53))
+print(scans)
+skydip(scans)
+
+## Advanced usage
+
 
 An full example can be found as a `jupyter notebook` in the `notebooks` repository.
 
@@ -103,5 +123,3 @@ plt.subplot(projection=WCS(data.header))
 plt.imshow(data.data, origin='lower')
 
 ```
-
-
