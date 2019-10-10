@@ -1,16 +1,50 @@
-# KissData
+Kidsdata
+========
 
-New python package for KIDS / Kiss Data.
+[![image](https://img.shields.io/travis/abeelen/kidsdata.svg)](https://travis-ci.org/abeelen/kidsdata)
+
+[![image](https://img.shields.io/pypi/v/kidsdata.svg)](https://pypi.python.org/pypi/kidsdata)
+
+python package for KIDS / Kiss Data.
+
+-   Free software: 3-clause BSD license
+-   Documentation: (COMING SOON!) <https://abeelen.github.io/kidsdata>.
+
+Features
+--------
+
+-   TODO
+
 
 ## Prerequesite
 
-Before using the package, you must setup two environment variables
+Clone the repository locally
+```bash
+git clone https://gitlab.lam.fr/KISS/kidsdata.git
+```
+
+You also need to retrieve the `kiss_pointing_model.py` and copy it in the `kidsdata` directory
+
+```bash
+cd kidsdata/kidsdata
+svn export https://lpsc-secure.in2p3.fr/svn/NIKA/Processing/Labtools/JM/KISS/kiss_pointing_model.py
+2to3 -w kiss_pointing_model.py
+```
+
+You can then install the package locally, allowing updates
+```bash
+cd ..
+pip3 install -e .
+```
+
+Before using the package, you must setup two environment variables :
+You must have the `libreadnika` compiled and setup a environement variable `NIKA_LIB_PATH` to point the directory containing the `libreadnikadata.so` file. And to use the database, give the location of KISS data
+
 
 ```bash
 export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
 export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
 ```
-
 
 ## Developer note
 
@@ -34,8 +68,8 @@ import matplotlib.pyplot as plt
 
 from astropy.wcs import WCS
 
-from src.kiss_data import KissRawData
-from src.db import list_scan, get_scan
+from kidsdata.kiss_data import KissRawData
+from kidsdata.db import list_scan, get_scan
 
 plt.ion()
 
@@ -69,4 +103,5 @@ plt.subplot(projection=WCS(data.header))
 plt.imshow(data.data, origin='lower')
 
 ```
+
 

@@ -11,7 +11,7 @@ from scipy.ndimage.filters import uniform_filter1d as smooth
 from scipy.interpolate import interp1d
 from scipy.signal import medfilt
 import astropy.constants as cst
-from src import kids_data
+from . kids_data import KissRawData
 import numpy.ma as ma
 
 #%%
@@ -24,7 +24,7 @@ pltdir = "/Users/yixiancao/workCodes/kidsdata/plots/"
 # filename = 'X_2018_12_14_11h55m15_AA_man'
 filename = "X20190427_0910_S0319_Moon_SCIENCEMAP"
 filename = datadir + filename
-kiss = kids_data.KissRawData(filename)
+kiss = KissRawData(filename)
 kiss.calib_raw()
 
 #%%
@@ -63,13 +63,13 @@ dlaser2_neg = laser2_pos[:, nneg:]
 
 
 def diffm(dlaser, appendv=None, appendi=None, prependv=None, prependi=None, **kwargs):
-    """ Calculate the differences between laser positions at adjacent time sample 
-        
-    Parameters: 
-    dlaser: 
-        position of the laser 
-    append: 
-        Append value. Default:1 #Y.C. Why use 1? 
+    """ Calculate the differences between laser positions at adjacent time sample
+
+    Parameters:
+    dlaser:
+        position of the laser
+    append:
+        Append value. Default:1 #Y.C. Why use 1?
     """
     diffm = np.diff(dlaser, prepend=mpos1[-1], **kwargs)
 
@@ -91,18 +91,18 @@ def diffm(dlaser, appendv=None, appendi=None, prependv=None, prependi=None, **kw
 
 def kids_itp_flag(data, x=None, flag=None, replace=False, **kwargs):
     """ Interpolate the flagged 1D data.
-    
+
     Parameters
     ----------
-    data: 1D array 
+    data: 1D array
         Data to be fixed
     x: array_line
         1D array of same size as data
     flag: boolean array
-        flag of the data. True for good data, False for bad data. 
-    replace: 
+        flag of the data. True for good data, False for bad data.
+    replace:
         Replace bad data  by interpolated the flagged data.
-    
+
     """
 
     # Replace flagged out data by interpolation
