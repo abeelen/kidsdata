@@ -101,7 +101,9 @@ list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "
 kd.read_data(list_data=list_data, list_detector=kd.get_list_detector("B", flag=0), silent=True)
 
 # Compute and plot the beam map
-beammap, datas, wcs, popts = kd.plot_beammap(coord="pdiff")
+# change
+fig, res = kd.plot_beammap(coord="pdiff")
+beammap, wcs, popts = res
 
 # Update the kidpar
 for key in ["x0", "y0"]:
