@@ -37,10 +37,7 @@ def calibPlot(self, ikid=0):
     ax.legend()
 
     ax = plt.subplot(2, 3, 4)
-    ax.plot(
-        self.kidfreq[ikid, 4:12].ravel(),
-        label="Detector:" + self.kidpar["namedet"][ikid],
-    )
+    ax.plot(self.kidfreq[ikid, 4:12].ravel(), label="Detector:" + self.kidpar["namedet"][ikid])
     ax.grid()
     ax.set_ylabel("Signal [Hz]")
     ax.set_xlabel("Sample Number")
@@ -165,9 +162,7 @@ def show_beammaps(self, datas, wcs, popts):
     # Plot all det
     nx = np.ceil(np.sqrt(self.ndet)).astype(np.int)
     ny = np.ceil(self.ndet / nx).astype(np.int)
-    fig_beammap, axes = plt.subplots(
-        nx, ny, sharex=True, sharey=True, subplot_kw={"projection": wcs}
-    )
+    fig_beammap, axes = plt.subplots(nx, ny, sharex=True, sharey=True, subplot_kw={"projection": wcs})
     fig_beammap.set_size_inches(10, 11)
     fig_beammap.subplots_adjust(hspace=0, wspace=0)
     for _data, popt, ax in zip(datas, popts, axes.flatten()):
@@ -223,8 +218,7 @@ def show_kidpar(self, show_beam=True):
         "fwhms [arcmin]": np.max(np.abs(sizes), axis=1),
         "ellipticities": (np.max(np.abs(sizes), axis=1) - np.min(np.abs(sizes), axis=1))
         / np.max(np.abs(sizes), axis=1),
-        "amplitudes [rel. abu]": np.array(popt["amplitude"])
-        / np.nanmedian(popt["amplitude"]),
+        "amplitudes [rel. abu]": np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"]),
     }
 
     fig, axes = plt.subplots(2, 3)
@@ -251,13 +245,7 @@ def show_kidpar(self, show_beam=True):
 def show_kidpar_fwhm(self):
 
     sizes = (
-        np.array(
-            [
-                self.kidpar.loc[self.list_detector]["fwhm_x"],
-                self.kidpar.loc[self.list_detector]["fwhm_y"],
-            ]
-        ).T
-        * 60
+        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
     )  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):

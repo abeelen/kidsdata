@@ -35,9 +35,7 @@ def beammap(scan=None, kd=None, array="B"):
     # Open file
     if kd is None:
         kd = KissRawData(get_scan(scan))
-        list_data = " ".join(
-            kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "Q"]
-        )
+        list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "Q"])
         list_detector = kd.get_list_detector(array, flag=0)
 
         # Read data
@@ -58,9 +56,7 @@ def beammap(scan=None, kd=None, array="B"):
     kidpar = kd.kidpar.loc[kd.list_detector]
     pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
     fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
-    ikid = np.where(
-        (np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) < 10)
-    )[0]
+    ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) < 10))[0]
 
     data, weight, hits = kd.continuum_map(coord="pdiff", ikid=ikid, cdelt=0.05)
     ax = plt.subplot(projection=WCS(data.header))
@@ -149,9 +145,7 @@ def skydip(scans):
     >>> skydip(scans)
     will produce a skydip fit with all the scans from 2019-05-01T19:14:24 to 2019-05-01T19:52:53
     """
-    title = Path(scans[0]).name + " ".join(
-        [Path(scan).name.split("_")[4] for scan in scans[1:]]
-    )
+    title = Path(scans[0]).name + " ".join([Path(scan).name.split("_")[4] for scan in scans[1:]])
 
     signal = []
     std = []
@@ -201,9 +195,7 @@ def skydip(scans):
     fig_skydip_fit, axes = plt.subplots(
         np.int(np.sqrt(ndet)), np.int(ndet / np.sqrt(ndet)), sharex=True
     )  # , sharey=True)
-    for _sig, _std, popt, detector, ax in zip(
-        signal_new.T, std.T, popts, detectors, axes.flatten()
-    ):
+    for _sig, _std, popt, detector, ax in zip(signal_new.T, std.T, popts, detectors, axes.flatten()):
         ax.errorbar(air_mass, _sig, _std)
         ax.plot(air_mass, T(air_mass, *popt))
         ax.set_title(detector, pad=-15)
@@ -216,9 +208,7 @@ def skydip(scans):
     Ao, Bo, tau = popts.T
 
     fig_skydip_stat, axes = plt.subplots(1, 3)
-    for (item, value), ax in zip(
-        {r"$A_0$": Ao, r"$B_0$": Bo, "tau": tau}.items(), axes
-    ):
+    for (item, value), ax in zip({r"$A_0$": Ao, r"$B_0$": Bo, "tau": tau}.items(), axes):
         mean_value = np.nanmedian(value)
         std_value = mad_std(value, ignore_nan=True)
         range_value = np.array([-3, 3]) * std_value + mean_value

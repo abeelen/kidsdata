@@ -58,17 +58,7 @@ def update_scan_database(dirs=None):
     if len(data_rows) > 0:
 
         NEW_SCAN = Table(
-            names=[
-                "filename",
-                "date",
-                "scan",
-                "source",
-                "obsmode",
-                "size",
-                "ctime",
-                "mtime",
-            ],
-            rows=data_rows,
+            names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
         )
         NEW_SCAN.sort("date")
         NEW_SCAN["size"].unit = "byte"
@@ -102,9 +92,7 @@ def update_extra_database(dirs=None):
         if DATABASE_EXTRA is not None and filename not in DATABASE_EXTRA["filename"]:
             continue
         year, month, day, hour = filename.name[2:].split("_")[0:4]
-        dtime = datetime.strptime(
-            " ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S"
-        )
+        dtime = datetime.strptime(" ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S")
         stat = filename.stat()
         data_rows.append(
             (
@@ -118,9 +106,7 @@ def update_extra_database(dirs=None):
         )
 
     if len(data_rows) > 0:
-        NEW_EXTRA = Table(
-            names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows
-        )
+        NEW_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
         NEW_EXTRA.sort("date")
         NEW_EXTRA["size"].unit = "byte"
         NEW_EXTRA["size"] = NEW_EXTRA["size"].to(u.MiB)

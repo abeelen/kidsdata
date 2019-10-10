@@ -11,7 +11,7 @@ from scipy.ndimage.filters import uniform_filter1d as smooth
 from scipy.interpolate import interp1d
 from scipy.signal import medfilt
 import astropy.constants as cst
-from . kids_data import KissRawData
+from .kids_data import KissRawData
 import numpy.ma as ma
 
 #%%
