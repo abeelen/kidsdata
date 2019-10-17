@@ -361,10 +361,10 @@ class KissRawData(KidsRawData):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
 
-            # This is for KISS only
-            if "F_sky_Az" not in self.__dict__ and "F_sky_El" not in self.__dict__:
-                self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
-                self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(self.F_tl_Az, self.F_tl_El)
+        # This is for KISS only
+        if "F_sky_Az" not in self.__dict__ and "F_sky_El" not in self.__dict__:
+            self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
+            self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(self.F_tl_Az, self.F_tl_El)
 
         if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
             self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
