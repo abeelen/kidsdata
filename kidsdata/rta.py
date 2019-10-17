@@ -97,6 +97,8 @@ def check_pointing(scan=None, kd=None):
     kd, (fig_pointing)
         return the read  `kissdata.KissRawData`, as well as the pointing figures
     """
+    from .kiss_pointing_model import KISSPmodel
+
     if kd is None:
         # Open file
         kd = KissRawData(get_scan(scan))
@@ -105,11 +107,15 @@ def check_pointing(scan=None, kd=None):
         # Read daa
         kd.read_data(list_data=list_data, silent=True)
 
-    kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El"])
+    kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El"])
 
     fig_pointing, ax = plt.subplots()
     mask = kd.mask_tel
-    ax.plot(kd.F_sky_Az[mask], kd.F_sky_El[mask])
+    ax.plot(kd.F_sky_Az[mask], kd.F_sky_El[mask], label="F_sky read in file")
+    ax.plot(kd.F_tl_Az[mask], kd.F_tl_El[mask], label="F_tl")
+    ax.plot(*KISSPmodel().telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky computed")
+    ax.plot(*KISSPmodel(model="Q1").telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky Q1 computed")
+
     obstime = kd.obstime[mask]
     interp_az, interp_el = kd.get_object_altaz(npoints=100)
     ax.plot(interp_az(obstime.mjd), interp_el(obstime.mjd), label=kd.source)
