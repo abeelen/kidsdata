@@ -154,7 +154,7 @@ class KissRawData(KidsRawData):
             idx = np.arange(self.nsamples)
             _time = getattr(self, time)
             bad = (np.abs(np.append(np.diff(_time), 0)) > 2) | (_time == 0)
-            if any(bad):
+            if any(bad) and any(~bad):  # At midgnight A_hours will stay at 0... all bad
                 # Still not correct anyway, the timing goes on and off....
                 func = interp1d(idx[~bad], _time[~bad], kind="linear", fill_value="extrapolate")
                 _time[bad] = func(idx[bad])
