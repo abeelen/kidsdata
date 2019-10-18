@@ -1,5 +1,8 @@
 import numpy as np
+from itertools import chain
 from pathlib import Path
+from functools import wraps
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
@@ -17,30 +20,50 @@ plt.ion()
 __all__ = ["beammap", "check_pointing", "skydip"]
 
 
-def beammap(scan=None, kd=None, array="B"):
+def kd_or_scan(func):
+    @wraps(func)
+    def wrapper(scan, *args, **kwargs):
+        # If scan number given, read the scan into the object and pass it to function
+        if isinstance(scan, int):
+            kd = KissRawData(get_scan(scan))
+
+            list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
+
+            # Do not use F_sky_* from file....
+            remove_Uc = ["F_sky_Az", "F_sky_El"]
+            remove_Ud = ["F_tel_Az", "F_tel_El"]
+
+            for item in chain(remove_Uc, remove_Ud):
+                if item in list_data:
+                    list_data.remove(item)
+
+            list_data = " ".join(list_data)
+            list_detector = kd.get_list_detector(kwargs.get("array", None), flag=0)
+
+            # Read data
+            kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
+
+            scan = kd
+        return func(scan, *args, **kwargs)
+
+    return wrapper
+
+
+@kd_or_scan
+def beammap(kd, array="B"):
     """Display a beammap.
 
     Parameters
     ----------
-    scan : int
-        the scan number (see `list_scan()`)
-    kd : `kissdata.KissRawData`
-        Alternatively give a KissRawData object
+    kd : `kissdata.KissRawData` or int
+        the KissRawData object to check or scan number to read
 
     Returns
     -------
     kd, (fig_beammap, fig_geometry)
         return the read  `kissdata.KissRawData`, as well as the beammap and geometry figures
+
     """
-    # Open file
-    if kd is None:
-        kd = KissRawData(get_scan(scan))
-        list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "Q"])
-        list_detector = kd.get_list_detector(array, flag=0)
-
-        # Read data
-        kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
-
     # Compute & plot beammap
     fig_beammap, (datas, wcs, popts) = kd.plot_beammap(coord="pdiff")
 
@@ -82,39 +105,30 @@ def beammap(scan=None, kd=None, array="B"):
     return kd, (fig_beammap, fig_geometry, fig_coadd)
 
 
-def check_pointing(scan=None, kd=None):
+@kd_or_scan
+def check_pointing(kd):
     """Check the pointing against the source position.
 
     Parameters
     ----------
-    scan : int
-        the scan number (see `list_scan()`)
-    kd : `kissdata.KissRawData`
-        Alternatively give a KissRawData object
+    kd : `kissdata.KissRawData` or int
+        the KissRawData object to check or scan number to read
 
     Returns
     -------
     kd, (fig_pointing)
         return the read  `kissdata.KissRawData`, as well as the pointing figures
     """
-    from .kiss_pointing_model import KISSPmodel
-
-    if kd is None:
-        # Open file
-        kd = KissRawData(get_scan(scan))
-        list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc)
-
-        # Read daa
-        kd.read_data(list_data=list_data, silent=True)
+    # from .kiss_pointing_model import KISSPmodel
 
     kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El"])
 
     fig_pointing, ax = plt.subplots()
     mask = kd.mask_tel
-    ax.plot(kd.F_sky_Az[mask], kd.F_sky_El[mask], label="F_sky read in file")
+    ax.plot(kd.F_sky_Az[mask], kd.F_sky_El[mask], label="F_sky")
     ax.plot(kd.F_tl_Az[mask], kd.F_tl_El[mask], label="F_tl")
-    ax.plot(*KISSPmodel().telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky computed")
-    ax.plot(*KISSPmodel(model="Q1").telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky Q1 computed")
+    # ax.plot(*KISSPmodel().telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky computed")
+    # ax.plot(*KISSPmodel(model="Q1").telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky Q1 computed")
 
     obstime = kd.obstime[mask]
     interp_az, interp_el = kd.get_object_altaz(npoints=100)
