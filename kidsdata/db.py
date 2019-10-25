@@ -197,8 +197,13 @@ def get_extra(start=None, end=None):
 
 
 @auto_update
-def list_scan(**kwargs):
+def list_scan(output=False, **kwargs):
     """List (with filtering) all scans in the database.
+
+    Parameters
+    ----------
+    output: boolean
+        Return a light table for the database
 
     Notes
     -----
@@ -229,7 +234,10 @@ def list_scan(**kwargs):
             else:
                 _database = _database[_database[key] == kwargs[key]]
 
-    print(_database[["date", "scan", "source", "obsmode", "size"]])
+    if output:
+        return _database[["filename", "date", "scan", "source", "obsmode", "size"]]
+    else:
+        print(_database[["date", "scan", "source", "obsmode", "size"]])
 
 
 @auto_update
