@@ -24,7 +24,7 @@ def kd_or_scan(func):
     @wraps(func)
     def wrapper(scan, *args, **kwargs):
         # If scan number given, read the scan into the object and pass it to function
-        if isinstance(scan, int):
+        if isinstance(scan, (int, np.int, np.int64)):
             kd = KissRawData(get_scan(scan))
 
             list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
