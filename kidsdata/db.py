@@ -237,7 +237,7 @@ def list_scan(output=False, **kwargs):
     if output:
         return _database[["filename", "date", "scan", "source", "obsmode", "size"]]
     else:
-        print(_database[["date", "scan", "source", "obsmode", "size"]])
+        _database[["date", "scan", "source", "obsmode", "size"]].pprint(max_lines=-1, max_width=-1)
 
 
 @auto_update
