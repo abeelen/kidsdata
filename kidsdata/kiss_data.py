@@ -99,10 +99,7 @@ class KissRawData(KidsRawData):
             # Calibration data depends on the I, Q & A_masq raw data
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
-            (
-                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
-                ["F_tl_Az", "F_tl_El", "F_diff_Az", "F_diff_El"],
-            ),
+            (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
             (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
         ]
 
