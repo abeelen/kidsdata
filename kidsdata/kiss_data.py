@@ -10,8 +10,9 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.coordinates import Latitude, Longitude, get_body, AltAz, EarthLocation
-from astropy.io.fits import ImageHDU
+from astropy.coordinates import solar_system_ephemeris
 
+from astropy.io.fits import ImageHDU
 from . import pipeline
 from . import kids_calib
 from . import kids_plots
@@ -19,12 +20,10 @@ from .utils import project, build_wcs, fit_gaussian
 from .kids_data import KidsRawData
 
 try:
-    try:
-        # One should not rely on Labtools_JM_KISS
-        from Labtools_JM_KISS.kiss_pointing_model import KISSPmodel
-    except ModuleNotFoundError:
-        from .kiss_pointing_model import KISSPmodel
+    from .kiss_pointing_model import KISSPmodel
+
 except ModuleNotFoundError:
+    warnings.warn("kiss_pointing_model not installed", Warning)
 
     class KISSPmodel(object):
         def __init__(self, *args, **kwargs):
@@ -102,8 +101,9 @@ class KissRawData(KidsRawData):
             # For any requested telescope position, read them all
             (
                 ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
-                ["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"],
+                ["F_tl_Az", "F_tl_El", "F_diff_Az", "F_diff_El"],
             ),
+            (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
         ]
 
         _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
@@ -149,20 +149,26 @@ class KissRawData(KidsRawData):
         times = ["A_hours", "A_time_pps"]
         self._KissRawData__check_attributes(times)
 
-        # TODO: Correction should be done at reading time
-        for time in times:
-            idx = np.arange(self.nsamples)
-            _time = getattr(self, time)
-            bad = (np.abs(np.append(np.diff(_time), 0)) > 2) | (_time == 0)
-            if any(bad) and any(~bad):  # At midgnight A_hours will stay at 0... all bad
-                # Still not correct anyway, the timing goes on and off....
-                func = interp1d(idx[~bad], _time[~bad], kind="linear", fill_value="extrapolate")
-                _time[bad] = func(idx[bad])
+        # TODO: These Correction should be done at reading time
+        idx = np.arange(self.nsamples)
+
+        mask = self.A_time_pps == 0
+
+        # Masked array, to be able to unwrap properly
+        A_time = np.ma.array(self.A_time_pps + self.A_hours, mask=mask)
+        A_time = np.ma.array(np.unwrap(A_time), mask=mask)
+
+        # flag all data with time difference greater than 1 second
+        bad = (np.append(np.diff(np.unwrap(A_time)), 0) > 1) | A_time.mask
+
+        if any(bad) and any(~bad):
+            func = interp1d(idx[~bad], np.unwrap(A_time)[~bad], kind="linear", fill_value="extrapolate")
+            A_time[bad] = func(idx[bad])
 
         obstime = self.obsdate
 
         # Getting only time per interferograms here :
-        return obstime + np.median((self.A_hours + self.A_time_pps).reshape((self.nint, self.nptint)), axis=1) * u.s
+        return obstime + np.median(A_time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
 
     @lru_cache(maxsize=2)
     def get_object_altaz(self, npoints=None):
@@ -174,6 +180,9 @@ class KissRawData(KidsRawData):
             anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints), format="mjd", scale="utc")
         alts = []
         azs = []
+
+        if self.source.lower() not in solar_system_ephemeris.bodies:
+            raise KeyError("{} is not in astropy ephemeris".format(self.source))
 
         for time in ProgressBar(anchor_time):
             frame = AltAz(obstime=time, location=EarthLocation.of_site("KISS"))
@@ -361,7 +370,7 @@ class KissRawData(KidsRawData):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
 
-        # This is for KISS only
+        # This is for KISS only, compute pointing model corrected values
         if (
             "F_sky_Az" not in self.__dict__
             and "F_sky_El" not in self.__dict__

@@ -121,7 +121,9 @@ def check_pointing(kd):
     """
     # from .kiss_pointing_model import KISSPmodel
 
-    kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El"])
+    kd._KissRawData__check_attributes(
+        ["mask_tel", "F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El", "A_hours", "A_time_pps"]
+    )
 
     fig_pointing, ax = plt.subplots()
     mask = kd.mask_tel
