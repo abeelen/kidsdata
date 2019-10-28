@@ -27,13 +27,13 @@ def median_continuum(self, ikid, ikid_ref=0, **kwargs):
     # Only a rough Baseline for now...
     bgrd = self.continuum[ikid]
     # Remove median value in time
-    bgrd = bgrd - np.median(bgrd, axis=1)[:, np.newaxis]
+    bgrd = bgrd - np.nanmedian(bgrd, axis=1)[:, np.newaxis]
 
     flat_field = np.array([np.nanmedian(_bgrd / bgrd[ikid_ref]) for _bgrd in bgrd])
 
     bgrd /= flat_field[:, np.newaxis]
 
-    bgrd -= np.median(bgrd, axis=0)
+    bgrd -= np.nanmedian(bgrd, axis=0)
 
     # just in case
     bgrd *= flat_field[:, np.newaxis]
