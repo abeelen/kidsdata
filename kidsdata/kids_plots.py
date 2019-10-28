@@ -3,7 +3,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
+
 from astropy.stats import mad_std
+from astropy.wcs import WCS
 
 
 def calibPlot(self, ikid=0):
@@ -206,6 +208,30 @@ def show_beammaps(self, datas, wcs, popts):
     fig_beammap.suptitle(self.filename)
 
     return fig_beammap
+
+
+def show_contmap(self, data, weight, hits):
+
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1, projection=WCS(data.header))
+    ax.imshow(data.data, origin="lower")
+    ax.set_aspect("equal")
+
+    if self.source == "Moon":
+        ax.add_patch(
+            Ellipse(
+                xy=(data.header["CRPIX1"], data.header["CRPIX2"]),
+                width=31 / 60 / data.header["CDELT1"],
+                height=31 / 60 / data.header["CDELT2"],
+                angle=0,
+                edgecolor="r",
+                fc="None",
+                lw=2,
+                alpha=0.5,
+            )
+        )
+    fig.suptitle(self.filename)
+    return fig
 
 
 def show_kidpar(self, show_beam=True):

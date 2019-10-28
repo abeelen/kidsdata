@@ -72,7 +72,7 @@ def beammap(kd):
     """
     kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps", "I", "Q", "A_masq"])
     # Compute & plot beammap
-    fig_beammap, (datas, wcs, popts) = kd.plot_beammap(coord="pdiff")
+    fig_beammap, (_, _, popts) = kd.plot_beammap(coord="pdiff")
 
     # Update kidpar
     for key in ["x0", "y0"]:
@@ -88,26 +88,7 @@ def beammap(kd):
     fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
     ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) < 10))[0]
 
-    data, weight, hits = kd.continuum_map(coord="pdiff", ikid=ikid, cdelt=0.05)
-    ax = plt.subplot(projection=WCS(data.header))
-    ax.imshow(data.data, origin="lower")
-    ax.set_aspect("equal")
-
-    fig_coadd = ax.get_figure()
-    if kd.source == "Moon":
-        ax.add_patch(
-            Ellipse(
-                xy=(data.header["CRPIX1"], data.header["CRPIX2"]),
-                width=31 / 60 / data.header["CDELT1"],
-                height=31 / 60 / data.header["CDELT2"],
-                angle=0,
-                edgecolor="r",
-                fc="None",
-                lw=2,
-                alpha=0.5,
-            )
-        )
-    fig_coadd.suptitle(kd.filename)
+    fig_coadd, _ = kd.plot_contmap(coord="pdiff", ikid=ikid, cdelt=0.05)
 
     return kd, (fig_beammap, fig_geometry, fig_coadd)
 

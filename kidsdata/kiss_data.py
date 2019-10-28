@@ -328,6 +328,10 @@ class KissRawData(KidsRawData):
         datas, wcs, popts = self.continuum_beammaps(*args, **kwargs)
         return kids_plots.show_beammaps(self, datas, wcs, popts), (datas, wcs, popts)
 
+    def plot_contmap(self, *args, **kwargs):
+        data, weight, hits = self.continuum_map(*args, **kwargs)
+        return kids_plots.show_contmap(self, data, weight, hits), (data, weight, hits)
+
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)
         fig_fwhm = kids_plots.show_kidpar_fwhm(self)
