@@ -20,37 +20,43 @@ plt.ion()
 __all__ = ["beammap", "check_pointing", "skydip"]
 
 
-def kd_or_scan(func):
-    @wraps(func)
-    def wrapper(scan, *args, **kwargs):
-        # If scan number given, read the scan into the object and pass it to function
-        if isinstance(scan, (int, np.int, np.int64)):
-            kd = KissRawData(get_scan(scan))
+def kd_or_scan(array=None, extra_data=[]):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(scan, *args, **kwargs):
+            # If scan number given, read the scan into the object and pass it to function
+            if isinstance(scan, (int, np.int, np.int64)):
 
-            list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
+                kd = KissRawData(get_scan(scan))
 
-            # Do not use F_sky_* from file....
-            remove_Uc = ["F_sky_Az", "F_sky_El"]
-            remove_Ud = ["F_tel_Az", "F_tel_El"]
+                list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
 
-            for item in chain(remove_Uc, remove_Ud):
-                if item in list_data:
-                    list_data.remove(item)
+                # Do not use F_sky_* from file....
+                remove_Uc = ["F_sky_Az", "F_sky_El"]
+                remove_Ud = ["F_tel_Az", "F_tel_El"]
 
-            list_data = " ".join(list_data)
-            list_detector = kd.get_list_detector(kwargs.get("array", None), flag=0)
+                for item in chain(remove_Uc, remove_Ud):
+                    if item in list_data:
+                        list_data.remove(item)
 
-            # Read data
-            kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
+                # Add extra data at read time directly... otherwise there is a core dump...
+                list_data = list_data + extra_data
+                list_detector = kd.get_list_detector(array, flag=0)
 
-            scan = kd
-        return func(scan, *args, **kwargs)
+                # Read data
+                list_data = " ".join(list_data)
+                kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
 
-    return wrapper
+                scan = kd
+            return func(scan, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
-@kd_or_scan
-def beammap(kd, array="B"):
+@kd_or_scan(array="B", extra_data=["I", "Q"])
+def beammap(kd):
     """Display a beammap.
 
     Parameters
@@ -64,6 +70,7 @@ def beammap(kd, array="B"):
         return the read  `kissdata.KissRawData`, as well as the beammap and geometry figures
 
     """
+    kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps", "I", "Q", "A_masq"])
     # Compute & plot beammap
     fig_beammap, (datas, wcs, popts) = kd.plot_beammap(coord="pdiff")
 

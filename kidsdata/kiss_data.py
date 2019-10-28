@@ -101,6 +101,7 @@ class KissRawData(KidsRawData):
             # For any requested telescope position, read them all
             (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
             (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
+            (["I", "Q"], ["I", "Q", "A_masq"]),
         ]
 
         _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
