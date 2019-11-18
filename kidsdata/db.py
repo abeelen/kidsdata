@@ -36,6 +36,10 @@ def update_scan_database(dirs=None):
 
     data_rows = []
     for filename in filenames:
+        # Cleaning fits files ?!?
+        if filename.suffix == ".fits":
+            continue
+        # Removing already scanned files
         if DATABASE_SCAN is not None and filename not in DATABASE_SCAN["filename"]:
             continue
         date, hour, scan, source, obsmode = filename.name[1:].split("_")
@@ -89,6 +93,10 @@ def update_extra_database(dirs=None):
 
     data_rows = []
     for filename in filenames:
+        # Cleaning fits files ?!?
+        if filename.suffix == ".fits":
+            continue
+        # Removing already scanned files
         if DATABASE_EXTRA is not None and filename not in DATABASE_EXTRA["filename"]:
             continue
         year, month, day, hour = filename.name[2:].split("_")[0:4]
