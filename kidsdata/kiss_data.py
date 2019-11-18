@@ -96,12 +96,13 @@ class KissRawData(KidsRawData):
     def __check_attributes(self, attr_list):
         """Check if the data has been read an attribute and read in it if not."""
         dependancies = [
+            # I & Q will need A_masq
+            (["I", "Q"], ["I", "Q", "A_masq"]),
             # Calibration data depends on the I, Q & A_masq raw data
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
             (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
-            (["I", "Q"], ["I", "Q", "A_masq"]),
         ]
 
         _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
