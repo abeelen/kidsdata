@@ -180,11 +180,10 @@ class KidsRawData(KidsData):
         missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
         if missing:
             # TODO: check that there attributes are present in the file
-            list_data = " ".join(missing)
-            print("Missing data : ", list_data)
+            print("Missing data : ", missing)
             print("-----Now reading--------")
 
-            self.read_data(list_data=list_data, list_detector=self.list_detector)
+            self.read_data(list_data=missing, list_detector=self.list_detector)
 
         # Check that everything was read
         for key in attr_list:

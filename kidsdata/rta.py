@@ -44,7 +44,6 @@ def kd_or_scan(array=None, extra_data=[]):
                 list_detector = kd.get_list_detector(array, flag=0)
 
                 # Read data
-                list_data = " ".join(list_data)
                 kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
 
                 scan = kd
@@ -70,7 +69,9 @@ def beammap(kd):
         return the read  `kissdata.KissRawData`, as well as the beammap and geometry figures
 
     """
-    kd._KissRawData__check_attributes(["mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps", "I", "Q", "A_masq"])
+    kd._KissRawData__check_attributes(
+        ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
+    )
     # Compute & plot beammap
     fig_beammap, (_, _, popts) = kd.plot_beammap(coord="pdiff")
 
@@ -164,7 +165,7 @@ def skydip(scans):
     for scan in scans:
 
         kd = KissRawData(scan)
-        kd.read_data(list_data="A_masq I Q F_tone F_tl_Az F_tl_El")
+        kd.read_data(list_data=["A_masq", "I", "Q",  "F_tone", "F_tl_Az", "F_tl_El"])
 
         # TODO: Why do we need copy here, seems that numpy strides are making
         # funny things here !

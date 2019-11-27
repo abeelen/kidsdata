@@ -75,8 +75,8 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
         Full filename
     det2read : str (kid, kod, all, a1, a2, a3)
         Detector type to read
-    list_data : str ('all', '...')
-        A string containing the list of data to be read, could be 'all'
+    list_data : list or 'all' 
+        A list containing the list of data to be read, or the string 'all'
     silent : bool (default:True)
         Silence the output of the C library
 
@@ -96,6 +96,11 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
         the total  number of sample in the file
 
     """
+    if list_data == "all":
+        str_data = list_data
+    else:
+        str_data = " ".join(list_data)
+
     codelistdet = DETECTORS_CODE.get(det2read.lower(), -1)
 
     # nb_char_nom = 16
@@ -135,12 +140,12 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
     idx_param_d = ctypes.c_int32()
 
     nb_read_samples = read_nika_info(
-        bytes(filename, "ascii"),
+        bytes(str(filename), "ascii"),
         buffer_header.ctypes.data_as(p_int32),
         length_header,
         var_name_buffer,
         var_name_length,
-        bytes(list_data, "ascii"),
+        bytes(str_data, "ascii"),
         codelistdet,
         list_detector.ctypes.data_as(p_int32),
         nb_Sc,
@@ -253,7 +258,7 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
 def read_all(
     filename,
     det2read="KID",
-    list_data="indice A_mask I Q",
+    list_data=["indice", "A_mask", "I", "Q"],
     list_detector=None,
     start=None,
     end=None,
@@ -269,8 +274,8 @@ def read_all(
         Full filename
     det2read : str {kid, kod, all, a1, a2, a3}
         Detector type to read
-    list_data : str ('all', '...')
-        A string containing the list of data to be read, could be 'all'
+    list_data : list or 'all' 
+        A list containing the list of data to be read, or the string 'all'
     list_detector : :class:`~numpy.array`
         The names of detectors to read, by default `None` read all available KIDs.
     start : int
@@ -301,6 +306,12 @@ def read_all(
     `list_detector` is an :class:`~numpy.array` of int listing the index of the requested KIDs.
 
     """
+
+    if list_data == "all":
+        str_data = list_data
+    else:
+        str_data = " ".join(list_data)
+        
     # Read the basic header from the file and the name of the data
     header, _, param_c, kidpar, names, nb_read_info = read_info(
         filename, det2read=det2read, list_data=list_data, silent=silent
@@ -358,10 +369,10 @@ def read_all(
     )
     logging.debug("before read_nika_all")
     nb_samples_read = read_nika_all(
-        bytes(filename, "ascii"),
+        bytes(str(filename), "ascii"),
         buffer_dataS.ctypes.data_as(p_double),
         buffer_dataU.ctypes.data_as(p_double),
-        bytes(list_data, "ascii"),
+        bytes(str_data, "ascii"),
         list_detector.ctypes.data_as(p_int32),
         start,
         end,
