@@ -2,7 +2,6 @@
 import os
 import gc
 
-import h5py
 import logging
 import ctypes
 import numpy as np
@@ -75,7 +74,7 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
         Full filename
     det2read : str (kid, kod, all, a1, a2, a3)
         Detector type to read
-    list_data : list or 'all' 
+    list_data : list or 'all'
         A list containing the list of data to be read, or the string 'all'
     silent : bool (default:True)
         Silence the output of the C library
@@ -274,7 +273,7 @@ def read_all(
         Full filename
     det2read : str {kid, kod, all, a1, a2, a3}
         Detector type to read
-    list_data : list or 'all' 
+    list_data : list or 'all'
         A list containing the list of data to be read, or the string 'all'
     list_detector : :class:`~numpy.array`
         The names of detectors to read, by default `None` read all available KIDs.
@@ -292,6 +291,8 @@ def read_all(
         variable must be really checked for further analysis and how it impact performances
     Returns
     -------
+    nb_samples_read : int
+        The number of sample read
     dataSc : dict:
         A dictionnary containing all the requested sampled common quantities data as 1D :class:`~numpy.array`
     dataSd : dict
@@ -311,7 +312,7 @@ def read_all(
         str_data = list_data
     else:
         str_data = " ".join(list_data)
-        
+
     # Read the basic header from the file and the name of the data
     header, _, param_c, kidpar, names, nb_read_info = read_info(
         filename, det2read=det2read, list_data=list_data, silent=silent
@@ -470,6 +471,8 @@ def read_all(
 
 
 def data_to_hdf5(filename, dataset_name, dataset):
+    import h5py
+
     """Save a dictionnary of numpy arrays in an hdf5 group."""
     with h5py.File(filename, "a") as f:
         if dataset_name in f:
@@ -481,6 +484,8 @@ def data_to_hdf5(filename, dataset_name, dataset):
 
 
 def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples):
+    import h5py
+
     """Save all header information to hdf5 attribute or group."""
     with h5py.File(filename, "a") as f:
         if "header" in f:
@@ -495,8 +500,9 @@ def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_re
 
 
 if __name__ == "__main__":
-    input = "/data/KISS/Raw/nika2c-data3/KISS/X20190319_0727_S0230_Jupiter_SCIENCEMAP"
-    output = "myfile.hdf5"
+    # input = "/data/KISS/Raw/nika2c-data3/KISS/X20190319_0727_S0230_Jupiter_SCIENCEMAP"
+    input = "/data/KISS/Raw/nika2c-data3/KISS/2019_11_16/Y20191116_1611_S0636_Jupiter_ITERATIVERASTER"
+    # output = "myfile.hdf5"
     # TODO: Save read_info output
     header, version_header, param_c, kidpar, names, nb_read_samples = read_info(input)
     # TODO: Some of the data must be computed on-line... check that in C library
@@ -515,7 +521,34 @@ if __name__ == "__main__":
         "dF_tone",
         "k_angle",
         "RF_didq",
+        "RF_deco",
+        "dF_tone",
+        "amplitude",
+        "ph_rel",
+        "k_angle",
+        "u_freq",
+        "u_ph_IQ",
+        "u_ph_rel",
+        "sample_U",
+        "dI",
+        "dQ",
+        "sampleU",
     ]
-    dataSc, dataSd, dataUc, dataUd = read_all(input, list_data="all")
-    for dataset_name, dataset in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
-        data_to_hdf5(output, dataset_name, dataset)
+
+    list_data = names.ComputedDataSc + names.ComputedDataSd + names.ComputedDataUc + names.ComputedDataUd
+    for item in ComputedData:
+        if item in list_data:
+            list_data.remove(item)
+
+    nb_sample_read, dataSc, dataSd, dataUc, dataUd = read_all(input, list_data=list_data)
+
+    # for dataset_name, dataset in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
+    #     data_to_hdf5(output, dataset_name, dataset)
+
+    import deepdish as dd
+    data = {'header': header, 'version_header': version_header, 'param_c': param_c, 'kidpar': kidpar, 'names': names, 'nb_read_samples': nb_read_samples,
+            'dataSc': dataSc, 'dataSd': dataSd, 'dataUc': dataUc, 'dataUd': dataUd}
+    dd.io.save('test_dd_blosc.h5', data, compression=('blosc', 9))
+    dd.io.save('test_dd_zlib.h5', data, compression=('zlib', 9))
+    dd.io.save('test_dd_bzip2.h5', data, compression=('bzip2', 9))
+    dd.io.save('test_dd_gzip.h5', data, compression=('gzip', 9))
