@@ -90,8 +90,8 @@ def beammap(kd):
     kidpar = kd.kidpar.loc[kd.list_detector]
     pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
     fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
-    median_fwhm = np.nanmedian(fwhm.data)
-    median_amplitude = np.nanmedian(kidpar['amplitude'])
+    median_fwhm = np.nanmedian(fwhm.filled(np.nan))
+    median_amplitude = np.nanmedian(kidpar['amplitude'].filled(np.nan))
     ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - median_fwhm) < 10) & (np.abs(kidpar['amplitude'] / median_amplitude - 1) < 0.3))[0]
 
     if len(ikid) > 5:
