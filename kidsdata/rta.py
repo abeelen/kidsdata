@@ -83,13 +83,22 @@ def beammap(kd):
     # plot geometry
     fig_geometry, fwhm = kd.plot_kidpar()
 
-    # select good detector, ie within 60 arcmin of the center and fwhm 25 +- 10
+    # quick selection of good detector, ie :
+    # * within 60 arcmin of the center 
+    # * fwhm within 10 arcmin of the median value
+    # * amplitude within 30 % of the median amplitude
     kidpar = kd.kidpar.loc[kd.list_detector]
     pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
     fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
-    ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) < 10))[0]
+    median_fwhm = np.nanmedian(fwhm.data)
+    median_amplitude = np.nanmedian(kidpar['amplitude'])
+    ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - median_fwhm) < 10) & (np.abs(kidpar['amplitude'] / median_amplitude - 1) < 0.3))[0]
 
-    fig_coadd, _ = kd.plot_contmap(coord="pdiff", ikid=ikid, cdelt=0.05)
+    if len(ikid) > 5:
+        fig_coadd, _ = kd.plot_contmap(coord="pdiff", ikid=ikid, cdelt=0.05)
+    else:
+        fig_coadd = None
+
 
     return kd, (fig_beammap, fig_geometry, fig_coadd)
 
