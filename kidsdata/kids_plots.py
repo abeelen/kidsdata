@@ -234,38 +234,50 @@ def show_contmap(self, data, weight, hits):
     return fig
 
 
-def show_kidpar(self, show_beam=True):
+def show_kidpar(self, show_beam=True, **kwargs):
     # Geometry
     popt = self.kidpar.loc[self.list_detector]
+
+    acqboxes = np.unique(popt['acqbox'])
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
     sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
+    amplitudes = np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"])
 
-    values = {
-        "fwhms [arcmin]": np.max(np.abs(sizes), axis=1),
-        "ellipticities": (np.max(np.abs(sizes), axis=1) - np.min(np.abs(sizes), axis=1))
-        / np.max(np.abs(sizes), axis=1),
-        "amplitudes [rel. abu]": np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"]),
-    }
+    figs = []
+    # Loop over acquisition box
+    for acqbox in acqboxes:
+        mask_box = popt['acqbox'] == acqbox 
+        fig, axes = plt.subplots(2, 3, **kwargs)
 
-    fig, axes = plt.subplots(2, 3)
-    for (item, value), ax_top, ax_bottom in zip(values.items(), axes[0], axes[1]):
-        mean_value = np.nanmedian(value)
-        std_value = mad_std(value, ignore_nan=True)
-        range_value = np.array([-3, 3]) * std_value + mean_value
-        ax_bottom.hist(value, range=range_value)
+        _pos = pos[mask_box]
+        _sizes = sizes[mask_box]
+        _amplitudes = amplitudes[mask_box]
 
-        scatter = ax_top.scatter(pos[:, 0], pos[:, 1], c=np.clip(value, *range_value))
-        cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
-        cbar.set_label(item)
-        ax_top.set_xlim(-0.62 * 60, 0.62 * 60)
-        ax_top.set_ylim(-0.62 * 60, 0.62 * 60)
-        ax_top.set_aspect("equal")
-        ax_top.set_xlabel("lon offset [arcmin]")
-        ax_top.set_ylabel("lat offset [arcmin]")
-    fig.suptitle(self.filename)
-    fig.tight_layout()
+        values = {
+            "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),
+            "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1)) / np.max(np.abs(_sizes), axis=1),
+            "amplitudes [rel. abu]": _amplitudes, }
 
-    return fig
+        for (item, value), ax_top, ax_bottom in zip(values.items(), axes[0], axes[1]):
+            mean_value = np.nanmedian(value)
+            std_value = mad_std(value, ignore_nan=True)
+            range_value = np.array([-3, 3]) * std_value + mean_value
+            ax_bottom.hist(value, range=range_value)
+
+            scatter = ax_top.scatter(_pos[:, 0], _pos[:, 1], c=np.clip(value, *range_value))
+            cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
+            cbar.set_label(item)
+            ax_top.set_xlim(-0.62 * 60, 0.62 * 60)
+            ax_top.set_ylim(-0.62 * 60, 0.62 * 60)
+            ax_top.set_aspect("equal")
+            ax_top.set_xlabel("lon offset [arcmin]")
+            ax_top.set_ylabel("lat offset [arcmin]")
+        fig.suptitle('{} / aqbox: {}'.format(self.filename, acqbox))
+        fig.tight_layout()
+
+        figs.append(fig)
+
+    return figs
 
 
 def show_kidpar_fwhm(self):
