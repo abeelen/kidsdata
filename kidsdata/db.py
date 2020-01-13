@@ -36,8 +36,8 @@ def update_scan_database(dirs=None):
 
     data_rows = []
     for filename in filenames:
-        # Cleaning fits files ?!?
-        if filename.suffix == ".fits":
+        # Cleaning other type of files ?!?
+        if filename.suffix in  [".fits", ".hdf5"]:
             continue
         # Removing already scanned files
         if DATABASE_SCAN is not None and filename not in DATABASE_SCAN["filename"]:
