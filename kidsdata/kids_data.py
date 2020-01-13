@@ -125,6 +125,8 @@ class KidsRawData(KidsData):
 
         if "list_detector" in kwargs:
             self.list_detector = kwargs["list_detector"]
+        else:
+            self.list_detector = self.names.RawDataDetector
 
         if self.nsamples != nb_samples_read:
             self.nsamples = nb_samples_read
