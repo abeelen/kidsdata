@@ -84,7 +84,7 @@ class KidsRawData(KidsData):
             date = split_name[0]
         elif len(split_name) == 7:  # Extra scans.... WHY !!!
             date = "".join(split_name[1:4])
-        return Time(parse(date), scale="utc", out_subfmt="date")  # UTC ??
+        return Time(parse(date), scale="utc")  # UTC ??
 
     @property
     @lru_cache(maxsize=1)
