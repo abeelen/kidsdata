@@ -6,7 +6,7 @@ from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
 
 
-def project(x, y, data, shape, weight=None):
+def project(x, y, data, shape, weights=None):
     """Project x,y, data TOIs on a 2D grid.
 
     Parameters
@@ -17,8 +17,8 @@ def project(x, y, data, shape, weight=None):
         input data to project
     shape : int or tuple of int
         the shape of the output projected map
-    weight : array_like
-        weight to be use to sum the data (by default, ones)
+    weights : array_like
+        weights to be use to sum the data (by default, ones)
 
     Returns
     -------
@@ -54,7 +54,7 @@ def project(x, y, data, shape, weight=None):
 
     Weighted means are also possible :
 
-    >>> data, weight, hits = project([-0.4, 0.4], [0, 0], [0.5, 2], 2, weight=[2, 1])
+    >>> data, weight, hits = project([-0.4, 0.4], [0, 0], [0.5, 2], 2, weights=[2, 1])
     >>> data
     array([[ 1., nan],
            [nan, nan]))
@@ -70,27 +70,23 @@ def project(x, y, data, shape, weight=None):
 
     assert len(shape) == 2, "shape must be a int or have a length of 2"
 
-    if weight is None:
-        weight = np.ones_like(data)
+    if weights is None:
+        weights = np.ones_like(data)
 
     if isinstance(data, np.ma.MaskedArray):
         # Put weights as 0 for masked data
-        weight = weight * ~data.mask
+        weights = weights * ~data.mask
 
     _hits, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)))
 
-    _weight, _, _ = np.histogram2d(
-        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight
-    )
-    _data, _, _ = np.histogram2d(
-        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weight * np.asarray(data)
-    )
+    _weights, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights)
+    _data, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights * np.asarray(data))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        output = _data / _weight
+        output = _data / _weights
 
-    return output, _weight, _hits.astype(np.int)
+    return output, _weights, _hits.astype(np.int)
 
 
 def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, **kwargs):
@@ -169,22 +165,13 @@ def elliptical_disk(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
     a = np.cos(theta) ** 2 / (2 * sigma_x_sqr) + np.sin(theta) ** 2 / (2 * sigma_y_sqr)
     b = np.sin(2 * theta) / (4 * sigma_x_sqr) - np.sin(2 * theta) / (4 * sigma_y_sqr)
     c = np.sin(theta) ** 2 / (2 * sigma_x_sqr) + np.cos(theta) ** 2 / (2 * sigma_y_sqr)
-    g = offset + np.select(
-        [np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))) > 0.5], [amplitude]
-    )
+    g = offset + np.select([np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))) > 0.5], [amplitude])
     return g.ravel()
 
 
 def elliptical_disk_start_params(data):
     """Get starting parameters for ellipcital disk."""
-    return [
-        np.nanmax(data),
-        *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1],
-        10,
-        10,
-        0,
-        np.nanmedian(data),
-    ]
+    return [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 10, 10, 0, np.nanmedian(data)]
 
 
 def fit_gaussian(data, weight=None, func=elliptical_gaussian):
@@ -238,3 +225,75 @@ def fit_gaussian(data, weight=None, func=elliptical_gaussian):
         popt = [np.nan] * len(params)
 
     return popt
+
+
+def correlated_median_removal(data_array, iref=0):
+    """Remove correlated data as median value per timestamp.
+    
+    Parameters
+    ----------
+    data_array : array_like
+        the input 2D datablock (see note)
+    iref : int
+        the reference index for flat field
+    
+    Returns
+    -------
+    data_array : array_like
+        the processed datablock without correlated signal, but with flat field and offset 
+    flat_field : array_like
+        the flat field derived from the data
+    flat_offset : array_like
+        the offsets derived from the data
+    median_data : array_like
+        the median signal removed from the data
+
+    Notes
+    -----
+    detectors are on axis 0, time on axis=1
+    if the reference detector is bad, this could corrump the procedure
+    """
+
+    # Remove median value in time
+    flat_offset = np.nanmedian(data_array, axis=1)
+    data_array = data_array - flat_offset[:, np.newaxis]
+
+    # Compute the median flat field between all detectors
+    flat_field = np.array([np.nanmedian(_data_array / data_array[iref]) for _data_array in data_array])
+
+    # Remove the flat field value
+    data_array /= flat_field[:, np.newaxis]
+
+    # Remove the mean value per timestamp
+    median_data = np.nanmedian(data_array, axis=0)
+    data_array -= median_data
+
+    # just in case
+    data_array *= flat_field[:, np.newaxis]
+    data_array += flat_offset[:, np.newaxis]
+
+    return data_array, flat_field, flat_offset, median_data
+
+
+# https://towardsdatascience.com/pca-and-svd-explained-with-numpy-5d13b0d2a4d8
+def pca(X):
+    # Data matrix X, assumes 0-centered
+    n, m = X.shape
+    assert np.allclose(X.mean(axis=0), np.zeros(m))
+    # Compute covariance matrix
+    C = np.dot(X.T, X) / (n - 1)
+    # Eigen decomposition
+    eigen_vals, eigen_vecs = np.linalg.eig(C)
+    # Project X onto PC space
+    X_pca = np.dot(X, eigen_vecs)
+    return X_pca, eigen_vals, eigen_vecs
+
+
+def svd(X):
+    # Data matrix X, X doesn't need to be 0-centered
+    n, m = X.shape
+    # Compute full SVD
+    U, Sigma, Vh = np.linalg.svd(X, full_matrices=False, compute_uv=True)  # It's not necessary to compute the full matrix of U or V
+    # Transform X with SVD components
+    X_svd = np.dot(U, np.diag(Sigma))
+    return X_svd
