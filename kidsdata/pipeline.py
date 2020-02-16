@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import ndimage
 from scipy.signal import medfilt
+from .utils import correlated_median_removal, pca
 
 
 def basic_continuum(self, ikid, diff_mask=False, medfilt_size=None, **kwargs):
@@ -24,18 +25,21 @@ def basic_continuum(self, ikid, diff_mask=False, medfilt_size=None, **kwargs):
 
 def median_continuum(self, ikid, ikid_ref=0, **kwargs):
 
-    # Only a rough Baseline for now...
     bgrd = self.continuum[ikid]
-    # Remove median value in time
-    bgrd = bgrd - np.nanmedian(bgrd, axis=1)[:, np.newaxis]
 
-    flat_field = np.array([np.nanmedian(_bgrd / bgrd[ikid_ref]) for _bgrd in bgrd])
+    bgrd_cleanned, flat, offset, _ = correlated_median_removal(bgrd, iref=ikid_ref)
 
-    bgrd /= flat_field[:, np.newaxis]
+    return (bgrd_cleanned-offset[:, np.newaxis])/flat[:, np.newaxis]
 
-    bgrd -= np.nanmedian(bgrd, axis=0)
+def pca_continuum(self, ikid, ncomp=1, **kwargs):
 
-    # just in case
-    bgrd *= flat_field[:, np.newaxis]
+    bgrd = self.continuum[ikid]
 
-    return bgrd
+    # PCA needs zero centered values
+    bgrd = bgrd.T - bgrd.T.mean(axis=0)
+
+    bgrd_PCA, _, eigen_vectors = pca(bgrd)
+
+    bgrd_only = np.dot(bgrd_PCA[:, :ncomp], eigen_vectors[:, :ncomp].T)
+
+    return (bgrd - bgrd_only).T

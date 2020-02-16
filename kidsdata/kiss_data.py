@@ -216,7 +216,7 @@ class KissRawData(KidsRawData):
         _, interp_el = self.get_object_altaz(npoints=100)
         return self.F_sky_El - interp_el(obstime.mjd)
 
-    def continuum_map(self, ikid=None, wcs=None, coord="diff", **kwargs):
+    def continuum_map(self, ikid=None, wcs=None, coord="diff", weights='std', **kwargs):
         """Project all data into one map."""
 
         az_coord = "F_{}_Az".format(coord)
@@ -254,7 +254,13 @@ class KissRawData(KidsRawData):
 
         _x = (x[:, np.newaxis] - kidspars["x0"] / wcs.wcs.cdelt[0]).T
         _y = (y[:, np.newaxis] - kidspars["y0"] / wcs.wcs.cdelt[1]).T
-        output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape)
+
+        if weights == 'std':
+            bgrd_weights = 1/bgrds.std(axis=1)**2
+
+        bgrd_weights = np.repeat(bgrd_weights, bgrds.shape[1]).reshape(bgrds.shape)
+
+        output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
         return (
             ImageHDU(output, header=wcs.to_header(), name="data"),
