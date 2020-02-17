@@ -54,7 +54,7 @@ def kd_or_scan(array=None, extra_data=[]):
     return decorator
 
 
-@kd_or_scan(array="B", extra_data=["I", "Q"])
+@kd_or_scan(array=None, extra_data=["I", "Q"])
 def beammap(kd):
     """Display a beammap.
 
@@ -78,6 +78,7 @@ def beammap(kd):
     # Update kidpar
     for key in ["x0", "y0"]:
         popts[key] -= np.nanmedian(popts[key])
+        popts[key] *= -1
     kd._extended_kidpar = popts
 
     # plot geometry
