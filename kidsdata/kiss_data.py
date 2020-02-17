@@ -216,9 +216,41 @@ class KissRawData(KidsRawData):
         _, interp_el = self.get_object_altaz(npoints=100)
         return self.F_sky_El - interp_el(obstime.mjd)
 
+    def kids_selection(self, pos_max=60, fwhm_dev=0.3, amplitude_dev=0.3):
+        """Select KIDs depending on their kidpar parameters.
+        
+        Parameters
+        ----------
+        pos_max : int, optional
+            maximum position offset [arcmin] by default 60 
+        fwhm_dev : float, optional
+            relative fwhm deviation from median [%], by default 0.3
+        amplitude_dev : float, optional
+            relative amplitude deviation from median [%], by default 0.3
+        
+        Returns
+        -------
+        array
+            a boolean array for kids selection in the kidpar
+        """
+        # Retrieve used kidpar
+        kidpar = self.kidpar.loc[self.list_detector]
+
+        pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
+        fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
+        median_fwhm = np.nanmedian(fwhm.filled(np.nan))
+        median_amplitude = np.nanmedian(kidpar["amplitude"].filled(np.nan))
+
+        kid_mask = (
+            (np.sqrt(np.sum(pos**2, axis=0)) < pos_max)
+            & (np.abs(fwhm / median_fwhm - 1) < fwhm_dev).filled(False)
+            & (np.abs(kidpar["amplitude"] / median_amplitude - 1) < amplitude_dev).filled(False)
+        )
+
+        return kid_mask
+
     def continuum_map(self, ikid=None, wcs=None, coord="diff", weights='std', **kwargs):
         """Project all data into one map."""
-
         az_coord = "F_{}_Az".format(coord)
         el_coord = "F_{}_El".format(coord)
 
@@ -252,8 +284,8 @@ class KissRawData(KidsRawData):
 
         shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
 
-        _x = (x[:, np.newaxis] - kidspars["x0"] / wcs.wcs.cdelt[0]).T
-        _y = (y[:, np.newaxis] - kidspars["y0"] / wcs.wcs.cdelt[1]).T
+        _x = (x[:, np.newaxis] + kidspars["x0"] / wcs.wcs.cdelt[0]).T
+        _y = (y[:, np.newaxis] + kidspars["y0"] / wcs.wcs.cdelt[1]).T
 
         if weights == 'std':
             bgrd_weights = 1/bgrds.std(axis=1)**2
@@ -335,9 +367,25 @@ class KissRawData(KidsRawData):
         datas, wcs, popts = self.continuum_beammaps(*args, **kwargs)
         return kids_plots.show_beammaps(self, datas, wcs, popts), (datas, wcs, popts)
 
-    def plot_contmap(self, *args, **kwargs):
-        data, weight, hits = self.continuum_map(*args, **kwargs)
-        return kids_plots.show_contmap(self, data, weight, hits), (data, weight, hits)
+    def plot_contmap(self, ikid=None, label=None, *args, **kwargs):
+        """Plot continuum map(s), potentially with several KIDs selections."""
+        if ikid is None:
+            ikid = [None]
+        elif isinstance(ikid[0], (int, np.int, np.int64)):
+            # Default to a list of list to be able to plot several maps
+            ikid = [ikid]
+        
+        data = []
+        weights = []
+        hits = []
+        for _ikid in ikid:
+            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, **kwargs)
+            data.append(_data)
+            weights.append(_weights)
+            hits.append(_hits)
+        #TODO: ikid list of list vs list of int
+        # data, weight, hits = self.continuum_map(*args, **kwargs)
+        return kids_plots.show_contmap(self, data, weights, hits, label), (data, weights, hits)
 
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)
