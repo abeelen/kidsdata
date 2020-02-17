@@ -210,26 +210,41 @@ def show_beammaps(self, datas, wcs, popts):
     return fig_beammap
 
 
-def show_contmap(self, data, weight, hits):
+def show_contmap(self, data, weight, hits, label=None):
 
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1, projection=WCS(data.header))
-    ax.imshow(data.data, origin="lower")
-    ax.set_aspect("equal")
+    # TODO: assert same header....
+    fig, axes = plt.subplots(ncols=len(data), subplot_kw={"projection": WCS(data[0].header)}, constrained_layout=True)
 
-    if self.source == "Moon":
-        ax.add_patch(
-            Ellipse(
-                xy=(data.header["CRPIX1"], data.header["CRPIX2"]),
-                width=31 / 60 / data.header["CDELT1"],
-                height=31 / 60 / data.header["CDELT2"],
-                angle=0,
-                edgecolor="r",
-                fc="None",
-                lw=2,
-                alpha=0.5,
+    if isinstance(axes, plt.Axes):
+        axes = [axes]
+
+    from matplotlib.colors import Normalize
+
+    norm = Normalize(vmin=np.nanmin([_data.data for _data in data]), vmax=np.nanmax([_data.data for _data in data]))
+
+    for ax, _data in zip(axes, data):
+        im = ax.imshow(_data.data, origin="lower", norm=norm)
+        ax.set_aspect("equal")
+
+        if self.source == "Moon":
+            ax.add_patch(
+                Ellipse(
+                    xy=(_data.header["CRPIX1"], _data.header["CRPIX2"]),
+                    width=31 / 60 / _data.header["CDELT1"],
+                    height=31 / 60 / _data.header["CDELT2"],
+                    angle=0,
+                    edgecolor="r",
+                    fc="None",
+                    lw=2,
+                    alpha=0.5,
+                )
             )
-        )
+
+    if label is not None:
+        for ax, _label, in zip(axes, label):
+            ax.set_title(_label)
+
+    fig.colorbar(im, ax=axes, shrink=0.6)
     fig.suptitle(self.filename)
     return fig
 
@@ -238,7 +253,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
     # Geometry
     popt = self.kidpar.loc[self.list_detector]
 
-    acqboxes = np.unique(popt['acqbox'])
+    acqboxes = np.unique(popt["acqbox"])
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
     sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
     amplitudes = np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"])
@@ -246,7 +261,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
     figs = []
     # Loop over acquisition box
     for acqbox in acqboxes:
-        mask_box = popt['acqbox'] == acqbox 
+        mask_box = popt["acqbox"] == acqbox
         fig, axes = plt.subplots(2, 3, **kwargs)
 
         _pos = pos[mask_box]
@@ -256,7 +271,8 @@ def show_kidpar(self, show_beam=True, **kwargs):
         values = {
             "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),
             "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1)) / np.max(np.abs(_sizes), axis=1),
-            "amplitudes [rel. abu]": _amplitudes, }
+            "amplitudes [rel. abu]": _amplitudes,
+        }
 
         for (item, value), ax_top, ax_bottom in zip(values.items(), axes[0], axes[1]):
             mean_value = np.nanmedian(value)
@@ -272,7 +288,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
             ax_top.set_aspect("equal")
             ax_top.set_xlabel("lon offset [arcmin]")
             ax_top.set_ylabel("lat offset [arcmin]")
-        fig.suptitle('{} / aqbox: {}'.format(self.filename, acqbox))
+        fig.suptitle("{} / aqbox: {}".format(self.filename, acqbox))
         fig.tight_layout()
 
         figs.append(fig)
@@ -282,9 +298,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
 
 def show_kidpar_fwhm(self):
 
-    sizes = (
-        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
-    )  # arcmin
+    sizes = np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):
         ax.hist(np.abs(_sizes), label=label, alpha=0.5, range=(0, 40), bins=50)
