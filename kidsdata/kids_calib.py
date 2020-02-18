@@ -104,12 +104,17 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         valIQ = (Ic * Ic) + (Qc * Qc)
         # CHECK : This will take the last element for the first interferogram
         dist = (Icc[:, iint - 1] - Ic) * (Icc[:, iint - 1] - Ic) + (Qcc[:, iint - 1] - Qc) * (Qcc[:, iint - 1] - Qc)
-        epsi[dist > 0.05 * valIQ] = 1.0
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            epsi[dist > 0.05 * valIQ] = 1.0
 
         # TODO: This could be vectorized
         if iint > 0:
-            Ic = Ic * epsi + (1 - epsi) * Icc[:, iint - 1]
-            Qc = Qc * epsi + (1 - epsi) * Qcc[:, iint - 1]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")            
+                Ic = Ic * epsi + (1 - epsi) * Icc[:, iint - 1]
+                Qc = Qc * epsi + (1 - epsi) * Qcc[:, iint - 1]
 
         Icc[:, iint] = Ic
         Qcc[:, iint] = Qc
@@ -128,7 +133,9 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         diffangle = angle0(r2 - r1)
 
         # Get calibration factor
-        diffangle[np.abs(diffangle) < 0.001] = 1.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            diffangle[np.abs(diffangle) < 0.001] = 1.0
 
         calcoeff = 2 / diffangle
         calfact[:, iint] = calcoeff * fmod * Modfactor
