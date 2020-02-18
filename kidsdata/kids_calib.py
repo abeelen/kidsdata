@@ -1,4 +1,5 @@
 import logging
+import warnings
 import numpy as np
 from scipy.ndimage.morphology import binary_erosion
 
@@ -85,12 +86,13 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
         # Fit circle
         den = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
-
         Ic = (x1 * x1 + y1 * y1) * (y2 - y3) + (x2 * x2 + y2 * y2) * (y3 - y1) + (x3 * x3 + y3 * y3) * (y1 - y2)
-        Ic /= den
-
         Qc = (x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)
-        Qc /= den
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Ic /= den
+            Qc /= den
 
         # Filter
         nfilt = 9
