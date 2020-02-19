@@ -79,8 +79,12 @@ def project(x, y, data, shape, weights=None):
 
     _hits, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)))
 
-    _weights, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights)
-    _data, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights * np.asarray(data))
+    _weights, _, _ = np.histogram2d(
+        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights
+    )
+    _data, _, _ = np.histogram2d(
+        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights * np.asarray(data)
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -113,21 +117,28 @@ def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, *
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ctype
 
-    if ctype == ("TLON-TAN" "TLAT-TAN"):
+    if ctype == ("TLON-TAN", "TLAT-TAN"):
         wcs.wcs.name = "Terrestrial coordinates"
 
-    wcs.wcs.cdelt = (-cdelt, cdelt)
+    # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
+    if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
+        wcs.wcs.cdelt = (cdelt, cdelt)
+    else:
+        wcs.wcs.cdelt = (-cdelt, cdelt)
 
     if crval is None:
         # find the center of the projection
         crval = ((lon.max() + lon.min()) / 2, (lat.max() + lat.min()) / 2)
 
     wcs.wcs.crval = crval
+    wcs.wcs.cunit = ["deg", "deg"]
 
     # Determine the center of the map to project all data
     x, y = wcs.all_world2pix(lon, lat, 0)
     x_min, y_min = x.min(), y.min()
     wcs.wcs.crpix = (-x_min, -y_min)
+    x -= x_min
+    y -= y_min
 
     return wcs, x, y
 
@@ -165,13 +176,22 @@ def elliptical_disk(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
     a = np.cos(theta) ** 2 / (2 * sigma_x_sqr) + np.sin(theta) ** 2 / (2 * sigma_y_sqr)
     b = np.sin(2 * theta) / (4 * sigma_x_sqr) - np.sin(2 * theta) / (4 * sigma_y_sqr)
     c = np.sin(theta) ** 2 / (2 * sigma_x_sqr) + np.cos(theta) ** 2 / (2 * sigma_y_sqr)
-    g = offset + np.select([np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))) > 0.5], [amplitude])
+    g = offset + np.select(
+        [np.exp(-(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))) > 0.5], [amplitude]
+    )
     return g.ravel()
 
 
 def elliptical_disk_start_params(data):
     """Get starting parameters for ellipcital disk."""
-    return [np.nanmax(data), *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1], 10, 10, 0, np.nanmedian(data)]
+    return [
+        np.nanmax(data),
+        *np.unravel_index(np.nanargmax(data, axis=None), data.shape)[::-1],
+        10,
+        10,
+        0,
+        np.nanmedian(data),
+    ]
 
 
 def fit_gaussian(data, weight=None, func=elliptical_gaussian):
@@ -293,7 +313,9 @@ def svd(X):
     # Data matrix X, X doesn't need to be 0-centered
     n, m = X.shape
     # Compute full SVD
-    U, Sigma, Vh = np.linalg.svd(X, full_matrices=False, compute_uv=True)  # It's not necessary to compute the full matrix of U or V
+    U, Sigma, Vh = np.linalg.svd(
+        X, full_matrices=False, compute_uv=True
+    )  # It's not necessary to compute the full matrix of U or V
     # Transform X with SVD components
     X_svd = np.dot(U, np.diag(Sigma))
     return X_svd

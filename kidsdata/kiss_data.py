@@ -1,9 +1,11 @@
 import warnings
 import numpy as np
+import datetime
 
 from functools import lru_cache
 
 from scipy.interpolate import interp1d
+from scipy.optimize import OptimizeWarning
 
 import astropy.units as u
 from astropy.time import Time
@@ -216,7 +218,7 @@ class KissRawData(KidsRawData):
         _, interp_el = self.get_object_altaz(npoints=100)
         return self.F_sky_El - interp_el(obstime.mjd)
 
-    def kids_selection(self, pos_max=60, fwhm_dev=0.3, amplitude_dev=0.3):
+    def _kids_selection(self, pos_max=60, fwhm_dev=0.3, amplitude_dev=0.3, std_dev=None):
         """Select KIDs depending on their kidpar parameters.
         
         Parameters
@@ -227,7 +229,9 @@ class KissRawData(KidsRawData):
             relative fwhm deviation from median [%], by default 0.3
         amplitude_dev : float, optional
             relative amplitude deviation from median [%], by default 0.3
-        
+        std_dev : float, optional
+            relative devation of median background stddev [%], by default not used
+
         Returns
         -------
         array
@@ -236,21 +240,42 @@ class KissRawData(KidsRawData):
         # Retrieve used kidpar
         kidpar = self.kidpar.loc[self.list_detector]
 
-        pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
+        pos = np.sqrt(kidpar["x0"] ** 2 + kidpar["y0"] ** 2) * 60  # arcmin
         fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
         median_fwhm = np.nanmedian(fwhm.filled(np.nan))
         median_amplitude = np.nanmedian(kidpar["amplitude"].filled(np.nan))
 
         kid_mask = (
-            (np.sqrt(np.sum(pos**2, axis=0)) < pos_max)
-            & (np.abs(fwhm / median_fwhm - 1) < fwhm_dev).filled(False)
-            & (np.abs(kidpar["amplitude"] / median_amplitude - 1) < amplitude_dev).filled(False)
+            (pos.filled(np.inf) < pos_max)
+            & (np.abs(fwhm / median_fwhm - 1).filled(np.inf) < fwhm_dev)
+            & (np.abs(kidpar["amplitude"] / median_amplitude - 1).filled(np.inf) < amplitude_dev)
         )
+
+        if std_dev is not None:
+            std_cont = np.std(self.continuum, axis=1)
+            kid_mask &= np.abs(std_cont / np.nanmedian(std_cont) - 1) < std_dev
 
         return kid_mask
 
-    def continuum_map(self, ikid=None, wcs=None, coord="diff", weights='std', **kwargs):
-        """Project all data into one map."""
+    def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, **kwargs):
+        """Compute wcs and project the telescope position.
+        
+        Parameters
+        ----------
+        ikid : array, optional
+            the selected kids index to consider, by default all
+        wcs : ~astropy.wcs.WCS, optional
+            the projection wcs if provided, by default None
+        coord : str, optional
+            coordinate type, by default "diff"
+        cdelt: float
+            the size of the pixels in degree
+        
+        Returns
+        -------
+        ~astropy.wcs.WCS, array, array, tuple
+            the projection wcs, projected coordinates x, y and shape of the resulting map
+        """
         az_coord = "F_{}_Az".format(coord)
         el_coord = "F_{}_El".format(coord)
 
@@ -264,6 +289,33 @@ class KissRawData(KidsRawData):
         az = getattr(self, az_coord)[mask_tel]
         el = getattr(self, el_coord)[mask_tel]
 
+        kidspars = self.kidpar.loc[self.list_detector[ikid]]
+
+        # Need to include the extreme kidspar offsets
+        kidspar_margin_x = (kidspars["x0"].max() - kidspars["x0"].min()) / cdelt
+        kidspar_margin_y = (kidspars["y0"].max() - kidspars["y0"].min()) / cdelt
+
+        if wcs is None:
+            wcs, _, _ = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), cdelt=cdelt, **kwargs)
+            wcs.wcs.crpix += (kidspar_margin_x / 2 + 1, kidspar_margin_y / 2 + 1)
+
+        az_all = (az[:, np.newaxis] + kidspars["x0"]).T
+        el_all = (el[:, np.newaxis] + kidspars["y0"]).T
+
+        x, y = wcs.all_world2pix(az_all, el_all, 0)
+
+        shape = (np.round(y.max()).astype(np.int), np.round(x.max()).astype(np.int))
+
+        return wcs, x, y, shape
+
+    def continuum_map(self, ikid=None, wcs=None, shape=None, coord="diff", weights="std", **kwargs):
+        """Project all data into one map."""
+
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        mask_tel = self.mask_tel
+
         # Pipeline is here : simple baseline for now
         bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
         kidspars = self.kidpar.loc[self.list_detector[ikid]]
@@ -272,27 +324,17 @@ class KissRawData(KidsRawData):
         if len(bgrds.shape) == 1:
             bgrds = [bgrds]
 
-        if wcs is None:
-            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
-            x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
-            x_min, y_min = x.min(), y.min()
-            wcs.wcs.crpix = (-x_min, -y_min)
-            x -= x_min
-            y -= y_min
-        else:
-            x, y = wcs.all_world2pix(az, el, 0)
+        wcs, x, y, _shape = self._project_xy(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
 
-        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
+        if shape is None:
+            shape = _shape
 
-        _x = (x[:, np.newaxis] + kidspars["x0"] / wcs.wcs.cdelt[0]).T
-        _y = (y[:, np.newaxis] + kidspars["y0"] / wcs.wcs.cdelt[1]).T
-
-        if weights == 'std':
-            bgrd_weights = 1/bgrds.std(axis=1)**2
+        if weights == "std":
+            bgrd_weights = 1 / bgrds.std(axis=1) ** 2
 
         bgrd_weights = np.repeat(bgrd_weights, bgrds.shape[1]).reshape(bgrds.shape)
 
-        output, weight, hits = project(_x.flatten(), _y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
+        output, weight, hits = project(x.flatten(), y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
         return (
             ImageHDU(output, header=wcs.to_header(), name="data"),
@@ -325,36 +367,54 @@ class KissRawData(KidsRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, dummy_x, dummy_y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
-            x, y = [az, el] / wcs.wcs.cdelt[:, np.newaxis]
-            x_min, y_min = x.min(), y.min()
-            wcs.wcs.crpix = (-x_min, -y_min)
-            x -= x_min
-            y -= y_min
+            wcs, x, y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
         else:
             x, y = wcs.all_world2pix(az, el, 0)
 
-        shape = (np.round(y.max() - y.min()).astype(np.int) + 1, np.round(x.max() - x.min()).astype(np.int) + 1)
+        shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
 
+        # Construct and fit all maps
         outputs = []
         popts = []
-        for bgrd in bgrds:
-            output, weight, _ = project(x, y, bgrd, shape)
-            outputs.append(output)
-            if np.any(~np.isnan(output)):
-                popts.append(fit_gaussian(output, weight))
-            else:
-                popts.append([np.nan] * 7)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", OptimizeWarning)
+            for bgrd in ProgressBar(bgrds):
+                output, weight, _ = project(x, y, bgrd, shape)
+                outputs.append(output)
+                if np.any(~np.isnan(output)):
+                    popts.append(fit_gaussian(output, weight))
+                else:
+                    popts.append([np.nan] * 7)
 
+        # Convert to proper kidpar in astropy.Table
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
-        popts = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
-        for item in ["x0", "fwhm_x"]:
-            popts[item] *= wcs.wcs.cdelt[0]
-        for item in ["y0", "fwhm_y"]:
-            popts[item] *= wcs.wcs.cdelt[1]
-        popts.add_column(namedet, 0)
+        kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
 
-        return outputs, wcs, popts
+        # Positions (rather offets) are projected into the plane, backproject them to sky offsets...
+        dlon, dlat = wcs.all_pix2world(kidpar["x0"], kidpar["y0"], 0)
+        pointing_offset = np.nanmedian(dlon), np.nanmedian(dlat)
+
+        # and make them offsets
+        dlon = pointing_offset[0] - dlon
+        dlat = pointing_offset[1] - dlat
+
+        for item, value in zip(["x0", "y0"], [dlon, dlat]):
+            kidpar[item] = value
+            kidpar[item].unit = "deg"
+
+        # Rough conversion to physical size for the widths
+        for item, _cdelt in zip(["fwhm_x", "fwhm_y"], wcs.wcs.cdelt):
+            kidpar[item] *= _cdelt
+            kidpar[item].unit = "deg"
+
+        kidpar["theta"].unit = "rad"
+        kidpar.add_column(namedet, 0)
+
+        kidpar.meta["scan"] = self.scan
+        kidpar.meta["filename"] = self.filename
+        kidpar.meta["created"] = datetime.datetime.now().isoformat()
+
+        return outputs, wcs, kidpar, pointing_offset
 
     # Move most of that to __repr__ or __str__
     def info(self):
@@ -364,28 +424,29 @@ class KissRawData(KidsRawData):
         print("No. of points per interfergram:\t", self.nptint)
 
     def plot_beammap(self, *args, **kwargs):
-        datas, wcs, popts = self.continuum_beammaps(*args, **kwargs)
-        return kids_plots.show_beammaps(self, datas, wcs, popts), (datas, wcs, popts)
+        datas, wcs, kidpar, pointing_offset = self.continuum_beammaps(*args, **kwargs)
+        return kids_plots.show_beammaps(self, datas, wcs, kidpar, pointing_offset), (datas, wcs, kidpar)
 
-    def plot_contmap(self, ikid=None, label=None, *args, **kwargs):
+    def plot_contmap(self, *args, ikid=None, label=None, snr=False, **kwargs):
         """Plot continuum map(s), potentially with several KIDs selections."""
         if ikid is None:
             ikid = [None]
         elif isinstance(ikid[0], (int, np.int, np.int64)):
             # Default to a list of list to be able to plot several maps
             ikid = [ikid]
-        
+
+        # Need to compute the global wcs here...
+        wcs, x, y, shape = self._project_xy(ikid=np.concatenate(ikid), **kwargs)
+
         data = []
         weights = []
         hits = []
         for _ikid in ikid:
-            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, **kwargs)
+            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, wcs=wcs, shape=shape, **kwargs)
             data.append(_data)
             weights.append(_weights)
             hits.append(_hits)
-        #TODO: ikid list of list vs list of int
-        # data, weight, hits = self.continuum_map(*args, **kwargs)
-        return kids_plots.show_contmap(self, data, weights, hits, label), (data, weights, hits)
+        return kids_plots.show_contmap(self, data, weights, hits, label, snr=snr), (data, weights, hits)
 
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)

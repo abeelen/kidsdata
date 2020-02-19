@@ -73,33 +73,23 @@ def beammap(kd):
         ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
     )
     # Compute & plot beammap
-    fig_beammap, (_, _, popts) = kd.plot_beammap(coord="pdiff")
+    fig_beammap, (_, _, kidpar) = kd.plot_beammap(coord="pdiff")
 
-    # Update kidpar
-    for key in ["x0", "y0"]:
-        popts[key] -= np.nanmedian(popts[key])
-        popts[key] *= -1
-    kd._extended_kidpar = popts
+    # Apply kidpar to dataset
+    kd._extended_kidpar = kidpar
 
     # plot geometry
     fig_geometry, fwhm = kd.plot_kidpar()
 
-    # quick selection of good detector, ie :
-    # * within 60 arcmin of the center 
-    # * fwhm within 10 arcmin of the median value
-    # * amplitude within 30 % of the median amplitude
-    kidpar = kd.kidpar.loc[kd.list_detector]
-    pos = np.array([kidpar["x0"], kidpar["y0"]]) * 60  # arcmin
-    fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
-    median_fwhm = np.nanmedian(fwhm.filled(np.nan))
-    median_amplitude = np.nanmedian(kidpar['amplitude'].filled(np.nan))
-    ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - median_fwhm) < 10) & (np.abs(kidpar['amplitude'] / median_amplitude - 1) < 0.3))[0]
+    # Plot the combined map
+    # with default KIDs selection
+    kid_mask = kd._kids_selection()
+    ikid = np.where(kid_mask)[0]
 
     if len(ikid) > 5:
         fig_coadd, _ = kd.plot_contmap(coord="pdiff", ikid=ikid, cdelt=0.05)
     else:
         fig_coadd = None
-
 
     return kd, (fig_beammap, fig_geometry, fig_coadd)
 
@@ -175,7 +165,7 @@ def skydip(scans):
     for scan in scans:
 
         kd = KissRawData(scan)
-        kd.read_data(list_data=["A_masq", "I", "Q",  "F_tone", "F_tl_Az", "F_tl_El"])
+        kd.read_data(list_data=["A_masq", "I", "Q", "F_tone", "F_tl_Az", "F_tl_El"])
 
         # TODO: Why do we need copy here, seems that numpy strides are making
         # funny things here !

@@ -7,6 +7,8 @@ from scipy.ndimage.filters import uniform_filter1d as smooth
 from astropy.stats import mad_std
 from astropy.wcs import WCS
 
+from matplotlib.colors import Normalize
+
 
 def calibPlot(self, ikid=0):
     """ Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
@@ -160,23 +162,33 @@ def show_maps(self, ikid=0):
     return fig
 
 
-def show_beammaps(self, datas, wcs, popts):
+def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0)):
     # Plot all det
-    nx = np.ceil(np.sqrt(self.ndet)).astype(np.int)
-    ny = np.ceil(self.ndet / nx).astype(np.int)
+    n_kid = len(datas)
+    nx = np.ceil(np.sqrt(n_kid)).astype(np.int)
+    ny = np.ceil(n_kid / nx).astype(np.int)
     fig_beammap, axes = plt.subplots(nx, ny, sharex=True, sharey=True, subplot_kw={"projection": wcs})
     fig_beammap.set_size_inches(10, 11)
     fig_beammap.subplots_adjust(hspace=0, wspace=0)
-    for _data, popt, ax in zip(datas, popts, axes.flatten()):
-        ax.imshow(_data, origin="lower")
+
+    # Plot images
+    for _data, ax in zip(datas, axes.flatten()):
+        if not np.all(np.isnan(_data)):
+            ax.imshow(_data, origin="lower")
         ax.set_aspect("equal")
-        if popt is not None:
+
+    # Overplot fit results in pixels coordinates
+    x, y = wcs.all_world2pix(pointing_offsets[0] - kidpar["x0"], pointing_offsets[1] - kidpar["y0"], 0)
+    fwhm_x, fwhm_y = kidpar["fwhm_x"] / wcs.wcs.cdelt[0], kidpar["fwhm_y"] / wcs.wcs.cdelt[1]
+
+    for pos_x, pos_y, fwhm_x, fwhm_y, theta, ax in zip(x, y, fwhm_x, fwhm_y, kidpar["theta"], axes.flatten()):
+        if pos_x is not np.nan:
             ax.add_patch(
                 Ellipse(
-                    xy=[popt["x0"] / wcs.wcs.cdelt[0], popt["y0"] / wcs.wcs.cdelt[1]],
-                    width=popt["fwhm_x"] / wcs.wcs.cdelt[0],
-                    height=popt["fwhm_y"] / wcs.wcs.cdelt[1],
-                    angle=np.degrees(popt["theta"]),
+                    xy=[pos_x, pos_y],
+                    width=fwhm_x,
+                    height=fwhm_y,
+                    angle=np.degrees(theta),
                     edgecolor="r",
                     fc="None",
                     lw=2,
@@ -210,28 +222,40 @@ def show_beammaps(self, datas, wcs, popts):
     return fig_beammap
 
 
-def show_contmap(self, data, weight, hits, label=None):
+def show_contmap(self, data, weights, hits, label=None, snr=False):
 
     # TODO: assert same header....
-    fig, axes = plt.subplots(ncols=len(data), subplot_kw={"projection": WCS(data[0].header)}, constrained_layout=True)
+    fig, axes = plt.subplots(
+        ncols=len(data),
+        sharex=True,
+        sharey=True,
+        subplot_kw={"projection": WCS(data[0].header)},
+        gridspec_kw={"wspace": 0, "hspace": 0},
+    )
 
     if isinstance(axes, plt.Axes):
         axes = [axes]
 
-    from matplotlib.colors import Normalize
+    if snr:
+        datas = [_data.data * np.sqrt(_weight.data) for _data, _weight in zip(data, weights)]
+        datas = [_snr / np.nanstd(_snr) for _snr in datas]  # Proper weight normalization
+    else:
+        datas = [_data.data for _data in data]
 
-    norm = Normalize(vmin=np.nanmin([_data.data for _data in data]), vmax=np.nanmax([_data.data for _data in data]))
+    norm = Normalize(vmin=np.nanmean(datas) - 3 * np.nanstd(datas), vmax=np.nanmean(datas) + 3 * np.nanstd(datas))
 
-    for ax, _data in zip(axes, data):
-        im = ax.imshow(_data.data, origin="lower", norm=norm)
+    cdelt = data[0].header["CDELT1"], data[0].header["CDELT2"]
+
+    for ax, _data in zip(axes, datas):
+        im = ax.imshow(_data, origin="lower", norm=norm)
         ax.set_aspect("equal")
 
         if self.source == "Moon":
             ax.add_patch(
                 Ellipse(
-                    xy=(_data.header["CRPIX1"], _data.header["CRPIX2"]),
-                    width=31 / 60 / _data.header["CDELT1"],
-                    height=31 / 60 / _data.header["CDELT2"],
+                    xy=(0, 0),
+                    width=31 / 60 / cdelt[0],
+                    height=31 / 60 / cdelt[1],
                     angle=0,
                     edgecolor="r",
                     fc="None",
@@ -240,8 +264,14 @@ def show_contmap(self, data, weight, hits, label=None):
                 )
             )
 
+    for ax in axes[1:]:
+        lon = ax.coords[1]
+        lon.set_ticklabel_visible(False)
+        lon.set_ticks_visible(False)
+        lon.set_axislabel("")
+
     if label is not None:
-        for ax, _label, in zip(axes, label):
+        for ax, _label in zip(axes, label):
             ax.set_title(_label)
 
     fig.colorbar(im, ax=axes, shrink=0.6)
@@ -256,7 +286,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
     acqboxes = np.unique(popt["acqbox"])
     pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
     sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
-    amplitudes = np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"])
+    amplitudes = np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"].filled(np.nan))
 
     figs = []
     # Loop over acquisition box
@@ -270,7 +300,8 @@ def show_kidpar(self, show_beam=True, **kwargs):
 
         values = {
             "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),
-            "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1)) / np.max(np.abs(_sizes), axis=1),
+            "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1))
+            / np.max(np.abs(_sizes), axis=1),
             "amplitudes [rel. abu]": _amplitudes,
         }
 
@@ -278,7 +309,7 @@ def show_kidpar(self, show_beam=True, **kwargs):
             mean_value = np.nanmedian(value)
             std_value = mad_std(value, ignore_nan=True)
             range_value = np.array([-3, 3]) * std_value + mean_value
-            ax_bottom.hist(value, range=range_value)
+            ax_bottom.hist(value[~np.isnan(value)], range=range_value)
 
             scatter = ax_top.scatter(_pos[:, 0], _pos[:, 1], c=np.clip(value, *range_value))
             cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
@@ -298,7 +329,9 @@ def show_kidpar(self, show_beam=True, **kwargs):
 
 def show_kidpar_fwhm(self):
 
-    sizes = np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60  # arcmin
+    sizes = (
+        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
+    )  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):
         ax.hist(np.abs(_sizes), label=label, alpha=0.5, range=(0, 40), bins=50)
