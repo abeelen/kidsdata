@@ -334,7 +334,7 @@ def show_kidpar_fwhm(self):
     )  # arcmin
     fig, ax = plt.subplots()
     for _sizes, label in zip(sizes.T, ["major", "minor"]):
-        ax.hist(np.abs(_sizes), label=label, alpha=0.5, range=(0, 40), bins=50)
+        ax.hist(np.abs(_sizes[~np.isnan(_sizes)]), label=label, alpha=0.5, range=(0, 40), bins=50)
     ax.legend()
     ax.set_xlabel("FWHM [arcmin]")
     fig.suptitle(self.filename)
