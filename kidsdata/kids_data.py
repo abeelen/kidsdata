@@ -30,7 +30,7 @@ class KidsData(object):
 
 
 class KidsRawData(KidsData):
-    """ Arrays of (I,Q) with associated information from KIDs raw data.
+    """Arrays of (I,Q) with associated information from KIDs raw data.
 
     Attributes
     ----------
