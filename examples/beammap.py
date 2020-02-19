@@ -35,4 +35,4 @@ ikid = np.where((np.sqrt(pos[0] ** 2 + pos[1] ** 2) < 60) & (np.abs(fwhm - 25) <
 data, weight, hits = kd.continuum_map(coord="pdiff", ikid=ikid, cdelt=0.05)
 
 plt.subplot(projection=WCS(data.header))
-plt.imshow(data.data, origin='lower')
+plt.imshow(data.data, origin="lower")
