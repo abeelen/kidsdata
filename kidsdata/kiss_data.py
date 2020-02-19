@@ -296,7 +296,7 @@ class KissRawData(KidsRawData):
         kidspar_margin_y = (kidspars["y0"].max() - kidspars["y0"].min()) / cdelt
 
         if wcs is None:
-            wcs, _, _ = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), cdelt=cdelt, **kwargs)
+            wcs, _, _ = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, **kwargs)
             wcs.wcs.crpix += (kidspar_margin_x / 2 + 1, kidspar_margin_y / 2 + 1)
 
         az_all = (az[:, np.newaxis] + kidspars["x0"]).T
@@ -367,7 +367,7 @@ class KissRawData(KidsRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, x, y = build_wcs(az, el, ctype=("OLON-GLS", "OLAT-GLS"), crval=(0, 0), **kwargs)
+            wcs, x, y = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), **kwargs)
         else:
             x, y = wcs.all_world2pix(az, el, 0)
 
