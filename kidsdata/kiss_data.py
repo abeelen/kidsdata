@@ -119,7 +119,11 @@ class KissRawData(KidsRawData):
     def continuum(self):
         """Background based on calibration factors."""
         self.__check_attributes(["R0", "P0", "calfact"])
-        return np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
+        # In order to catch the potential RuntimeWarning which happens when some data can not be calibrated
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            bgrd = np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
+        return bgrd
 
     @lru_cache(maxsize=2)
     def continuum_pipeline(self, ikid, *args, pipeline_func=pipeline.basic_continuum, **kwargs):

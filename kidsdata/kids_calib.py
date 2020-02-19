@@ -1,4 +1,3 @@
-import logging
 import warnings
 import numpy as np
 from scipy.ndimage.morphology import binary_erosion
@@ -74,7 +73,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
         # Check for cases with missing data
         if np.all(l1 == False) or np.all(l2 == False) or np.all(l3 == False):
-            logging.warn("Interferogram {} could not be calibrated".format(iint))
+            warnings.warn("Interferogram {} could not be calibrated".format(iint))
             continue
 
         x1 = np.median(Icurrent[:, l1], axis=1)
@@ -112,7 +111,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         # TODO: This could be vectorized
         if iint > 0:
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore")            
+                warnings.simplefilter("ignore")
                 Ic = Ic * epsi + (1 - epsi) * Icc[:, iint - 1]
                 Qc = Qc * epsi + (1 - epsi) * Qcc[:, iint - 1]
 
