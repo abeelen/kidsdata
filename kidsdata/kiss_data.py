@@ -82,10 +82,12 @@ class KissRawData(KidsRawData):
 
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, pointing_model="pointingmodelNov2019"):
         super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
+
+        self.pointing_model = pointing_model
 
     def calib_raw(self, *args, **kwargs):
         """Calibrate the KIDS timeline."""
@@ -220,11 +222,11 @@ class KissRawData(KidsRawData):
 
     def _kids_selection(self, pos_max=60, fwhm_dev=0.3, amplitude_dev=0.3, std_dev=None):
         """Select KIDs depending on their kidpar parameters.
-        
+
         Parameters
         ----------
         pos_max : int, optional
-            maximum position offset [arcmin] by default 60 
+            maximum position offset [arcmin] by default 60
         fwhm_dev : float, optional
             relative fwhm deviation from median [%], by default 0.3
         amplitude_dev : float, optional
@@ -259,7 +261,7 @@ class KissRawData(KidsRawData):
 
     def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, **kwargs):
         """Compute wcs and project the telescope position.
-        
+
         Parameters
         ----------
         ikid : array, optional
@@ -270,7 +272,7 @@ class KissRawData(KidsRawData):
             coordinate type, by default "diff"
         cdelt: float
             the size of the pixels in degree
-        
+
         Returns
         -------
         ~astropy.wcs.WCS, array, array, tuple
@@ -495,8 +497,9 @@ class KissRawData(KidsRawData):
             and "F_tl_Az" in self.__dict__
             and "F_tl_El" in self.__dict__
         ):
-            self.F_sky_Az, self.F_sky_El = KISSPmodel().telescope2sky(self.F_tl_Az, self.F_tl_El)
-            self.F_skyQ1_Az, self.F_skyQ1_El = KISSPmodel(model="Q1").telescope2sky(self.F_tl_Az, self.F_tl_El)
+            self.F_sky_Az, self.F_sky_El = KISSPmodel(model=self.pointing_model).telescope2sky(
+                self.F_tl_Az, self.F_tl_El
+            )
 
         if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
             self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)

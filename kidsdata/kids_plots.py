@@ -75,7 +75,6 @@ def checkPointing(self):
     mask_pointing = self.mask_pointing
     az_tel, el_tel, mask_tel = self.F_tl_Az, self.F_tel_El, self.mask_tel
     az_sky, el_sky = self.F_sky_Az, self.F_sky_El
-    az_skyQ1, el_skyQ1 = self.F_skyQ1_Az, self.F_skyQ1_El
 
     if hasattr(self, "F_azimuth") & hasattr(self, "F_elevation"):
         azimuth, elevation = self.F_azimuth, self.F_Elevation
@@ -101,7 +100,6 @@ def checkPointing(self):
     ax = plt.subplot(2, 2, 4)
     plt.plot(az_tel[mask_tel], el_tel[mask_tel], "+", ms=12, label="Telescope")
     ax.plot(az_sky[mask_tel], el_sky[mask_tel], "+", ms=12, label="Sky")
-    ax.plot(az_skyQ1[mask_tel], el_skyQ1[mask_tel], "+", ms=12, label="Sky Q1")
     ax.set_xlabel("Azimuth [deg]")
     ax.set_ylabel("Elevation [deg]")
     ax.grid()
