@@ -322,9 +322,8 @@ class KissRawData(KidsRawData):
 
         mask_tel = self.mask_tel
 
-        # Pipeline is here : simple baseline for now
+        # Pipeline is here
         bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
-        kidspars = self.kidpar.loc[self.list_detector[ikid]]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -398,9 +397,14 @@ class KissRawData(KidsRawData):
 
         # Positions (rather offets) are projected into the plane, backproject them to sky offsets...
         dlon, dlat = wcs.all_pix2world(kidpar["x0"], kidpar["y0"], 0)
+
+        # wrap the angles
+        dlon = (dlon + 180) % 360 - 180
+        dlat = (dlat + 180) % 360 - 180
+
+        # Remove overall pointing offsets
         pointing_offset = np.nanmedian(dlon), np.nanmedian(dlat)
 
-        # and make them offsets
         dlon = pointing_offset[0] - dlon
         dlat = pointing_offset[1] - dlat
 
