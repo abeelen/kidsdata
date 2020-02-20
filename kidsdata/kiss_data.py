@@ -258,8 +258,11 @@ class KissRawData(KidsRawData):
         )
 
         if std_dev is not None:
-            std_cont = np.std(self.continuum, axis=1)
-            kid_mask &= np.abs(std_cont / np.nanmedian(std_cont) - 1) < std_dev
+            # Catching warning when nan are present
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                std_cont = np.std(self.continuum, axis=1)
+                kid_mask &= np.abs(std_cont / np.nanmedian(std_cont) - 1) < std_dev
 
         return kid_mask
 
@@ -445,17 +448,21 @@ class KissRawData(KidsRawData):
             # Default to a list of list to be able to plot several maps
             ikid = [ikid]
 
-        # Need to compute the global wcs here...
-        wcs, x, y, shape = self._project_xy(ikid=np.concatenate(ikid), **kwargs)
+        if "wcs" not in kwargs and "shape" not in kwargs:
+            # Need to compute the global wcs here...
+            wcs, x, y, shape = self._project_xy(ikid=np.concatenate(ikid), **kwargs)
+            kwargs["wcs"] = wcs
+            kwargs["shape"] = shape
 
         data = []
         weights = []
         hits = []
         for _ikid in ikid:
-            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, wcs=wcs, shape=shape, **kwargs)
+            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, **kwargs)
             data.append(_data)
             weights.append(_weights)
             hits.append(_hits)
+
         return kids_plots.show_contmap(self, data, weights, hits, label, snr=snr), (data, weights, hits)
 
     def plot_kidpar(self, *args, **kwargs):
