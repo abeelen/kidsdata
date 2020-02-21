@@ -11,8 +11,9 @@ import astropy.units as u
 from astropy.time import Time
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
-from astropy.coordinates import Latitude, Longitude, get_body, AltAz, EarthLocation
-from astropy.coordinates import solar_system_ephemeris
+from astropy.coordinates import Latitude, Longitude, SkyCoord
+from astropy.coordinates import get_body, solar_system_ephemeris, AltAz, EarthLocation
+from astropy.coordinates.name_resolve import NameResolveError
 
 from astropy.io.fits import ImageHDU
 from . import pipeline
@@ -185,20 +186,19 @@ class KissRawData(KidsRawData):
         else:
             # Find npoints between first and last observing time
             anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints), format="mjd", scale="utc")
-        alts = []
-        azs = []
 
-        if self.source.lower() not in solar_system_ephemeris.bodies:
-            raise KeyError("{} is not in astropy ephemeris".format(self.source))
+        frames = AltAz(obstime=anchor_time, location=EarthLocation.of_site("KISS"))
 
-        for time in ProgressBar(anchor_time):
-            frame = AltAz(obstime=time, location=EarthLocation.of_site("KISS"))
-            coord = get_body(self.source.lower(), time).transform_to(frame)
-            alts.append(coord.alt)
-            azs.append(coord.az)
+        if self.source.lower() in solar_system_ephemeris.bodies:
+            coords = get_body(self.source.lower(), anchor_time)
+        else:
+            try:
+                coords = SkyCoord.from_name(self.source.lower())
+            except NameResolveError:
+                raise KeyError("{} is not in astropy ephemeris or SkyCoord database".format(self.source))
 
-        alts_deg = Latitude(alts).to(u.deg).value
-        azs_deg = Longitude(azs).to(u.deg).value
+        coords = coords.transform_to(frames)
+        alts_deg, azs_deg = Latitude(coords.alt).to(u.deg).value, Longitude(coords.az).to(u.deg).value
 
         return interp1d(anchor_time.mjd, azs_deg), interp1d(anchor_time.mjd, alts_deg)
 
@@ -448,7 +448,7 @@ class KissRawData(KidsRawData):
             # Default to a list of list to be able to plot several maps
             ikid = [ikid]
 
-        if "wcs" not in kwargs and "shape" not in kwargs:
+        if kwargs.get("wcs", None) is None and kwargs.get("shape", None) is None:
             # Need to compute the global wcs here...
             wcs, x, y, shape = self._project_xy(ikid=np.concatenate(ikid), **kwargs)
             kwargs["wcs"] = wcs
