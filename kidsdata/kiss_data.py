@@ -178,6 +178,10 @@ class KissRawData(KidsRawData):
         # Getting only time per interferograms here :
         return obstime + np.median(A_time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
 
+    @property
+    def exptime(self):
+        return (self.obstime[-1] - self.obstime[0]).to(u.s)
+
     @lru_cache(maxsize=2)
     def get_object_altaz(self, npoints=None):
         """Get object position interpolator."""
@@ -344,10 +348,26 @@ class KissRawData(KidsRawData):
 
         output, weight, hits = project(x.flatten(), y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
+        # Add standard keyword to header
+        header = wcs.to_header()
+        header["OBJECT"] = self.source
+        header["OBS-ID"] = self.scan
+        header["FILENAME"] = self.filename
+        header["EXPTIME"] = self.exptime.value
+        header["DATE"] = datetime.datetime.now().isoformat()
+        header["DATE-OBS"] = self.obstime[0].isot
+        header["DATE-END"] = self.obstime[0].isot
+        header["INSTRUME"] = self.param_c["nomexp"]
+        header["AUTHOR"] = "KidsData"
+        header["ORIGIN"] = "LAM"
+
+        # Add extra keyword
+        header["SCAN"] = self.scan
+
         return (
-            ImageHDU(output, header=wcs.to_header(), name="data"),
-            ImageHDU(weight, header=wcs.to_header(), name="weight"),
-            ImageHDU(hits, header=wcs.to_header(), name="hits"),
+            ImageHDU(output, header=header, name="data"),
+            ImageHDU(weight, header=header, name="weight"),
+            ImageHDU(hits, header=header, name="hits"),
         )
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
