@@ -16,6 +16,7 @@ from astropy.table import Table, MaskedColumn
 
 # TODO: This should not be fixed here
 NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/")
+NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/home/macias/NIKA/Processing/KISS_V1_2020_02_06/Readdata/C/")
 NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
 
 assert NIKA_LIB_SO.exists(), (
