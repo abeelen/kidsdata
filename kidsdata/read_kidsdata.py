@@ -16,7 +16,6 @@ from astropy.table import Table, MaskedColumn
 
 # TODO: This should not be fixed here
 NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/")
-NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/home/macias/NIKA/Processing/KISS_V1_2020_02_06/Readdata/C/")
 NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
 
 assert NIKA_LIB_SO.exists(), (
@@ -547,9 +546,20 @@ if __name__ == "__main__":
     #     data_to_hdf5(output, dataset_name, dataset)
 
     import deepdish as dd
-    data = {'header': header, 'version_header': version_header, 'param_c': param_c, 'kidpar': kidpar, 'names': names, 'nb_read_samples': nb_read_samples,
-            'dataSc': dataSc, 'dataSd': dataSd, 'dataUc': dataUc, 'dataUd': dataUd}
-    dd.io.save('test_dd_blosc.h5', data, compression=('blosc', 9))
-    dd.io.save('test_dd_zlib.h5', data, compression=('zlib', 9))
-    dd.io.save('test_dd_bzip2.h5', data, compression=('bzip2', 9))
-    dd.io.save('test_dd_gzip.h5', data, compression=('gzip', 9))
+
+    data = {
+        "header": header,
+        "version_header": version_header,
+        "param_c": param_c,
+        "kidpar": kidpar,
+        "names": names,
+        "nb_read_samples": nb_read_samples,
+        "dataSc": dataSc,
+        "dataSd": dataSd,
+        "dataUc": dataUc,
+        "dataUd": dataUd,
+    }
+    dd.io.save("test_dd_blosc.h5", data, compression=("blosc", 9))
+    dd.io.save("test_dd_zlib.h5", data, compression=("zlib", 9))
+    dd.io.save("test_dd_bzip2.h5", data, compression=("bzip2", 9))
+    dd.io.save("test_dd_gzip.h5", data, compression=("gzip", 9))
