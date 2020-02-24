@@ -73,7 +73,7 @@ def beammap(kd):
         ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
     )
     # Compute & plot beammap
-    fig_beammap, (_, _, kidpar) = kd.plot_beammap(coord="pdiff")
+    fig_beammap, (_, _, kidpar) = kd.plot_beammap(coord="pdiff", flatfield=None)
 
     # Apply kidpar to dataset
     kd._extended_kidpar = kidpar

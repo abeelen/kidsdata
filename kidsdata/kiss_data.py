@@ -127,7 +127,7 @@ class KissRawData(KidsRawData):
         return bgrd
 
     @lru_cache(maxsize=2)
-    def continuum_pipeline(self, ikid, *args, pipeline_func=pipeline.basic_continuum, **kwargs):
+    def continuum_pipeline(self, ikid, *args, flatfield="amplitude", pipeline_func=pipeline.basic_continuum, **kwargs):
         """Return the continuum data processed by given pipeline.
 
         Parameters
@@ -152,8 +152,7 @@ class KissRawData(KidsRawData):
         bgrd = self.continuum[ikid]
 
         # FlatField normalization
-        # TODO: Implement several flatfield
-        if "amplitude" in self.kidpar.keys():
+        if flatfield == "amplitude" and "amplitude" in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             flatfield = _kidpar["amplitude"]
         else:
