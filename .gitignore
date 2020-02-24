@@ -57,3 +57,7 @@ venv.bak/
 
 # Rope project settings
 .ropeproject
+
+# Emacs files
+.*\#
+\#*\#
