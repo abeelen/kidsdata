@@ -11,8 +11,8 @@ import astropy.units as u
 from astropy.time import Time
 from astropy.table import Table, MaskedColumn
 from astropy.utils.console import ProgressBar
-from astropy.coordinates import Latitude, Longitude, SkyCoord
-from astropy.coordinates import get_body, solar_system_ephemeris, AltAz, EarthLocation
+from astropy.coordinates import Latitude, Longitude, EarthLocation
+from astropy.coordinates import AltAz
 from astropy.coordinates.name_resolve import NameResolveError
 from astropy.io.fits import ImageHDU
 
@@ -21,6 +21,7 @@ from . import kids_calib
 from . import kids_plots
 from .utils import project, build_wcs, fit_gaussian
 from .kids_data import KidsRawData
+from .kiss_object import get_coords
 
 try:
     from .kiss_pointing_model import KISSPmodel
@@ -35,24 +36,6 @@ except ModuleNotFoundError:
 
         def telescope2sky(self, *args):
             return args
-
-
-# TODO: should not be defined here....
-# Add used observatories
-EarthLocation._get_site_registry()
-
-# Alessandro Fasano Private Comm
-EarthLocation._site_registry.add_site(
-    ["Quijote", "KISS"], EarthLocation(lat=0.493931966 * u.rad, lon=-0.288155867 * u.rad, height=2395 * u.m)
-)
-# JMP code
-EarthLocation._site_registry.add_site(
-    ["Teide", "Tenerife"], EarthLocation(lat=28.7569444444 * u.deg, lon=-17.8925 * u.deg, height=2390 * u.m)
-)
-EarthLocation._site_registry.add_site(
-    ["IRAM30m", "30m", "NIKA", "NIKA2"],
-    EarthLocation(lat=37.066111111111105 * u.deg, lon=-3.392777777777778 * u.deg, height=2850 * u.m),
-)
 
 
 # pylint: disable=no-member
@@ -208,15 +191,8 @@ class KissRawData(KidsRawData):
 
         frames = AltAz(obstime=anchor_time, location=EarthLocation.of_site("KISS"))
 
-        if self.source.lower() in solar_system_ephemeris.bodies:
-            coords = get_body(self.source.lower(), anchor_time)
-        else:
-            try:
-                coords = SkyCoord.from_name(self.source.lower())
-            except NameResolveError:
-                raise KeyError("{} is not in astropy ephemeris or SkyCoord database".format(self.source))
+        coords = get_coords(self.source, anchor_time).transform_to(frames)
 
-        coords = coords.transform_to(frames)
         alts_deg, azs_deg = Latitude(coords.alt).to(u.deg).value, Longitude(coords.az).to(u.deg).value
 
         return interp1d(anchor_time.mjd, azs_deg), interp1d(anchor_time.mjd, alts_deg)
