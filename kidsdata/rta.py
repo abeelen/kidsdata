@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from itertools import chain
 from pathlib import Path
@@ -10,14 +11,18 @@ from scipy.optimize import curve_fit
 
 from astropy.stats import mad_std
 from astropy.wcs import WCS
+from astropy.table import Table
 
 from .db import get_scan
 from .kiss_data import KissRawData
 
-
 plt.ion()
 
-__all__ = ["beammap", "check_pointing", "skydip"]
+
+KISS_CALIB_DIR = os.getenv("KISS_CALIB_DIR", "/data/KISS/Calib/")
+
+
+__all__ = ["beammap", "contmap", "check_pointing", "skydip"]
 
 
 def kd_or_scan(array=None, extra_data=[]):
@@ -92,6 +97,38 @@ def beammap(kd):
         fig_coadd = None
 
     return kd, (fig_beammap, fig_geometry, fig_coadd)
+
+
+@kd_or_scan(array=None, extra_data=["I", "Q"])
+def contmap(kd, e_kidpar="e_kidpar_median.fits"):
+    """Display a continuum map.
+
+    Parameters
+    ----------
+    kd : `kissdata.KissRawData` or int
+        the KissRawData object to check or scan number to read
+
+    Returns
+    -------
+    kd, (fig_beammap, fig_geometry)
+        return the read  `kissdata.KissRawData`, as well as the beammap and geometry figures
+
+    """
+    kd._KissRawData__check_attributes(
+        ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
+    )
+    kd._extended_kidpar = Table.read(Path(KISS_CALIB_DIR) / e_kidpar)
+
+    # kids selection
+    kid_mask = kd._kids_selection(std_dev=0.3)
+    ikid_KA = np.where(kid_mask & np.char.startswith(kd.list_detector, "KA"))[0]
+    ikid_KB = np.where(kid_mask & np.char.startswith(kd.list_detector, "KB"))[0]
+    ikid_KAB = np.concatenate([ikid_KA, ikid_KB])
+
+    # Compute & plot continuum map
+    fig, _ = kd.plot_contmap(ikid=[ikid_KA, ikid_KB, ikid_KAB], coord="pdiff", flatfield="amplitude")
+
+    return kd, fig
 
 
 @kd_or_scan
