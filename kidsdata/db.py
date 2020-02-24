@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from pathlib import Path
 from itertools import chain
 from datetime import datetime
@@ -37,7 +38,7 @@ def update_scan_database(dirs=None):
     data_rows = []
     for filename in filenames:
         # Cleaning other type of files ?!?
-        if filename.suffix in  [".fits", ".hdf5"]:
+        if filename.suffix in [".fits", ".hdf5"]:
             continue
         # Removing already scanned files
         if DATABASE_SCAN is not None and filename not in DATABASE_SCAN["filename"]:
@@ -183,6 +184,10 @@ def get_scan(scan=None):
        the full path of the file
     """
     mask = DATABASE_SCAN["scan"] == scan
+
+    if not np.any(mask):
+        raise IndexError("Scan {} not found".format(scan))
+
     return DATABASE_SCAN[mask]["filename"].data[0]
 
 
