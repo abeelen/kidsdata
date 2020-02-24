@@ -435,7 +435,7 @@ class KissRawData(KidsRawData):
         kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
 
         # Save relative amplitude
-        kidpar["amplitude"] /= np.nanmedian(kidpar["amplitude"].filled(np.nan))
+        kidpar["amplitude"] /= np.nanmedian(kidpar["amplitude"])
 
         # Positions (rather offets) are projected into the plane, backproject them to sky offsets...
         dlon, dlat = wcs.all_pix2world(kidpar["x0"], kidpar["y0"], 0)
