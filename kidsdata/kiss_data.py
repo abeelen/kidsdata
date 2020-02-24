@@ -83,7 +83,7 @@ class KissRawData(KidsRawData):
 
     """
 
-    def __init__(self, filename, pointing_model="pointingmodelNov2019"):
+    def __init__(self, filename, pointing_model="KISSNov2019"):
         super().__init__(filename)
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
@@ -148,7 +148,20 @@ class KissRawData(KidsRawData):
         else:
             ikid = np.asarray(ikid)
 
-        return pipeline_func(self, ikid, *args, **kwargs)
+        # KIDs selection
+        bgrd = self.continuum[ikid]
+
+        # FlatField normalization
+        # TODO: Implement several flatfield
+        if "amplitude" in self.kidpar.keys():
+            _kidpar = self.kidpar.loc[self.list_detector[ikid]]
+            flatfield = _kidpar["amplitude"].filled(np.nan)
+        else:
+            flatfield = np.ones(bgrd.shape[0])
+
+        bgrd *= flatfield[:, np.newaxis]
+
+        return pipeline_func(self, bgrd, *args, **kwargs)
 
     @property
     @lru_cache(maxsize=1)
@@ -248,17 +261,17 @@ class KissRawData(KidsRawData):
             a boolean array for kids selection in the kidpar
         """
         # Retrieve used kidpar
-        kidpar = self.kidpar.loc[self.list_detector]
+        _kidpar = self.kidpar.loc[self.list_detector]
 
-        pos = np.sqrt(kidpar["x0"] ** 2 + kidpar["y0"] ** 2) * 60  # arcmin
-        fwhm = (np.abs(kidpar["fwhm_x"]) + np.abs(kidpar["fwhm_y"])) / 2 * 60
+        pos = np.sqrt(_kidpar["x0"] ** 2 + _kidpar["y0"] ** 2) * 60  # arcmin
+        fwhm = (np.abs(_kidpar["fwhm_x"]) + np.abs(_kidpar["fwhm_y"])) / 2 * 60
         median_fwhm = np.nanmedian(fwhm.filled(np.nan))
-        median_amplitude = np.nanmedian(kidpar["amplitude"].filled(np.nan))
+        median_amplitude = np.nanmedian(_kidpar["amplitude"].filled(np.nan))
 
         kid_mask = (
             (pos.filled(np.inf) < pos_max)
             & (np.abs(fwhm / median_fwhm - 1).filled(np.inf) < fwhm_dev)
-            & (np.abs(kidpar["amplitude"] / median_amplitude - 1).filled(np.inf) < amplitude_dev)
+            & (np.abs(_kidpar["amplitude"] / median_amplitude - 1).filled(np.inf) < amplitude_dev)
         )
 
         if std_dev is not None:
@@ -302,18 +315,18 @@ class KissRawData(KidsRawData):
         az = getattr(self, az_coord)[mask_tel]
         el = getattr(self, el_coord)[mask_tel]
 
-        kidspars = self.kidpar.loc[self.list_detector[ikid]]
+        _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
         # Need to include the extreme kidspar offsets
-        kidspar_margin_x = (kidspars["x0"].max() - kidspars["x0"].min()) / cdelt
-        kidspar_margin_y = (kidspars["y0"].max() - kidspars["y0"].min()) / cdelt
+        kidspar_margin_x = (_kidpar["x0"].max() - _kidpar["x0"].min()) / cdelt
+        kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt
 
         if wcs is None:
             wcs, _, _ = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, **kwargs)
             wcs.wcs.crpix += (kidspar_margin_x / 2 + 1, kidspar_margin_y / 2 + 1)
 
-        az_all = (az[:, np.newaxis] + kidspars["x0"]).T
-        el_all = (el[:, np.newaxis] + kidspars["y0"]).T
+        az_all = (az[:, np.newaxis] + _kidpar["x0"]).T
+        el_all = (el[:, np.newaxis] + _kidpar["y0"]).T
 
         x, y = wcs.all_world2pix(az_all, el_all, 0)
 
@@ -417,6 +430,9 @@ class KissRawData(KidsRawData):
         # Convert to proper kidpar in astropy.Table
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
         kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
+
+        # Save relative amplitude
+        kidpar["amplitude"] /= np.nanmedian(kidpar["amplitude"].filled(np.nan))
 
         # Positions (rather offets) are projected into the plane, backproject them to sky offsets...
         dlon, dlat = wcs.all_pix2world(kidpar["x0"], kidpar["y0"], 0)
