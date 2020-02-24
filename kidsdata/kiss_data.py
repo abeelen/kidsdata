@@ -9,13 +9,13 @@ from scipy.optimize import OptimizeWarning
 
 import astropy.units as u
 from astropy.time import Time
-from astropy.table import Table
+from astropy.table import Table, MaskedColumn
 from astropy.utils.console import ProgressBar
 from astropy.coordinates import Latitude, Longitude, SkyCoord
 from astropy.coordinates import get_body, solar_system_ephemeris, AltAz, EarthLocation
 from astropy.coordinates.name_resolve import NameResolveError
-
 from astropy.io.fits import ImageHDU
+
 from . import pipeline
 from . import kids_calib
 from . import kids_plots
@@ -155,9 +155,12 @@ class KissRawData(KidsRawData):
         # TODO: Implement several flatfield
         if "amplitude" in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
-            flatfield = _kidpar["amplitude"].filled(np.nan)
+            flatfield = _kidpar["amplitude"]
         else:
             flatfield = np.ones(bgrd.shape[0])
+
+        if isinstance(flatfield, MaskedColumn):
+            flatfield = flatfield.filled(np.nan)
 
         bgrd *= flatfield[:, np.newaxis]
 
