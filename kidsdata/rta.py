@@ -3,6 +3,7 @@ import numpy as np
 from itertools import chain
 from pathlib import Path
 from functools import wraps
+from collections import namedtuple
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
@@ -12,10 +13,12 @@ from scipy.optimize import curve_fit
 from astropy.stats import mad_std
 from astropy.wcs import WCS
 from astropy.table import Table
+from astropy.io import fits
 
 from .db import get_scan
-from .kiss_data import KissRawData
 from . import pipeline
+from .kiss_data import KissRawData
+from .kids_plots import show_contmap
 
 plt.ion()
 
@@ -23,36 +26,58 @@ plt.ion()
 KISS_CALIB_DIR = os.getenv("KISS_CALIB_DIR", "/data/KISS/Calib/")
 
 
-__all__ = ["beammap", "contmap", "check_pointing", "skydip"]
+__all__ = ["beammap", "contmap", "contmap_coadd", "check_pointing", "skydip"]
 
 
-def kd_or_scan(array=None, extra_data=[]):
+def read_scan(scan, array=None, extra_data=None):
+    """Read all common and some additionnal extra
+
+    Parameters
+    ----------
+    scan : int
+        the scan number
+    array : str (A|B|None)
+        read only one array (default: all)
+    extra_data : list of str
+        list of extra data to read
+
+    Returns
+    -------
+    kd : KissRawData
+        the corresponding object
+    """
+    kd = KissRawData(get_scan(scan))
+
+    list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
+
+    # Do not use F_sky_* from file....
+    remove_Uc = ["F_sky_Az", "F_sky_El"]
+    remove_Ud = ["F_tel_Az", "F_tel_El"]
+
+    for item in chain(remove_Uc, remove_Ud):
+        if item in list_data:
+            list_data.remove(item)
+
+    # Add extra data at read time directly... otherwise there is a core dump...
+    if extra_data is not None:
+        list_data = list_data + extra_data
+    list_detector = kd.get_list_detector(array, flag=0)
+
+    # Read data
+    kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
+
+    return kd
+
+
+def kd_or_scan(array=None, extra_data=None):
     def decorator(func):
         @wraps(func)
         def wrapper(scan, *args, **kwargs):
             # If scan number given, read the scan into the object and pass it to function
             if isinstance(scan, (int, np.int, np.int64)):
 
-                kd = KissRawData(get_scan(scan))
+                scan = read_scan(scan, array=array, extra_data=extra_data)
 
-                list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
-
-                # Do not use F_sky_* from file....
-                remove_Uc = ["F_sky_Az", "F_sky_El"]
-                remove_Ud = ["F_tel_Az", "F_tel_El"]
-
-                for item in chain(remove_Uc, remove_Ud):
-                    if item in list_data:
-                        list_data.remove(item)
-
-                # Add extra data at read time directly... otherwise there is a core dump...
-                list_data = list_data + extra_data
-                list_detector = kd.get_list_detector(array, flag=0)
-
-                # Read data
-                kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
-
-                scan = kd
             return func(scan, *args, **kwargs)
 
         return wrapper
@@ -132,6 +157,91 @@ def contmap(kd, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_cont
     )
 
     return kd, fig
+
+
+def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_continuum, **kwargs):
+    """Continuum coaddition of several scans.
+
+    Parameters
+    ----------
+    scans : list of int
+        the list of scans to be coadd
+    e_kidpar: str
+        the extended kidpar filename to be used
+    pipeline_func : function
+        the continuum pipeline function to be used
+        and its additionnal keyword
+
+    Returns
+    -------
+    fake_kd : namedtuple
+       a fake KissRawData to be used with kids_plot.show_contmap
+    fig : matplotlib.figure
+       the displayed figure
+    combined_map, combined_weights : astropy.io.fits.ImageHDU
+       the combined data and weights
+
+    Notes
+    -----
+
+    the resulting arguments can be displayed with show_contmap
+    >>> from kidsdata.kids_plots import show_contmap
+    >>> show_contmap(fake_kd, [combined_map], [combined_weights], None)
+
+    """
+
+    # Define a common wcs/shape
+    cdelt = kwargs.get("cdelt", 0.01)
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ("OLON-SFL", "OLAT-SFL")
+    wcs.wcs.cdelt = (cdelt, cdelt)
+    wcs.wcs.cunit = ["deg", "deg"]
+    wcs.wcs.crpix = (100, 100)
+    shape = (200, 200)
+
+    results = []
+    for scan in scans:
+        kd = read_scan(scan, extra_data=["I", "Q"])
+        kd._KissRawData__check_attributes(
+            ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
+        )
+        kd._extended_kidpar = Table.read(Path(KISS_CALIB_DIR) / e_kidpar)
+
+        # kids selection
+        kid_mask = kd._kids_selection(std_dev=0.3)
+        ikid_KA = np.where(kid_mask & np.char.startswith(kd.list_detector, "KA"))[0]
+        ikid_KB = np.where(kid_mask & np.char.startswith(kd.list_detector, "KB"))[0]
+        ikid_KAB = np.concatenate([ikid_KA, ikid_KB])
+
+        data, weight, hit = kd.continuum_map(
+            ikid=ikid_KAB,
+            coord="pdiff",
+            wcs=wcs,
+            shape=shape,
+            flatfield="amplitude",
+            pipeline_func=pipeline_func,
+            **kwargs
+        )
+        del kd
+        results.append((data, weight))
+
+    data = [np.ma.array(result[0].data, mask=np.isnan(result[0].data)) for result in results]
+    weights = [np.ma.array(result[1].data) for result in results]
+
+    combined_map, combined_weights = np.ma.average(data, axis=0, weights=weights, returned=True)
+
+    header = wcs.to_header()
+    header["SCANS"] = str(scans)
+
+    combined_map = fits.ImageHDU(combined_map.filled(np.nan), header, name="data")
+    combined_weights = fits.ImageHDU(combined_weights, header, name="weight")
+
+    FakeKissRawData = namedtuple("FakeKissRawData", ["source", "filename"])
+    fake_kd = FakeKissRawData(source="dummy", filename="Coadd {}".format(scans))
+
+    fig = show_contmap(fake_kd, [combined_map], [combined_weights], None)
+
+    return fake_kd, fig, (combined_map, combined_weights)
 
 
 @kd_or_scan
