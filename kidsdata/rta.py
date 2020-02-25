@@ -15,6 +15,7 @@ from astropy.table import Table
 
 from .db import get_scan
 from .kiss_data import KissRawData
+from . import pipeline
 
 plt.ion()
 
@@ -100,7 +101,7 @@ def beammap(kd):
 
 
 @kd_or_scan(array=None, extra_data=["I", "Q"])
-def contmap(kd, e_kidpar="e_kidpar_median.fits"):
+def contmap(kd, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_continuum, **kwargs):
     """Display a continuum map.
 
     Parameters
@@ -126,7 +127,9 @@ def contmap(kd, e_kidpar="e_kidpar_median.fits"):
     ikid_KAB = np.concatenate([ikid_KA, ikid_KB])
 
     # Compute & plot continuum map
-    fig, _ = kd.plot_contmap(ikid=[ikid_KA, ikid_KB, ikid_KAB], coord="pdiff", flatfield="amplitude")
+    fig, _ = kd.plot_contmap(
+        ikid=[ikid_KA, ikid_KB, ikid_KAB], coord="pdiff", flatfield="amplitude", pipeline_func=pipeline_func, **kwargs
+    )
 
     return kd, fig
 
