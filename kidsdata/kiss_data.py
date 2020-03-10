@@ -75,13 +75,13 @@ class KissRawData(KidsRawData):
 
     def calib_raw(self, *args, **kwargs):
         """Calibrate the KIDS timeline."""
-        self.__check_attributes(["I", "Q", "A_masq"])
+        self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
 
         self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
-    def __check_attributes(self, attr_list):
+    def __check_attributes(self, attr_list, **kwargs):
         """Check if the data has been read an attribute and read in it if not."""
         dependancies = [
             # I & Q will need A_masq
@@ -93,7 +93,7 @@ class KissRawData(KidsRawData):
             (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
         ]
 
-        _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies)
+        _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies, **kwargs)
 
         if _dependancies is not None:
             self.calib_raw()
@@ -301,14 +301,14 @@ class KissRawData(KidsRawData):
 
         if wcs is None:
             wcs, _, _ = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, **kwargs)
-            wcs.wcs.crpix += (kidspar_margin_x / 2 + 1, kidspar_margin_y / 2 + 1)
+            wcs.wcs.crpix += (kidspar_margin_x / 2, kidspar_margin_y / 2)
 
         az_all = (az[:, np.newaxis] + _kidpar["x0"]).T
         el_all = (el[:, np.newaxis] + _kidpar["y0"]).T
 
         x, y = wcs.all_world2pix(az_all, el_all, 0)
 
-        shape = (np.round(y.max()).astype(np.int), np.round(x.max()).astype(np.int))
+        shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
 
         return wcs, x, y, shape
 

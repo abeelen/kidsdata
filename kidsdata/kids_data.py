@@ -141,15 +141,17 @@ class KidsRawData(KidsData):
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read some are computed...
-    def __check_attributes(self, attr_list, dependancies=None):
+    def __check_attributes(self, attr_list, dependancies=None, read_missing=True):
         """Check if attributes have been read, read them if needed.
 
         Parameters
         ----------
         attr_list: list
-            list of parameter to check
+            list of parameters to check
         dependancies: list of tuple
             list the parameters dependancies
+        read_missing : bool
+            read the missing parameters (default: True)
 
         Returns
         -------
@@ -179,8 +181,8 @@ class KidsRawData(KidsData):
                     attr_list += depend_keys
                 _dependancies.append(_dependancy)
 
-        missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
-        if missing:
+        missing = set([attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)])
+        if missing and read_missing:
             # TODO: check that there attributes are present in the file
             print("Missing data : ", missing)
             print("-----Now reading--------")
