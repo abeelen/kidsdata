@@ -329,8 +329,8 @@ def read_all(
     assert len(names.RawDataDetector) >= list_detector[0]
 
     # Number of blocks to read
-    start = start or 0
-    end = end or nb_read_info
+    start = (start or 0) * header.nb_pt_bloc
+    end = (end or (nb_read_info // header.nb_pt_bloc)) * header.nb_pt_bloc
     nb_to_read = end - start
 
     p_int32 = ctypes.POINTER(ctypes.c_int32)
