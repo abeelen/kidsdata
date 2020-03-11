@@ -17,7 +17,7 @@ def basic_continuum(self, bgrd, diff_mask=False, medfilt_size=None, **kwargs):
     if medfilt_size is not None:
         bgrd -= np.array([medfilt(_bgrd, medfilt_size) for _bgrd in bgrd])
 
-    bgrd -= np.median(bgrd, axis=1)[:, np.newaxis]
+    bgrd -= np.nanmedian(bgrd, axis=1)[:, np.newaxis]
 
     return bgrd
 
@@ -33,6 +33,8 @@ def pca_continuum(self, bgrd, ncomp=1, **kwargs):
 
     # PCA needs zero centered values
     bgrd = bgrd.T - bgrd.T.mean(axis=0)
+
+    # TODO: Check potential nan in timelines
 
     bgrd_PCA, _, eigen_vectors = pca(bgrd)
 
