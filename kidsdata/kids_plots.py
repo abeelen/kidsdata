@@ -110,7 +110,7 @@ def checkPointing(self):
     return fig
 
 
-#%%
+# %%
 def photometry(self):
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2 + 0.5))
     fig.suptitle(self.filename)
@@ -134,7 +134,7 @@ def photometry(self):
     return fig
 
 
-#%%
+# %%
 
 
 def show_maps(self, ikid=0):
@@ -142,7 +142,7 @@ def show_maps(self, ikid=0):
     ncol = 1
     fig = plt.figure(figsize=(5 * ncol + 1, 4 * nrow + 0.5))
 
-    subtitle = str(testikid)
+    subtitle = str(ikid)
     fig.suptitle(self.filename + subtitle)
 
     ax = plt.subplot(ncol, nrow, 1)
@@ -277,7 +277,7 @@ def show_contmap(self, data, weights, hits, label=None, snr=False):
     return fig
 
 
-def show_kidpar(self, show_beam=True, **kwargs):
+def show_kidpar(self, show_beam=True, ranges=[None, None, None], bins=[30, 30, 30], **kwargs):
     # Geometry
     popt = self.kidpar.loc[self.list_detector]
 
@@ -303,11 +303,14 @@ def show_kidpar(self, show_beam=True, **kwargs):
             "amplitudes [rel. abu]": _amplitudes,
         }
 
-        for (item, value), ax_top, ax_bottom in zip(values.items(), axes[0], axes[1]):
+        for (item, value), ax_top, ax_bottom, range_value, bins_value in zip(
+            values.items(), axes[0], axes[1], ranges, bins
+        ):
             mean_value = np.nanmedian(value)
             std_value = mad_std(value, ignore_nan=True)
-            range_value = np.array([-3, 3]) * std_value + mean_value
-            ax_bottom.hist(value[~np.isnan(value)], range=range_value)
+            if range_value is None:
+                range_value = np.array([-3, 3]) * std_value + mean_value
+            ax_bottom.hist(value[~np.isnan(value)], range=range_value, bins=bins_value)
 
             scatter = ax_top.scatter(_pos[:, 0], _pos[:, 1], c=np.clip(value, *range_value))
             cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
