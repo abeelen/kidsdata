@@ -73,11 +73,11 @@ class KissRawData(KidsRawData):
 
         self.pointing_model = pointing_model
 
-    def calib_raw(self, *args, **kwargs):
+    def calib_raw(self, calib_func=kids_calib.get_calfact, *args, **kwargs):
         """Calibrate the KIDS timeline."""
         self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
 
-        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = kids_calib.get_calfact(self, *args, **kwargs)
+        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = calib_func(self, *args, **kwargs)
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
@@ -321,7 +321,7 @@ class KissRawData(KidsRawData):
         mask_tel = self.mask_tel
 
         # Pipeline is here
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), amplitude=None, **kwargs)[:, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:

@@ -5,6 +5,38 @@ from scipy import optimize
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
 
+from multiprocessing import Pool, cpu_count
+
+from itertools import zip_longest
+
+
+# From https://docs.python.org/fr/3/library/itertools.html#itertools-recipes
+def grouper(iterable, n, fillvalue=None):
+    """Collect data into fixed-length chunks or blocks"""
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    return zip_longest(*args, fillvalue=fillvalue)
+
+
+def interp1d_nan(arr):
+    """Replace nan by interpolated value in 1d array.
+
+    Parameters
+    ----------
+    arr : 1d array_like
+        the 1d input array with potential nans
+
+    Returns
+    -------
+    arr : 1d array_like
+        the same 1d array with nan linearly interpolated
+    """
+    nans = np.isnan(arr)
+    if np.any(nans):
+        x = arr.nonzero()[0]
+        arr[nans] = np.interp(x[nans], x[~nans], arr[~nans])
+    return arr
+
 
 def project(x, y, data, shape, weights=None):
     """Project x,y, data TOIs on a 2D grid.
@@ -375,3 +407,156 @@ def ica(X, iterations, tolerance=1e-5):
     S = np.dot(W, X)
 
     return S
+
+
+# From https://scipy-cookbook.readthedocs.io/items/Least_Squares_Circle.html
+def radii(xy, c):
+    """Compute distances from xy to c.
+
+    Parameters
+    ----------
+    xy: {2, N} array_like
+        the position to compute radii
+    c: {2} array_like
+        the position of the center
+
+    Returns
+    -------
+    R {N} array_like
+        the radii from xy to c
+    """
+    x, y = xy
+    c_x, c_y = c
+    return np.sqrt((x - c_x) * (x - c_x) + (y - c_y) * (y - c_y))
+
+
+def fit_circle_3pts(xs, ys):
+    """Fit the center of a circle using algebraic approximation with only 3 points.
+
+    Parameters
+    ----------
+    xs, ys: {3, N, ...} array_like
+        The 3 points to fit the {N, ...} circle(s) on
+
+    Returns
+    -------
+    x_c, y_c : {N, ...} ndarray
+        The center position for the {N, ...} circle(s)
+
+    Notes
+    -----
+    the returned arrays will be of the same shape of the input arrays
+    """
+    x1, x2, x3 = xs
+    y1, y2, y3 = ys
+
+    # Speed-up trick
+    dist1_sqr = (x1 * x1) + (y1 * y1)
+    dist2_sqr = (x2 * x2) + (y2 * y2)
+    dist3_sqr = (x3 * x3) + (y3 * y3)
+    diffy12 = y1 - y2
+    diffy23 = y2 - y3
+    diffy31 = y3 - y1
+
+    den = 2.0 * (x1 * diffy23 + x2 * diffy31 + x3 * diffy12)
+    x_c = dist1_sqr * diffy23 + dist2_sqr * diffy31 + dist3_sqr * diffy12
+    y_c = dist1_sqr * (x3 - x2) + dist2_sqr * (x1 - x3) + dist3_sqr * (x2 - x1)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        x_c /= den
+        y_c /= den
+
+    return x_c, y_c
+
+
+def fit_circle_algebraic(xs, ys):
+    """Fit the center of a circle using the algebraic approximation.
+
+    Parameters
+    ----------
+    xs, ys: {M, N, ...} array_like
+        The M points to fit the {N, ...} circle(s) on
+
+    Returns
+    -------
+    x_c, y_c : {N, ...} ndarray
+        The center position for the {N, ...} circle(s)
+
+    Notes
+    -----
+    the returned arrays will be of the same shape of the input arrays
+    """
+    x_m = xs.mean(axis=0)
+    y_m = ys.mean(axis=0)
+
+    u = xs - x_m
+    v = ys - y_m
+
+    Suv = (u * v).sum(axis=0)
+    Suu = (u * u).sum(axis=0)
+    Svv = (v * v).sum(axis=0)
+    Suuv = (u * u * v).sum(axis=0)
+    Suvv = (u * v * v).sum(axis=0)
+    Suuu = (u * u * u).sum(axis=0)
+    Svvv = (v * v * v).sum(axis=0)
+
+    A = np.array([[Suu, Suv], [Suv, Svv]])
+    B = np.array([Suuu + Suvv, Svvv + Suuv]) / 2
+    uc, uv = np.linalg.solve(A.T, B.T).T
+
+    x_c = x_m + uc
+    y_c = y_m + uv
+
+    return x_c, y_c
+
+
+def f_2b(c, xy):
+    """Algebraic distance between the 2D points and the mean circle."""
+    Ri = radii(xy, c)
+    return Ri - Ri.mean()
+
+
+def Df_2b(c, xy):
+    """Jacobian of f_2b."""
+    c_x, c_y = c
+    x, y = xy
+    df2b_dc = np.empty((len(c), x.size))
+
+    Ri = radii(xy, c)
+    df2b_dc[0] = (c_x - x) / Ri
+    df2b_dc[1] = (c_y - y) / Ri
+    df2b_dc = df2b_dc - df2b_dc.mean(axis=1)[:, np.newaxis]
+
+    return df2b_dc
+
+
+def _pool_f2b(x, y):
+
+    center_estimate = fit_circle_algebraic(x, y)
+    center_2d, ier = optimize.leastsq(f_2b, center_estimate, args=([x, y],), Dfun=Df_2b, col_deriv=True)
+    return center_2d
+
+
+def fit_circle_leastsq(xs, ys):
+    """Fit the center of a circle.
+
+    Parameters
+    ----------
+    xs, ys: {N} list of array_like
+        the N circles
+
+    Returns
+    -------
+    c : {2, N} ndarray
+        the center position of the N circles
+
+    Notes
+    -----
+    In xs and ys, different circles do not need to have the same number of points
+    """
+
+    with Pool(cpu_count()) as pool:
+        center_2d = pool.starmap(_pool_f2b, zip(xs, ys))
+
+    return np.array(center_2d).T
