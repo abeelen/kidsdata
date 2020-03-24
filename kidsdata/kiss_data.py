@@ -312,7 +312,7 @@ class KissRawData(KidsRawData):
 
         return wcs, x, y, shape
 
-    def continuum_map(self, ikid=None, wcs=None, shape=None, coord="diff", weights="std", **kwargs):
+    def continuum_map(self, ikid=None, wcs=None, shape=None, coord="diff", weights="std",  **kwargs):
         """Project all data into one map."""
 
         if ikid is None:
@@ -359,7 +359,7 @@ class KissRawData(KidsRawData):
             ImageHDU(output, header=header, name="data"),
             ImageHDU(weight, header=header, name="weight"),
             ImageHDU(hits, header=header, name="hits"),
-        )
+         )
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
         """Project individual detectors into square map in AltAz coordinates."""
