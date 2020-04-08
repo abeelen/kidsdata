@@ -348,7 +348,7 @@ def get_calfact_3pts(
         else:
             raise ValueError("Unknown method {} (algebraic|leastsq) for {}".format(fit_method, data_method))
 
-        Icc, Qcc = Ic[:, np.newaxis], Qc[:, np.newaxis]
+        Icc, Qcc = Ic[:, np.newaxis].astype(np.float32), Qc[:, np.newaxis].astype(np.float32)
 
         if sigma is not None:
             # R will be shaped (ndet, nint*nptint)
@@ -378,6 +378,8 @@ def get_calfact_3pts(
                 Qcc = np.apply_along_axis(interp1d_nan, 1, Qcc)
             Icc = uniform_filter1d(Icc, nfilt, axis=1)
             Qcc = uniform_filter1d(Qcc, nfilt, axis=1)
+
+        Icc, Qcc = Icc.astype(np.float32), Qcc.astype(np.float32)
 
         if sigma is not None:
             # R will be shaped (ndet, nint*nptint)
