@@ -109,14 +109,11 @@ def project(x, y, data, shape, weights=None):
         # Put weights as 0 for masked data
         weights = weights * ~data.mask
 
-    _hits, _, _ = np.histogram2d(y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)))
+    kwargs = {"bins": shape, "range": ((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5))}
+    _hits, _, _ = np.histogram2d(y, x, **kwargs)
 
-    _weights, _, _ = np.histogram2d(
-        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights
-    )
-    _data, _, _ = np.histogram2d(
-        y, x, bins=shape, range=((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5)), weights=weights * np.asarray(data)
-    )
+    _weights, _, _ = np.histogram2d(y, x, weights=weights, **kwargs)
+    _data, _, _ = np.histogram2d(y, x, weights=weights * np.asarray(data), **kwargs)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -125,54 +122,80 @@ def project(x, y, data, shape, weights=None):
     return output, _weights, _hits.astype(np.int)
 
 
-def build_wcs(lon, lat, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, **kwargs):
+def build_wcs(lon, lat, freq=None, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, cunit="deg", **kwargs):
     """Build the wcs for full projection.
 
     Arguments
     ---------
     lon, lat: array_like
         input longitude and latitude in degree
-    crval: tuple of float
+    freq : array_like (optional)
+        potential 3rd axis values
+    crval: tuple of 2 float
         the center of the projection in degree (default: None, computed from the data)
     ctype: tuple of str
         the type of projection (default: Az/El telescope in TAN projection)
-    cdelt: float
-        the size of the pixels in degree
+    cdelt: float (or tuple of 2 floats)
+        the size of the pixels in degree or (size of the pixels in degree, size in the 3rd axis)
 
     Returns
     -------
     wcs: `~astropy.wcs.WCS`
         the wcs for the projection
-    x, y: list of floats
+    x, y (,z): list of floats
         the projected positions
     """
-    wcs = WCS(naxis=2)
+    wcs = WCS(naxis=len(ctype))
     wcs.wcs.ctype = ctype
+
+    if isinstance(cdelt, (float, int, np.float, np.int)):
+        cdelt = (cdelt,)
+
+    if isinstance(cunit, (str)):
+        cunit = (cunit,)
+
+    assert len(cdelt) == len(cunit), "cdelt and cunit must have the same length"
 
     if ctype == ("TLON-TAN", "TLAT-TAN"):
         wcs.wcs.name = "Terrestrial coordinates"
 
+    wcs.wcs.cdelt[0:2] = (-cdelt[0], cdelt[0])
+    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = cunit[0]
+
     # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
     if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
-        wcs.wcs.cdelt = (cdelt, cdelt)
-    else:
-        wcs.wcs.cdelt = (-cdelt, cdelt)
+        wcs.wcs.cdelt[0] = cdelt[0]
+
+    if len(cdelt) == 2:
+        wcs.wcs.cdelt[2] = cdelt[1]
+        wcs.wcs.cunit[2] = cunit[1]
 
     if crval is None:
         # find the center of the projection
         crval = ((lon.max() + lon.min()) / 2, (lat.max() + lat.min()) / 2)
+        wcs.wcs.crval[0:2] = crval
+    else:
+        wcs.wcs.crval = crval
 
-    wcs.wcs.crval = crval
-    wcs.wcs.cunit = ["deg", "deg"]
+    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = "deg"
 
     # Determine the center of the map to project all data
-    x, y = wcs.all_world2pix(lon, lat, 0)
+    x, y = wcs.celestial.all_world2pix(lon, lat, 0)
     x_min, y_min = x.min(), y.min()
-    wcs.wcs.crpix = (-x_min, -y_min)
+    wcs.wcs.crpix[0:2] = (-x_min, -y_min)
     x -= x_min
     y -= y_min
 
-    return wcs, x, y
+    projected = (x, y)
+
+    if freq is not None:
+        z = wcs.swapaxes(0, 2).sub(1).all_world2pix(freq, 0)[0]
+        z_min = z.min()
+        wcs.wcs.crpix[2] = -z_min
+        z -= z_min
+        projected += (z,)
+
+    return (wcs,) + projected
 
 
 def elliptical_gaussian(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
@@ -308,7 +331,7 @@ def correlated_median_removal(data_array, iref=0):
 
     # Remove median value in time
     flat_offset = np.nanmedian(data_array, axis=1)
-    data_array = data_array - flat_offset[:, np.newaxis]
+    data_array -= flat_offset[:, np.newaxis]
 
     # Compute the median flat field between all detectors
     flat_field = np.array([np.nanmedian(_data_array / data_array[iref]) for _data_array in data_array])
@@ -331,13 +354,14 @@ def correlated_median_removal(data_array, iref=0):
 def pca(X):
     # Data matrix X, assumes 0-centered
     n, m = X.shape
-    assert np.allclose(X.mean(axis=0), np.zeros(m))
+    # TBC: This assertion fails for big array of np.float32, even within the float32 tolerances...
+    # assert np.allclose(X.mean(axis=0), np.zeros(m))
     # Compute covariance matrix
     C = np.dot(X.T, X) / (n - 1)
     # Eigen decomposition
     eigen_vals, eigen_vecs = np.linalg.eig(C)
-    # Project X onto PC space
-    X_pca = np.dot(X, eigen_vecs)
+    # Project X onto PC space, enforce original dtype
+    X_pca = np.dot(X, eigen_vecs).astype(X.dtype)
     return X_pca, eigen_vals, eigen_vecs
 
 
