@@ -1,8 +1,16 @@
 from ._version import get_versions
 
+from .db import *
+from .rta import *
+from .kiss_data import KissData
+
 __version__ = get_versions()["version"]
 del get_versions
 
-from .db import *
-from .rta import *
-from .kiss_data import KissRawData
+
+# Back compatibility issue, will disapear
+def KissRawData(*args, **kwargs):
+    from warnings import warn
+
+    warn("Deprecated name, please use KissData")
+    return KissData(*args, **kwargs)
