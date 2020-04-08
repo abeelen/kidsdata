@@ -16,7 +16,7 @@ from astropy.table import Table
 from astropy.io import fits
 
 from .db import get_scan
-from . import pipeline
+from . import common_mode as cm
 from .kiss_data import KissRawData
 from .kids_plots import show_contmap
 
@@ -126,7 +126,7 @@ def beammap(kd):
 
 
 @kd_or_scan(array=None, extra_data=["I", "Q"])
-def contmap(kd, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_continuum, **kwargs):
+def contmap(kd, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filtering, **kwargs):
     """Display a continuum map.
 
     Parameters
@@ -153,13 +153,13 @@ def contmap(kd, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_cont
 
     # Compute & plot continuum map
     fig, _ = kd.plot_contmap(
-        ikid=[ikid_KA, ikid_KB, ikid_KAB], coord="pdiff", flatfield="amplitude", pipeline_func=pipeline_func, **kwargs
+        ikid=[ikid_KA, ikid_KB, ikid_KAB], coord="pdiff", flatfield="amplitude", cm_func=cm_func, **kwargs
     )
 
     return kd, fig
 
 
-def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline.pca_continuum, **kwargs):
+def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filtering, **kwargs):
     """Continuum coaddition of several scans.
 
     Parameters
@@ -168,7 +168,7 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline
         the list of scans to be coadd
     e_kidpar: str
         the extended kidpar filename to be used
-    pipeline_func : function
+    cm_func : function
         the continuum pipeline function to be used
         and its additionnal keyword
 
@@ -214,13 +214,7 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", pipeline_func=pipeline
         ikid_KAB = np.concatenate([ikid_KA, ikid_KB])
 
         data, weight, hit = kd.continuum_map(
-            ikid=ikid_KAB,
-            coord="pdiff",
-            wcs=wcs,
-            shape=shape,
-            flatfield="amplitude",
-            pipeline_func=pipeline_func,
-            **kwargs
+            ikid=ikid_KAB, coord="pdiff", wcs=wcs, shape=shape, flatfield="amplitude", cm_func=cm_func, **kwargs
         )
         del kd
         results.append((data, weight))

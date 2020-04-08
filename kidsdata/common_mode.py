@@ -4,7 +4,7 @@ from scipy.signal import medfilt
 from .utils import correlated_median_removal, pca
 
 
-def basic_continuum(self, bgrd, diff_mask=False, medfilt_size=None, **kwargs):
+def basic_continuum(bgrd, diff_mask=False, medfilt_size=None, **kwargs):
     # Only a rough Baseline for now...
 
     if diff_mask:
@@ -22,22 +22,23 @@ def basic_continuum(self, bgrd, diff_mask=False, medfilt_size=None, **kwargs):
     return bgrd
 
 
-def median_continuum(self, bgrd, ikid_ref=0, **kwargs):
+def median_filtering(bgrd, ikid_ref=0, **kwargs):
 
     bgrd_cleanned, flat, offset, _ = correlated_median_removal(bgrd, iref=ikid_ref)
 
     return (bgrd_cleanned - offset[:, np.newaxis]) / flat[:, np.newaxis]
 
 
-def pca_continuum(self, bgrd, ncomp=1, **kwargs):
+def pca_filtering(bgrd, ncomp=1, **kwargs):
 
-    # PCA needs zero centered values
-    bgrd = bgrd.T - bgrd.T.mean(axis=0)
+    # PCA needs zero centered values,
+    bgrd = bgrd.T
+    bgrd -= bgrd.mean(axis=0)
 
     # TODO: Check potential nan in timelines
 
     bgrd_PCA, _, eigen_vectors = pca(bgrd)
 
-    bgrd_only = np.dot(bgrd_PCA[:, :ncomp], eigen_vectors[:, :ncomp].T)
+    bgrd_only = np.dot(bgrd_PCA[:, :ncomp], eigen_vectors[:, :ncomp].T).astype(bgrd.dtype)
 
     return (bgrd - bgrd_only).T
