@@ -277,49 +277,62 @@ def show_contmap(self, data, weights, hits, label=None, snr=False):
     return fig
 
 
-def show_kidpar(self, show_beam=True, ranges=[None, None, None], bins=[30, 30, 30], **kwargs):
+def plot_geometry(self, ikid, ax, value=None, **kwargs):
+    x0, y0 = self.kidpar.loc[self.list_detector[ikid]]["x0"], self.kidpar.loc[self.list_detector[ikid]]["y0"]
+    scatter = ax.scatter(x0, y0, c=value, **kwargs)
+    ax.set_aspect("equal")
+    ax.set_xlabel("lon offset [arcmin]")
+    ax.set_ylabel("lat offset [arcmin]")
+
+    return scatter
+
+
+def show_kidpar(self, ikid=None, show_beam=True, ranges=[None, None, None], bins=[30, 30, 30], **kwargs):
     # Geometry
-    popt = self.kidpar.loc[self.list_detector]
+
+    if ikid is None:
+        ikid = np.arange(len(self.list_detector))
+    else:
+        ikid = np.asarray(ikid)
+
+    popt = self.kidpar.loc[self.list_detector[ikid]]
 
     acqboxes = np.unique(popt["acqbox"])
-    pos = np.array([popt["x0"], popt["y0"]]).T * 60  # arcmin
-    sizes = np.array([popt["fwhm_x"], popt["fwhm_y"]]).T * 60
-    amplitudes = np.array(popt["amplitude"]) / np.nanmedian(popt["amplitude"].filled(np.nan))
-
     figs = []
+
     # Loop over acquisition box
     for acqbox in acqboxes:
         mask_box = popt["acqbox"] == acqbox
-        fig, axes = plt.subplots(2, 3, **kwargs)
 
-        _pos = pos[mask_box]
-        _sizes = sizes[mask_box]
-        _amplitudes = amplitudes[mask_box]
+        _ikid = ikid[mask_box]
+        _sizes = np.array([popt["fwhm_x"][mask_box], popt["fwhm_y"][mask_box]]).T * 60
+        _amplitudes = np.array(popt["amplitude"][mask_box])
 
         values = {
-            "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),
+            "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),  # Largest fwhms
             "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1))
             / np.max(np.abs(_sizes), axis=1),
             "amplitudes [rel. abu]": _amplitudes,
         }
 
+        fig, axes = plt.subplots(2, 3, **kwargs)
+
         for (item, value), ax_top, ax_bottom, range_value, bins_value in zip(
             values.items(), axes[0], axes[1], ranges, bins
         ):
-            mean_value = np.nanmedian(value)
-            std_value = mad_std(value, ignore_nan=True)
-            if range_value is None:
-                range_value = np.array([-3, 3]) * std_value + mean_value
-            ax_bottom.hist(value[~np.isnan(value)], range=range_value, bins=bins_value)
 
-            scatter = ax_top.scatter(_pos[:, 0], _pos[:, 1], c=np.clip(value, *range_value))
+            if range_value is None:
+                mean_value = np.nanmedian(value)
+                std_value = mad_std(value, ignore_nan=True)
+                range_value = np.array([-3, 3]) * std_value + mean_value
+
+            ax_bottom.hist(value[~np.isnan(value)], range=range_value, bins=bins_value)
+            norm = Normalize(vmin=np.min(range_value), vmax=np.max(range_value))
+            scatter = plot_geometry(self, _ikid, ax_top, value=value, norm=norm)
             cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
             cbar.set_label(item)
             ax_top.set_xlim(-0.62 * 60, 0.62 * 60)
             ax_top.set_ylim(-0.62 * 60, 0.62 * 60)
-            ax_top.set_aspect("equal")
-            ax_top.set_xlabel("lon offset [arcmin]")
-            ax_top.set_ylabel("lat offset [arcmin]")
         fig.suptitle("{} / aqbox: {}".format(self.filename, acqbox))
         fig.tight_layout()
 
