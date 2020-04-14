@@ -189,6 +189,7 @@ def build_wcs(lon, lat, freq=None, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), c
     projected = (x, y)
 
     if freq is not None:
+        # TODO: This part is slow...
         z = wcs.swapaxes(0, 2).sub(1).all_world2pix(freq, 0)[0]
         z_min = z.min()
         wcs.wcs.crpix[2] = -z_min
@@ -584,3 +585,80 @@ def fit_circle_leastsq(xs, ys):
         center_2d = pool.starmap(_pool_f2b, zip(xs, ys))
 
     return np.array(center_2d).T
+
+
+def roll_fft(a, shift, axis=None):
+    """Roll array eleements along a given axis using fft.
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    shift : int or float
+        The shift to be applied, can be a float
+    axis : int, (0 or 1) optionnal
+        Axis along which elements are shifted.  By default, the
+        array is flattened before shifting, after which the original
+        shape is restored.
+
+    Returns
+    -------
+    res: ndarray
+        Output array, with the same shape as `a`.
+
+    Examples
+    --------
+    >>> x = np.arange(10)
+    >>> roll_fft(x, 2)
+    array([8, 9, 0, 1, 2, 3, 4, 5, 6, 7])
+    >>> roll_fft(x, -2)
+    array([2, 3, 4, 5, 6, 7, 8, 9, 0, 1])
+
+    >>> x2 = np.reshape(x, (2,5))
+    >>> x2
+    array([[0, 1, 2, 3, 4],
+           [5, 6, 7, 8, 9]])
+    >>> roll_fft(x2, 1)
+    array([[9, 0, 1, 2, 3],
+           [4, 5, 6, 7, 8]])
+    >>> roll_fft(x2, -1)
+    array([[1, 2, 3, 4, 5],
+           [6, 7, 8, 9, 0]])
+    >>> roll_fft(x2, 1, axis=0)
+    array([[5, 6, 7, 8, 9],
+           [0, 1, 2, 3, 4]])
+    >>> roll_fft(x2, -1, axis=0)
+    array([[5, 6, 7, 8, 9],
+           [0, 1, 2, 3, 4]])
+    >>> roll_fft(x2, 1, axis=1)
+    array([[4, 0, 1, 2, 3],
+           [9, 5, 6, 7, 8]])
+    >>> roll_fft(x2, -1, axis=1)
+    array([[1, 2, 3, 4, 0],
+           [6, 7, 8, 9, 5]])
+
+    Notes
+    -----
+    Only works for 1D or 2D inputs
+
+    """
+    a = np.asanyarray(a)
+    if axis is None:
+        return roll_fft(a.ravel(), shift, 0).reshape(a.shape)
+    else:
+        shape = a.shape
+        assert len(shape) < 3, "Do not work for higher dimension"
+        nu_shift = np.fft.fftfreq(shape[axis]) * shift
+        if len(shape) > 1 and axis == 0:
+            nu_shift = nu_shift[:, np.newaxis]
+        shifted_fft_a = np.fft.fft(a, axis=axis) * np.exp(-2j * np.pi * nu_shift)
+        return np.real(np.fft.ifft(shifted_fft_a, axis=axis)).reshape(shape).astype(a.dtype)
+
+
+# Helper functions to pass large arrays in multiprocessing.Pool
+_pool_global = None
+
+
+def _pool_initializer(*args):
+    global _pool_global
+    _pool_global = args

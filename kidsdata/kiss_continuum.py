@@ -10,9 +10,10 @@ from astropy.table import Table, MaskedColumn
 from astropy.io.fits import ImageHDU
 from astropy.utils.console import ProgressBar
 
-from . import common_mode as cm
-from .utils import project, build_wcs, fit_gaussian
 from .kiss_data import KissRawData
+from .utils import project, build_wcs, fit_gaussian
+
+from . import common_mode as cm
 from . import kids_plots
 
 
@@ -32,7 +33,7 @@ class KissContinuum(KissRawData):
             bgrd = np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
         return bgrd
 
-    @lru_cache(maxsize=2)
+    @lru_cache(maxsize=3)
     def continuum_pipeline(self, ikid, *args, flatfield="amplitude", cm_func=cm.basic_continuum, **kwargs):
         """Return the continuum data processed by given pipeline.
 
@@ -40,14 +41,17 @@ class KissContinuum(KissRawData):
         ----------
         ikid : tuple
             the list of kid index in self.list_detector to use
+        flatfield: str (None |'amplitude')
+            the flatfield applied to the data prior to common mode removal (default: amplitude)
         cm_function : function
-            Default: common_mode.basic_continuum.
+            the common mode removal function (default: common_mode.basic_continuum)
 
         Notes
         -----
         Any other args and kwargs are given to the pipeline function.
         ikid *must* be a tuple when calling the function, for lru_cache to work
 
+        The flatfield values are taken from the amplitude column of the kidpar
         """
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -58,11 +62,13 @@ class KissContinuum(KissRawData):
         bgrd = self.continuum[ikid]
 
         # FlatField normalization
-        if flatfield == "amplitude" and "amplitude" in self.kidpar.keys():
+        if flatfield is None:
+            flatfield = np.ones(bgrd.shape[0])
+        elif flatfield == "amplitude" and "amplitude" in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             flatfield = _kidpar["amplitude"]
         else:
-            flatfield = np.ones(bgrd.shape[0])
+            raise ValueError("Can not use this fieldfield : {}".format(flatfield))
 
         if isinstance(flatfield, MaskedColumn):
             flatfield = flatfield.filled(np.nan)
@@ -71,7 +77,7 @@ class KissContinuum(KissRawData):
 
         return cm_func(bgrd, *args, **kwargs)
 
-    def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, **kwargs):
+    def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, cunit="deg", **kwargs):
         """Compute wcs and project the telescope position.
 
         Parameters
@@ -82,8 +88,10 @@ class KissContinuum(KissRawData):
             the projection wcs if provided, by default None
         coord : str, optional
             coordinate type, by default "diff"
-        cdelt: float
-            the size of the pixels in degree
+        cdelt : float
+            the projected pixel size
+        cunit : str
+            the unit of the projected pixel size
 
         Returns
         -------
@@ -110,7 +118,9 @@ class KissContinuum(KissRawData):
         kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt
 
         if wcs is None:
-            wcs, _, _ = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, **kwargs)
+            wcs, _, _ = build_wcs(
+                az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, cunit=cunit, **kwargs
+            )
             wcs.wcs.crpix += (kidspar_margin_x / 2, kidspar_margin_y / 2)
 
         az_all = (az[:, np.newaxis] + _kidpar["x0"]).T
@@ -164,8 +174,8 @@ class KissContinuum(KissRawData):
 
         return kid_mask
 
-    def continuum_map(self, ikid=None, wcs=None, shape=None, coord="diff", weights="std", **kwargs):
-        """Project all data into one map."""
+    def continuum_map(self, ikid=None, wcs=None, shape=None, coord="diff", weights="std", label=None, **kwargs):
+        """Project the continuum data into one 2D map."""
 
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -206,11 +216,12 @@ class KissContinuum(KissRawData):
 
         # Add extra keyword
         header["SCAN"] = self.scan
+        header["LABEL"] = label
 
         return (
-            ImageHDU(output, header=header, name="data"),
-            ImageHDU(weight, header=header, name="weight"),
-            ImageHDU(hits, header=header, name="hits"),
+            ImageHDU(output, header=header, name="data_{}".format(label) if label else "data"),
+            ImageHDU(weight, header=header, name="weight_{}".format(label) if label else "weight"),
+            ImageHDU(hits, header=header, name="hits_{}".format(label) if label else "hits"),
         )
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
@@ -301,14 +312,14 @@ class KissContinuum(KissRawData):
 
     def plot_contmap(self, *args, ikid=None, label=None, snr=False, **kwargs):
         """Plot continuum map(s), potentially with several KIDs selections."""
-        if ikid is None:
-            ikid = [None]
-        elif isinstance(ikid[0], (int, np.int, np.int64)):
+        if ikid is None or isinstance(ikid[0], (int, np.int, np.int64)):
             # Default to a list of list to be able to plot several maps
             ikid = [ikid]
 
         if kwargs.get("wcs", None) is None and kwargs.get("shape", None) is None:
             # Need to compute the global wcs here...
+            if ikid[0] is None:
+                ikid[0] = np.arange(len(self.list_detector))
             wcs, x, y, shape = self._project_xy(ikid=np.concatenate(ikid), **kwargs)
             kwargs["wcs"] = wcs
             kwargs["shape"] = shape
@@ -316,8 +327,8 @@ class KissContinuum(KissRawData):
         data = []
         weights = []
         hits = []
-        for _ikid in ikid:
-            _data, _weights, _hits = self.continuum_map(ikid=_ikid, *args, **kwargs)
+        for _ikid, _label in zip(ikid, label or [None] * len(ikid)):
+            _data, _weights, _hits = self.continuum_map(*args, ikid=_ikid, label=_label, **kwargs)
             data.append(_data)
             weights.append(_weights)
             hits.append(_hits)

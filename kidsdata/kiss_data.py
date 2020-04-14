@@ -1,9 +1,10 @@
 from .kiss_rawdata import KissRawData
 from .kiss_continuum import KissContinuum
+from .kiss_spectroscopy import KissSpectroscopy
 
 
 # pylint: disable=no-member
-class KissData(KissContinuum, KissRawData):
+class KissData(KissContinuum, KissSpectroscopy, KissRawData):
     """Arrays of (I,Q) with associated information from KISS raw data.
 
     Attributes
