@@ -541,11 +541,11 @@ class KissSpectroscopy(KissRawData):
 
         if mode == "common":
             # overall median
-            zpds = np.median(zpds)
+            zpds = np.nanmedian(zpds)
             opds = np.broadcast_to(laser - zpds, interferograms.shape)
         elif mode == "per_det":
             # per detector median
-            zpds = np.median(zpds, axis=1)
+            zpds = np.nanmedian(zpds, axis=1)
             opds = np.broadcast_to(laser, interferograms.shape) - zpds[:, None, None]
         elif mode == "per_int":
             opds = np.broadcast_to(laser, interferograms.shape) - zpds[:, :, None]
@@ -604,11 +604,13 @@ class KissSpectroscopy(KissRawData):
         shape = interferograms.shape
 
         logging.debug("Common mode removal")
-        output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
-
-        # Put back the original mask
-        logging.debug("Masking back")
-        output = np.ma.array(output, mask=interferograms.mask)
+        if cm_func is not None:
+            output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
+            # Put back the original mask
+            logging.debug("Masking back")
+            output = np.ma.array(output, mask=interferograms.mask)
+        else:
+            output = interferograms
 
         return output
 
