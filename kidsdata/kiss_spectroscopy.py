@@ -550,6 +550,9 @@ class KissSpectroscopy(KissRawData):
         elif mode == "per_int":
             opds = np.broadcast_to(laser, interferograms.shape) - zpds[:, :, None]
 
+        # Optical path differences are actually twice the laser position difference
+        opds = 2 * opds
+
         return opds, zpds
 
     @lru_cache(maxsize=3)
