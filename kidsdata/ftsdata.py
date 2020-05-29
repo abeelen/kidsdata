@@ -1,7 +1,8 @@
 import numpy as np
+import warnings
 from copy import deepcopy
 
-from scipy.signal import fftconvolve
+from scipy.signal import fftconvolve, medfilt
 
 import astropy.units as u
 import astropy.constants as cst
@@ -55,7 +56,7 @@ class FTSData(NDDataArray):
 
     @property
     def _is_opd(self):
-        return self.wcs.sub([3]).wcs.ctype[0] == "opd"
+        return self.wcs.sub([3]).wcs.ctype[0].lower() == "opd"
 
     @property
     def _is_doublesided(self):
@@ -108,7 +109,10 @@ class FTSData(NDDataArray):
         meta = deepcopy(self.meta)
         meta["HISTORY"] = "extract_doublesided"
 
-        result = self.__class__(self.data[_slice], wcs=wcs, mask=self.mask[_slice], meta=meta, hits=self.hits[_slice])
+        mask = self.mask[_slice] if self.mask is not None else None
+        hits = self.hits[_slice] if self.hits is not None else None
+
+        result = self.__class__(self.data[_slice], wcs=wcs, mask=mask, meta=meta, hits=hits)
         return result
 
     def _to_onesided(self):
@@ -121,6 +125,7 @@ class FTSData(NDDataArray):
         """
         zpd_idx = self.wcs.sub([3]).world_to_pixel(0 * self.wcs.wcs.cunit[2]).astype(int)
 
+        # This assume a longer right hand side...
         # Extract the positive part
         onesided_itg = self.data[zpd_idx:].copy()
         onesided_hits = self.hits[zpd_idx:].copy()
@@ -180,7 +185,8 @@ class FTSData(NDDataArray):
         # Spencer 2005 Eq 2.29, direct fft
         # TODO: Check normalization here....
         spectra = (
-            np.fft.fft(np.fft.ifftshift(_cube, axes=0), axis=0) * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
+            np.fft.fft(np.fft.ifftshift(_cube, axes=0), axis=0)
+            # * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
         )
 
         spectra = np.fft.fftshift(spectra, axes=0)
@@ -240,7 +246,7 @@ class FTSData(NDDataArray):
         spectra = (
             np.fft.irfft(_cube, n=output_shape, axis=0)
             * output_shape
-            * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
+            # * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
         )
         spectra = np.fft.fftshift(spectra, axes=0)
 
@@ -257,21 +263,157 @@ class FTSData(NDDataArray):
 
         return output
 
-    def to_spectra(self, deg=None, pcf_apodization=None, doublesided_apodization=None, onesided_apodization=None):
+    def _get_phase_correction_function(
+        self,
+        niter=1,
+        doublesided_apodization=None,
+        medfilt_size=None,
+        deg=None,
+        real_clip=1e-6,
+        pcf_apodization=None,
+        plot=False,
+        **kwargs
+    ):
+        """Compute the phase correction function for the current cube
+
+        This follow the description in [1]_ with some additionnal features.
+
+        Parameters
+        ----------
+        niter : [int], optional
+            number of iterations, by default 1
+        doublesided_apodization : [function], optional
+            apodization function for the double sided inversion, by default None, but see Notes
+        medfilt_size : [int], optional
+            size of the median filtering window to be applied (before polynomial fitting), by default None
+        deg : [int], optional
+            the polynomial degree to fit to the phase, by default None
+        real_clip : [real], optional
+            clipping relative to the peak of the real component of the doublesided cube, by default 1e-6
+        pcf_apodization : [function], optional
+            apodization function for the phase correction function, by default None
+        plot : bool, optional
+            diagnostic plots, by default False
+
+        Returns
+        -------
+        array_like (cube shape)
+            the phase correction function to be used as convolution kernel for the interferograms
+
+        Notes
+        -----
+        You can use lower real_clip values to increase the phase fit, but you need to use a doublesided_apodization like the hanning function to avoid numerical problems with iterations
+
+        Choice of apodization function can be made among the function available in numpy at [2]_, namely
+        `numpy.hanning`, `numpy.hamming`, `numpy.bartlett`, `numpy.blackman`, `numpy.kaiser`
+        or any custom routine following the same convention.
+
+        References
+        ----------
+        .. [1] Spencer, L.D., (2005) Spectral Characterization of the Herschel SPIRE
+               Photometer, 2005MsT..........1S
+        """
+        if pcf_apodization is None:
+            pcf_apodization = np.ones
+
+        # Working copy
+        itg = deepcopy(self._extract_doublesided())
+
+        # Reference iterferogram
+        itg_ma = np.ma.array(itg.data, mask=itg.mask, copy=True).filled(0)
+
+        # Null starting phase
+        phase = np.zeros((itg.shape))
+
+        # Loop Here
+        for i in range(niter):
+
+            cube = itg._FTSData__invert_doublesided(apodization_function=doublesided_apodization)
+
+            # Spencer 2.39 , well actually phases are -pi/pi so arctan2 or angle
+            _phase = np.angle(cube.data)
+
+            # Replace bad phase :
+            _phase[np.isnan(_phase)] = 0
+
+            if plot:
+                import matplotlib.pyplot as plt
+
+                fig, axes = plt.subplots(ncols=4)
+                (freq,) = cube.wcs.sub([3]).all_pix2world(np.arange(cube.shape[0]), 0)
+                axes[1].plot(freq, cube.data[:, :, 0])
+                axes[2].plot(freq, _phase[:, :, 0])
+
+            if medfilt_size is not None:
+                # Median filtering of the phases
+                _phase = medfilt(_phase, kernel_size=(medfilt_size, 1, 1))
+
+            if deg is not None:
+                # Common mask on real part value of the cube
+                common_mask = (
+                    np.sum(np.abs(cube.data.real.reshape(cube.shape[0], -1)) < real_clip * cube.data.real.max(), axis=1)
+                    == 0
+                )
+                if plot:
+                    axes[2].plot(freq, common_mask, linestyle="dotted")
+
+                # Enhance Forman : Replace the phase by a low-order polynomial
+                idx = np.linspace(-1, 1, _phase.shape[0])
+
+                # Push phases between -pi and pi and unwrap
+                _phase_for_polyfit = np.unwrap(_phase[common_mask].reshape(np.sum(common_mask), -1), axis=0)
+
+                p = np.polynomial.polynomial.polyfit(idx[common_mask], _phase_for_polyfit, deg)
+                _phase = np.polynomial.polynomial.polyval(idx, p).T.reshape(phase.shape)
+
+                # Wrap back the phases to -pi pi, uncessary, but just in case
+                _phase = (_phase + np.pi) % (2 * np.pi) - np.pi
+
+            if plot:
+                axes[2].plot(freq, _phase[:, :, 0], linestyle="--")
+
+            phase += _phase
+
+            # Spencer 3.30
+            phase_correction_function = np.fft.fftshift(
+                np.fft.ifft(np.exp(-1j * np.fft.fftshift(phase, axes=0)), axis=0), axes=0
+            )
+            phase_correction_function *= pcf_apodization(phase.shape[0])[:, np.newaxis, np.newaxis]
+
+            if plot:
+                (x,) = itg.wcs.sub([3]).all_pix2world(np.arange(itg.shape[0]), 0)
+                axes[3].plot(x, phase_correction_function[:, :, 0])
+                axes[3].set_xlim(-1, 1)
+                axes[0].plot(x, itg.data[:, :, 0])
+                axes[0].set_xlim(-1, 1)
+
+            # Correct the initial dataset with the current phase for the next iteration
+            corrected_itg = fftconvolve(itg_ma, phase_correction_function, mode="same", axes=0).real
+            itg.data[:] = corrected_itg
+
+        return phase_correction_function
+
+    def to_spectra(self, onesided_apodization=None, **kwargs):
         """Invert an interferograms cube using the (enhanced) Forman method.
 
         This follow the description in [1]_.
 
         Parameters
         ----------
-        deg : int
-            Degree of the fitting polynomial to the phase (default: None)
-        pcf_apodization : func
-            Apodization function to be used on the Phase Correction Function (default: None)
-        doublesided_apodization : func
-            Apodization function to be used on the double sided interferograms (default: None)
-        onesided_apodization : func
-            Apodization function to be used on the one sided interferograms (default: None)
+        niter : [int], optional
+            number of iterations, by default 1
+        doublesided_apodization : [function], optional
+            apodization function for the double sided inversion, by default None, but see Notes
+        medfilt_size : [int], optional
+            size of the median filtering window to be applied (before polynomial fitting), by default None
+        deg : [int], optional
+            the polynomial degree to fit to the phase, by default None
+        real_clip : [real], optional
+            clipping of the real component of the doublesided cube, by default 1e-15
+        pcf_apodization : [function], optional
+            apodization function for the phase correction function, by default None
+        onesided_apodization : [function], optional
+            epodization function to be used on the one sided interferograms, by default None
 
         Returns
         -------
@@ -290,25 +432,8 @@ class FTSData(NDDataArray):
                Photometer, 2005MsT..........1S
         .. [2] https://docs.scipy.org/doc/numpy/reference/routines.window.html
         """
-        if pcf_apodization is None:
-            pcf_apodization = np.ones
 
-        doublesided = self._extract_doublesided()
-        doublesided_cube = doublesided.__invert_doublesided(apodization_function=doublesided_apodization)
-
-        # Spencer 2.39 !
-        phase = np.fft.ifftshift(
-            np.arctan(doublesided_cube.data.imag / doublesided_cube.data.real), axes=0
-        )  # -pi/2 pi/
-
-        # TODO: Enhance Format fit this phase with low-order polynomial
-
-        # Spencer 3.30
-        phase_correction_function = np.fft.ifft(np.exp(-1j * phase), axis=0)
-        phase_correction_function *= np.fft.ifftshift(pcf_apodization(phase.shape[0]))[:, np.newaxis, np.newaxis]
-
-        # Turn it into a convolution kernel
-        phase_correction_function = np.fft.fftshift(phase_correction_function, axes=0)
+        phase_correction_function = self._get_phase_correction_function(**kwargs)
 
         # Convolved the interferograms and hits
         itg = np.ma.array(self.data, mask=self.mask).filled(0)
