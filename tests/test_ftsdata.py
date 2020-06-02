@@ -238,16 +238,16 @@ def rect_ss_shift():
 
 def test_ftsdata_prop(empty_ds):
     data = empty_ds
-    assert data._is_opd is True
-    assert data._is_doublesided is True
-    assert data._is_onesided is False
+    assert data._is_opd
+    assert data._is_doublesided
+    assert not data._is_onesided
 
 
 def test_ftsdata_prop2(empty_os):
     data = empty_os
-    assert data._is_opd is True
-    assert data._is_doublesided is False
-    assert data._is_onesided is True
+    assert data._is_opd
+    assert not data._is_doublesided
+    assert data._is_onesided
 
 
 def test_extract_doublesided(gaussian_ds):
