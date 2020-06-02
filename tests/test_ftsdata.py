@@ -338,23 +338,23 @@ def test_get_phase_correction_function(gaussian_ds_shift):
     shifts = np.exp(-2j * np.pi * (freq * u.Hz * (data.meta["shifts"][:, np.newaxis] / cst.c).to(1 / u.Hz)).T.value)
     _pcf = np.fft.fftshift(np.fft.ifft(np.fft.fftshift(shifts, axes=0), axis=0), axes=0)
 
-    pcf = data._get_phase_correction_function(niter=1, deg=1, real_clip=1e-6)
+    pcf = data._get_phase_correction_function(niter=1, deg=1, clip=1e-6)
     assert np.allclose(pcf[:, :, 0], _pcf)
 
     # Test many iterations, will fail if no apodization
-    pcf = data._get_phase_correction_function(niter=10, deg=1, real_clip=1e-6)
+    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-6)
     assert not np.allclose(pcf[:, :, 0], _pcf)
 
-    # Or too low real_clipping :
-    pcf = data._get_phase_correction_function(niter=10, deg=1, real_clip=1e-10)
+    # Or too low clipping :
+    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-10)
     assert not np.allclose(pcf[:, :, 0], _pcf)
 
     # Test many iterations, will succeed if apodized
-    pcf = data._get_phase_correction_function(niter=10, deg=1, real_clip=1e-6, doublesided_apodization=np.hanning)
+    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-6, doublesided_apodization=np.hanning)
     assert np.allclose(pcf[:, :, 0], _pcf)
 
     # but still diverge with too low clipping
-    pcf = data._get_phase_correction_function(niter=10, deg=1, real_clip=1e-10, doublesided_apodization=np.hanning)
+    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-10, doublesided_apodization=np.hanning)
     assert not np.allclose(pcf[:, :, 0], _pcf)
 
 

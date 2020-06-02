@@ -269,7 +269,7 @@ class FTSData(NDDataArray):
         doublesided_apodization=None,
         medfilt_size=None,
         deg=None,
-        real_clip=1e-6,
+        clip=1e-6,
         pcf_apodization=None,
         plot=False,
         **kwargs
@@ -288,8 +288,8 @@ class FTSData(NDDataArray):
             size of the median filtering window to be applied (before polynomial fitting), by default None
         deg : [int], optional
             the polynomial degree to fit to the phase, by default None
-        real_clip : [real], optional
-            clipping relative to the peak of the real component of the doublesided cube, by default 1e-6
+        clip : [real], optional
+            clipping relative to the peak of the doublesided cube amplitude, by default 1e-6
         pcf_apodization : [function], optional
             apodization function for the phase correction function, by default None
         plot : bool, optional
@@ -302,7 +302,7 @@ class FTSData(NDDataArray):
 
         Notes
         -----
-        You can use lower real_clip values to increase the phase fit, but you need to use a doublesided_apodization like the hanning function to avoid numerical problems with iterations
+        You can use lower clip values to increase the phase fit, but you need to use a doublesided_apodization like the hanning function to avoid numerical problems with iterations
 
         Choice of apodization function can be made among the function available in numpy at [2]_, namely
         `numpy.hanning`, `numpy.hamming`, `numpy.bartlett`, `numpy.blackman`, `numpy.kaiser`
@@ -350,10 +350,10 @@ class FTSData(NDDataArray):
 
             if deg is not None:
                 # Common mask on real part value of the cube
-                common_mask = (
-                    np.sum(np.abs(cube.data.real.reshape(cube.shape[0], -1)) < real_clip * cube.data.real.max(), axis=1)
-                    == 0
-                )
+                # mask = np.abs(cube.data.real.reshape(cube.shape[0], -1)) < clip * cube.data.real.max(axis=0).T
+                mask = np.abs(cube.data).reshape(cube.shape[0], -1) < clip * np.abs(cube.data).max(axis=0).T
+                common_mask = np.sum(mask, axis=1) == 0
+
                 if plot:
                     axes[2].plot(freq, common_mask, linestyle="dotted")
 
@@ -408,7 +408,7 @@ class FTSData(NDDataArray):
             size of the median filtering window to be applied (before polynomial fitting), by default None
         deg : [int], optional
             the polynomial degree to fit to the phase, by default None
-        real_clip : [real], optional
+        clip : [real], optional
             clipping of the real component of the doublesided cube, by default 1e-15
         pcf_apodization : [function], optional
             apodization function for the phase correction function, by default None
