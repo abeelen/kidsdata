@@ -73,7 +73,9 @@ def rect(x, center, sigma):
 
 def rect_itg(x, center_x, sigma_x):
     shift = np.cos(2 * np.pi * u.Quantity(center_x * x).decompose().value)
-    return shift * np.sinc(u.Quantity(sigma_x * x).decompose().value) * np.abs(sigma_x)
+    rect_ft = np.sinc(u.Quantity(sigma_x * x).decompose().value) * np.abs(sigma_x)
+    # Factor 2 comes from the MPI and fourier approximation
+    return shift * rect_ft / 2
 
 
 def gaussian(x, center, sigma):
@@ -83,12 +85,37 @@ def gaussian(x, center, sigma):
 
 def gaussian_itg(x, center_x, sigma_x):
     shift = np.cos(2 * np.pi * u.Quantity(center_x * x).decompose().value)
-    return (
-        shift
-        * np.exp(-(2 * np.pi ** 2 * u.Quantity(sigma_x * x).decompose().value ** 2))
-        * np.sqrt(2 * np.pi)
-        * sigma_x
+    gaussian_ft = (
+        np.exp(-(2 * np.pi ** 2 * u.Quantity(sigma_x * x).decompose().value ** 2)) * np.sqrt(2 * np.pi) * sigma_x
     )
+    # Factor 2 comes from the MPI and fourier approximation
+    return shift * gaussian_ft / 2
+
+
+def ils(freq, opd_max):
+    r"""Compute the normalized ILS.
+
+    Parameters
+    ----------
+    freq : astropy.units.Quantity
+        the frequency axis
+    opd_max : astropy.units.Quantity
+        the maximum optical path difference
+
+    Returns
+    -------
+    array_like
+        the ILS to convolve the corresponding spectra
+
+    Notes
+    -----
+    .. math:: FT( rect(a x) / a ) = sinc\left(\frac{\xi]{a}\right)
+
+    with :math:`a = \frac{1}{2 opd_max}` and :math:`\sinc(x) = \frac{\sin(\pi x)}{\pi x}`
+    """
+    # Normalized to one rectangle function
+    wn = freq / cst.c
+    return np.sinc(u.Quantity(wn * 2 * opd_max).decompose().value)
 
 
 def fixture_itg(
@@ -338,24 +365,16 @@ def test_get_phase_correction_function(gaussian_ds_shift):
     shifts = np.exp(-2j * np.pi * (freq * u.Hz * (data.meta["shifts"][:, np.newaxis] / cst.c).to(1 / u.Hz)).T.value)
     _pcf = np.fft.fftshift(np.fft.ifft(np.fft.fftshift(shifts, axes=0), axis=0), axes=0)
 
-    pcf = data._get_phase_correction_function(niter=1, deg=1, clip=1e-6)
+    pcf = data._get_phase_correction_function(niter=1, deg=1)
     assert np.allclose(pcf[:, :, 0], _pcf)
 
-    # Test many iterations, will fail if no apodization
-    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-6)
-    assert not np.allclose(pcf[:, :, 0], _pcf)
-
-    # Or too low clipping :
-    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-10)
-    assert not np.allclose(pcf[:, :, 0], _pcf)
-
-    # Test many iterations, will succeed if apodized
-    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-6, doublesided_apodization=np.hanning)
+    # Test many iterations, will also work now with amplitude weighting
+    pcf = data._get_phase_correction_function(niter=10, deg=1)
     assert np.allclose(pcf[:, :, 0], _pcf)
 
-    # but still diverge with too low clipping
-    pcf = data._get_phase_correction_function(niter=10, deg=1, clip=1e-10, doublesided_apodization=np.hanning)
-    assert not np.allclose(pcf[:, :, 0], _pcf)
+    # Test many iterations, will succeed if also apodized
+    pcf = data._get_phase_correction_function(niter=10, deg=1, doublesided_apodization=np.hanning)
+    assert np.allclose(pcf[:, :, 0], _pcf)
 
 
 # Works, niter=10, no problem
@@ -363,3 +382,29 @@ def test_get_phase_correction_function(gaussian_ds_shift):
 # self._get_phase_correction_function(niter=3, deg=1, plot=True)
 # self = fixture_itg(cdelt_opd=0.3*u.mm, n_pix=3, shifts=[0, 0.1, 0.2]*u.mm, func_itg=gaussian_itg, func=gaussian, sided='double')
 # self._get_phase_correction_function(niter=1, deg=1, plot=True)
+
+"""
+import matplotlib.pyplot as plt
+
+plt.ion()
+itg = fixture_itg(
+    n_itg=1024, cdelt_opd=0.3 * u.mm, central_freq=120 * u.GHz, sigma_freq=10 * u.GHz, func=rect, func_itg=rect_itg
+)
+(opd,) = itg.wcs.sub([3]).all_pix2world(np.arange(itg.shape[0]), 0) * u.Unit(itg.wcs.wcs.cunit[2])
+itg_max = np.max(itg.wcs.sub([3]).all_pix2world([0, itg.shape[0] - 1], 0)) * u.Unit(itg.wcs.wcs.cunit[2])
+cube = itg.to_spectra()
+(freq,) = cube.wcs.sub([3]).all_pix2world(np.arange(cube.shape[0]), 0) * u.Unit(cube.wcs.wcs.cunit[2])
+expected_unc = rect(freq, itg.meta["central_freq"], itg.meta["sigma_freq"])
+from scipy.signal import fftconvolve
+
+_ils = ils(freq, itg_max)
+expected = fftconvolve(expected_unc, _ils, mode="same")
+
+plt.close("all")
+plt.plot(freq, cube.data[:, 0, 0], label="cube")
+plt.plot(freq, expected_unc, label="expected unc")
+plt.plot(freq, expected, label="expected")
+plt.plot(freq, _ils, label="ils")
+
+plt.legend()
+"""

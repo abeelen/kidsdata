@@ -183,12 +183,9 @@ class FTSData(NDDataArray):
         )
 
         # Spencer 2005 Eq 2.29, direct fft
-        # TODO: Check normalization here....
-        spectra = (
-            np.fft.fft(np.fft.ifftshift(_cube, axes=0), axis=0)
-            # * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
-        )
-
+        spectra = np.fft.fft(np.fft.ifftshift(_cube, axes=0), axis=0)
+        # Factor of 2 because we used the fourier transform
+        spectra *= 2
         spectra = np.fft.fftshift(spectra, axes=0)
         # freq = np.fft.fftshift(freq)
 
@@ -196,6 +193,7 @@ class FTSData(NDDataArray):
         wcs = deepcopy(self.wcs)
         wcs.wcs.ctype[2] = "FREQ"
         wcs.wcs.cunit[2] = "Hz"
+        # TODO: (cst.c / (cdelt_opd * cunit_opd) / (naxis_opd-1)).to(u.Hz).value give the 1/2L resolution, but fails in the tests
         wcs.wcs.cdelt[2] = (cst.c / (cdelt_opd * cunit_opd) / naxis_opd).to(u.Hz).value
         wcs.wcs.crpix[2] = (naxis_opd - 1) / 2 + 1
         wcs.wcs.crval[2] = 0
@@ -243,17 +241,16 @@ class FTSData(NDDataArray):
         # Spencer 2005 Eq 2.29, direct fft
         # Trick is to use the unnormalized irfft
         output_shape = 2 * naxis_opd - 1
-        spectra = (
-            np.fft.irfft(_cube, n=output_shape, axis=0)
-            * output_shape
-            # * (2 * cdelt_opd * cunit_opd / cst.c).to(1 / u.Hz).value
-        )
+        spectra = np.fft.irfft(_cube, n=output_shape, axis=0) * output_shape
+        # Factor of 2 because we used the fourier transform
+        spectra *= 2
         spectra = np.fft.fftshift(spectra, axes=0)
 
         # Build new wcs
         wcs = deepcopy(self.wcs)
         wcs.wcs.ctype[2] = "FREQ"
         wcs.wcs.cunit[2] = "Hz"
+        # (cst.c / (cdelt_opd * cunit_opd) / (output_shape-1)).to(u.Hz).value give the 1/2L resolution, but fails in the tests
         wcs.wcs.cdelt[2] = (cst.c / (cdelt_opd * cunit_opd) / output_shape).to(u.Hz).value
         wcs.wcs.crpix[2] = naxis_opd
         wcs.wcs.crval[2] = 0
@@ -269,7 +266,6 @@ class FTSData(NDDataArray):
         doublesided_apodization=None,
         medfilt_size=None,
         deg=None,
-        clip=1e-6,
         pcf_apodization=None,
         plot=False,
         **kwargs
@@ -288,8 +284,6 @@ class FTSData(NDDataArray):
             size of the median filtering window to be applied (before polynomial fitting), by default None
         deg : [int], optional
             the polynomial degree to fit to the phase, by default None
-        clip : [real], optional
-            clipping relative to the peak of the doublesided cube amplitude, by default 1e-6
         pcf_apodization : [function], optional
             apodization function for the phase correction function, by default None
         plot : bool, optional
@@ -302,8 +296,6 @@ class FTSData(NDDataArray):
 
         Notes
         -----
-        You can use lower clip values to increase the phase fit, but you need to use a doublesided_apodization like the hanning function to avoid numerical problems with iterations
-
         Choice of apodization function can be made among the function available in numpy at [2]_, namely
         `numpy.hanning`, `numpy.hamming`, `numpy.bartlett`, `numpy.blackman`, `numpy.kaiser`
         or any custom routine following the same convention.
@@ -349,22 +341,20 @@ class FTSData(NDDataArray):
                 _phase = medfilt(_phase, kernel_size=(medfilt_size, 1, 1))
 
             if deg is not None:
-                # Common mask on real part value of the cube
-                # mask = np.abs(cube.data.real.reshape(cube.shape[0], -1)) < clip * cube.data.real.max(axis=0).T
-                mask = np.abs(cube.data).reshape(cube.shape[0], -1) < clip * np.abs(cube.data).max(axis=0).T
-                common_mask = np.sum(mask, axis=1) == 0
 
-                if plot:
-                    axes[2].plot(freq, common_mask, linestyle="dotted")
-
-                # Enhance Forman : Replace the phase by a low-order polynomial
+                # polynomial fit on the phase, weighted by the intensity
+                p = []
                 idx = np.linspace(-1, 1, _phase.shape[0])
+                # np.polynomail.polynomial.polyfit do not accept a (`M`, `K`) array for the weights, so need to loop....
+                for spec, weight in zip(
+                    _phase.reshape(cube.shape[0], -1).T, np.abs(cube.data).reshape(cube.shape[0], -1).T
+                ):
+                    p.append(np.polynomial.polynomial.polyfit(idx, spec, deg, w=weight))
 
-                # Push phases between -pi and pi and unwrap
-                _phase_for_polyfit = np.unwrap(_phase[common_mask].reshape(np.sum(common_mask), -1), axis=0)
+                p = np.asarray(p).T
 
-                p = np.polynomial.polynomial.polyfit(idx[common_mask], _phase_for_polyfit, deg)
-                _phase = np.polynomial.polynomial.polyval(idx, p).T.reshape(phase.shape)
+                # evaluate the polynomal all at once :
+                _phase = np.polynomial.polynomial.polyval(idx, p).T.reshape(cube.shape)
 
                 # Wrap back the phases to -pi pi, uncessary, but just in case
                 _phase = (_phase + np.pi) % (2 * np.pi) - np.pi
@@ -400,6 +390,8 @@ class FTSData(NDDataArray):
 
         Parameters
         ----------
+        onesided_apodization : [function], optional
+            apodization function to be used on the one sided interferograms, by default None
         niter : [int], optional
             number of iterations, by default 1
         doublesided_apodization : [function], optional
@@ -408,12 +400,8 @@ class FTSData(NDDataArray):
             size of the median filtering window to be applied (before polynomial fitting), by default None
         deg : [int], optional
             the polynomial degree to fit to the phase, by default None
-        clip : [real], optional
-            clipping of the real component of the doublesided cube, by default 1e-15
         pcf_apodization : [function], optional
             apodization function for the phase correction function, by default None
-        onesided_apodization : [function], optional
-            epodization function to be used on the one sided interferograms, by default None
 
         Returns
         -------
