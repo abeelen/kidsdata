@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import logging
 from pathlib import Path
 from itertools import chain
 from datetime import datetime
@@ -41,7 +42,7 @@ def update_scan_database(dirs=None):
         if filename.suffix in [".fits", ".hdf5"]:
             continue
         # Removing already scanned files
-        if DATABASE_SCAN is not None and filename not in DATABASE_SCAN["filename"]:
+        if (DATABASE_SCAN is not None) and (filename.as_posix() in DATABASE_SCAN["filename"]):
             continue
         date, hour, scan, source, obsmode = filename.name[1:].split("_")
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
@@ -61,7 +62,7 @@ def update_scan_database(dirs=None):
         )
 
     if len(data_rows) > 0:
-
+        logging.info("Found {} new scans".format(len(data_rows)))
         NEW_SCAN = Table(
             names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
         )
@@ -71,7 +72,8 @@ def update_scan_database(dirs=None):
         NEW_SCAN["size"].info.format = "7.3f"
 
         if DATABASE_SCAN is not None:
-            DATABASE_SCAN = vstack(DATABASE_SCAN, NEW_SCAN)
+            DATABASE_SCAN = vstack([DATABASE_SCAN, NEW_SCAN])
+            DATABASE_SCAN.sort("scan")
         else:
             DATABASE_SCAN = NEW_SCAN
 
@@ -115,6 +117,8 @@ def update_extra_database(dirs=None):
         )
 
     if len(data_rows) > 0:
+        logging.info("Found {} new extra scans".format(len(data_rows)))
+
         NEW_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
         NEW_EXTRA.sort("date")
         NEW_EXTRA["size"].unit = "byte"
@@ -122,7 +126,8 @@ def update_extra_database(dirs=None):
         NEW_EXTRA["size"].info.format = "7.3f"
 
         if DATABASE_EXTRA is not None:
-            DATABASE_EXTRA = vstack(DATABASE_EXTRA, NEW_EXTRA)
+            DATABASE_EXTRA = vstack([DATABASE_EXTRA, NEW_EXTRA])
+            DATABASE_EXTRA.sort("scan")
         else:
             DATABASE_EXTRA = NEW_EXTRA
 
@@ -130,9 +135,8 @@ def update_extra_database(dirs=None):
 def auto_update(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        if DATABASE_SCAN is None:
-            update_scan_database()
-            update_extra_database()
+        update_scan_database()
+        update_extra_database()
         return func(*args, **kwargs)
 
     return wrapper
@@ -231,6 +235,8 @@ def list_scan(output=False, **kwargs):
 
     will return all the scan greather than 400
     """
+
+    global DATABASE_SCAN
 
     if DATABASE_SCAN is None:
         raise ValueError("No scans found, check the KISS_DATA variable")
