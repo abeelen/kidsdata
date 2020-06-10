@@ -48,6 +48,9 @@ def update_scan_database(dirs=None):
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
         scan = int(scan[1:])
         stat = filename.stat()
+        # Do not add empty files
+        if stat.st_size == 0:
+            continue
         data_rows.append(
             (
                 filename.as_posix(),
