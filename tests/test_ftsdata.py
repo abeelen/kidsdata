@@ -1,5 +1,7 @@
 import pytest
 
+from functools import partial
+
 import numpy as np
 import numpy.testing as npt
 
@@ -195,72 +197,101 @@ def fixture_itg(
     return data
 
 
-@pytest.fixture
-def gaussian_ds():
-    return fixture_itg(func_itg=gaussian_itg, func=gaussian, sided="double")
+# Define all tests as functions to all easy debugging
+gaussian_ds = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="double")
+rect_ds = partial(fixture_itg, func_itg=rect_itg, func=rect, sided="double")
+gaussian_os = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="one")
+rect_os = partial(fixture_itg, func_itg=rect_itg, func=rect, sided="one")
+gaussian_ss = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="single")
+rect_ss = partial(fixture_itg, func_itg=rect_itg, func=rect, sided="single")
+
+gaussian_ds_shift = partial(
+    fixture_itg,
+    n_pix=3,
+    cdelt_opd=0.3 * u.mm,
+    shifts=[0, 0.15, 0.3] * u.mm,
+    func_itg=gaussian_itg,
+    func=gaussian,
+    sided="double",
+)
+gaussian_ss_shift = partial(
+    fixture_itg,
+    n_pix=3,
+    cdelt_opd=0.3 * u.mm,
+    shifts=[0, 0.15, 0.3] * u.mm,
+    func_itg=gaussian_itg,
+    func=gaussian,
+    sided="single",
+)
+
+rect_ds_shift = partial(
+    fixture_itg,
+    n_pix=3,
+    cdelt_opd=0.3 * u.mm,
+    shifts=[0, 0.15, 0.3] * u.mm,
+    func_itg=rect_itg,
+    func=rect,
+    sided="double",
+)
+rect_ss_shift = partial(
+    fixture_itg,
+    n_pix=3,
+    cdelt_opd=0.3 * u.mm,
+    shifts=[0, 0.15, 0.3] * u.mm,
+    func_itg=rect_itg,
+    func=rect,
+    sided="single",
+)
+
+# Redefined them as fixture for pytest
+@pytest.fixture(name="gaussian_ds")
+def fixture_gaussian_ds():
+    return gaussian_ds()
 
 
-@pytest.fixture
-def rect_ds():
-    return fixture_itg(func_itg=rect_itg, func=rect, sided="double")
+@pytest.fixture(name="rect_ds")
+def fixture_rect_ds():
+    return rect_ds()
 
 
-@pytest.fixture
-def gaussian_os():
-    return fixture_itg(func_itg=gaussian_itg, func=gaussian, sided="one")
+@pytest.fixture(name="gaussian_os")
+def fixture_gaussian_os():
+    return gaussian_os()
 
 
-@pytest.fixture
-def rect_os():
-    return fixture_itg(func_itg=rect_itg, func=rect, sided="one")
+@pytest.fixture(name="rect_os")
+def fixture_rect_os():
+    return rect_os()
 
 
-@pytest.fixture
-def gaussian_ss():
-    return fixture_itg(func_itg=gaussian_itg, func=gaussian, sided="single")
+@pytest.fixture(name="gaussian_ss")
+def fixture_gaussian_ss():
+    return gaussian_ss()
 
 
-@pytest.fixture
-def rect_ss():
-    return fixture_itg(func_itg=rect_itg, func=rect, sided="single")
+@pytest.fixture(name="rect_ss")
+def fixture_rect_ss():
+    return rect_ss()
 
 
-@pytest.fixture
-def gaussian_ds_shift():
-    return fixture_itg(
-        n_pix=3,
-        cdelt_opd=0.3 * u.mm,
-        shifts=[0, 0.15, 0.3] * u.mm,
-        func_itg=gaussian_itg,
-        func=gaussian,
-        sided="double",
-    )
+@pytest.fixture(name="gaussian_ds_shift")
+def fixture_gaussian_ds_shift():
+    return gaussian_ds_shift()
 
 
-@pytest.fixture
-def gaussian_ss_shift():
-    return fixture_itg(
-        n_pix=3,
-        cdelt_opd=0.3 * u.mm,
-        shifts=[0, 0.15, 0.3] * u.mm,
-        func_itg=gaussian_itg,
-        func=gaussian,
-        sided="single",
-    )
+@pytest.fixture(name="gaussian_ss_shift")
+def fixture_gaussian_ss_shift():
+    return gaussian_ss_shift()
 
 
-@pytest.fixture
-def rect_ds_shift():
-    return fixture_itg(
-        n_pix=3, cdelt_opd=0.3 * u.mm, shifts=[0, 0.15, 0.3] * u.mm, func_itg=rect_itg, func=rect, sided="double"
-    )
+@pytest.fixture(name="rect_ds_shift")
+def fixture_rect_ds_shift():
+    return rect_ds_shift()
 
 
-@pytest.fixture
-def rect_ss_shift():
-    return fixture_itg(
-        n_pix=3, cdelt_opd=0.3 * u.mm, shifts=[0, 0.15, 0.3] * u.mm, func_itg=rect_itg, func=rect, sided="single"
-    )
+@pytest.fixture(name="rect_ss_shift")
+def fixture_rect_ss_shift():
+    return rect_ss_shift()
 
 
 def test_ftsdata_prop(empty_ds):
@@ -297,7 +328,13 @@ def test_extract_doublesided2(gaussian_ss):
 
 def test_to_spectra_ds(gaussian_ds):
     data = gaussian_ds
+    # The polynomial has to be forced when using half phases, because of numerical noise in the doublesided case
     npt.assert_almost_equal(data._FTSData__invert_doublesided().data, data.to_spectra(deg=0).data)
+
+    # Chebychev polynomials should give the same results at order 0
+    npt.assert_almost_equal(
+        data._FTSData__invert_doublesided().data, data.to_spectra(deg=0, fitting_func="chebychev").data
+    )
 
 
 # def test_to_spectra(gaussian_ds):
@@ -314,6 +351,7 @@ def test_to_spectra_ds(gaussian_ds):
 
 def test_to_spectra_ss(gaussian_os):
     data = gaussian_os
+    # There is actually no phase correction done in the to_spectra case...
     npt.assert_almost_equal(data._FTSData__invert_onesided().data, data.to_spectra(deg=0).data)
     npt.assert_almost_equal(data._FTSData__invert_onesided().data, data.to_spectra(deg=None).data)
 
@@ -368,6 +406,10 @@ def test_get_phase_correction_function(gaussian_ds_shift):
     pcf = data._get_phase_correction_function(niter=1, deg=1)
     assert np.allclose(pcf[:, :, 0], _pcf)
 
+    # Testing higher degree polynomials on simple shifts
+    pcf = data._get_phase_correction_function(niter=1, deg=3)
+    assert np.allclose(pcf[:, :, 0], _pcf)
+
     # Test many iterations, will also work now with amplitude weighting
     pcf = data._get_phase_correction_function(niter=10, deg=1)
     assert np.allclose(pcf[:, :, 0], _pcf)
@@ -375,6 +417,13 @@ def test_get_phase_correction_function(gaussian_ds_shift):
     # Test many iterations, will succeed if also apodized
     pcf = data._get_phase_correction_function(niter=10, deg=1, doublesided_apodization=np.hanning)
     assert np.allclose(pcf[:, :, 0], _pcf)
+
+    # Chebychev polynomials should give the same results at order 1
+    pcf = data._get_phase_correction_function(niter=10, deg=1, fitting_func="chebychev")
+    assert np.allclose(pcf[:, :, 0], _pcf)
+
+    with pytest.raises(ValueError):
+        data._get_phase_correction_function(niter=10, deg=1, fitting_func="toto")
 
 
 # Works, niter=10, no problem

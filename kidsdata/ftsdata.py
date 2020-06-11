@@ -266,6 +266,7 @@ class FTSData(NDDataArray):
         doublesided_apodization=None,
         medfilt_size=None,
         deg=None,
+        fitting_func="polynomial",
         pcf_apodization=None,
         plot=False,
         **kwargs
@@ -284,6 +285,8 @@ class FTSData(NDDataArray):
             size of the median filtering window to be applied (before polynomial fitting), by default None
         deg : [int], optional
             the polynomial degree to fit to the phase, by default None
+        fitting_func : [str], ("polynomial"|"chebysev"), optional
+            fitting function class, either polynomial or chebyshev, by default, "polynomial"
         pcf_apodization : [function], optional
             apodization function for the phase correction function, by default None
         plot : bool, optional
@@ -300,6 +303,7 @@ class FTSData(NDDataArray):
         `numpy.hanning`, `numpy.hamming`, `numpy.bartlett`, `numpy.blackman`, `numpy.kaiser`
         or any custom routine following the same convention.
 
+
         References
         ----------
         .. [1] Spencer, L.D., (2005) Spectral Characterization of the Herschel SPIRE
@@ -314,8 +318,8 @@ class FTSData(NDDataArray):
         # Reference iterferogram
         itg_ma = np.ma.array(itg.data, mask=itg.mask, copy=True).filled(0)
 
-        # Null starting phase
-        phase = np.zeros((itg.shape))
+        # Null starting phase (take only the upper part)
+        phase = np.zeros(((itg.shape[0] - 1) // 2 + 1, *itg.shape[1:]))
 
         # Loop Here
         for i in range(niter):
@@ -323,7 +327,7 @@ class FTSData(NDDataArray):
             cube = itg._FTSData__invert_doublesided(apodization_function=doublesided_apodization)
 
             # Spencer 2.39 , well actually phases are -pi/pi so arctan2 or angle
-            _phase = np.angle(cube.data)
+            _phase = np.angle(cube.data[(itg.shape[0] - 1) // 2 :])
 
             # Replace bad phase :
             _phase[np.isnan(_phase)] = 0
@@ -342,22 +346,35 @@ class FTSData(NDDataArray):
 
             if deg is not None:
 
+                if fitting_func == "polynomial":
+                    polyfit, polyval = np.polynomial.polynomial.polyfit, np.polynomial.polynomial.polyval
+                elif fitting_func == "chebychev":
+                    polyfit, polyval = np.polynomial.chebyshev.chebfit, np.polynomial.chebyshev.chebval
+                else:
+                    raise ValueError('fitting_func should be in ("polynomial"|"chebychev")')
+
                 # polynomial fit on the phase, weighted by the intensity
                 p = []
-                idx = np.linspace(-1, 1, _phase.shape[0])
+                idx = np.linspace(0, 1, _phase.shape[0])
                 # np.polynomail.polynomial.polyfit do not accept a (`M`, `K`) array for the weights, so need to loop....
                 for spec, weight in zip(
-                    _phase.reshape(cube.shape[0], -1).T, np.abs(cube.data).reshape(cube.shape[0], -1).T
+                    _phase.reshape(_phase.shape[0], -1).T,
+                    np.abs(cube.data[(itg.shape[0] - 1) // 2 :]).reshape(_phase.shape[0], -1).T,
                 ):
-                    p.append(np.polynomial.polynomial.polyfit(idx, spec, deg, w=weight))
+                    p.append(polyfit(idx, spec, deg, w=weight))
 
                 p = np.asarray(p).T
 
                 # evaluate the polynomal all at once :
-                _phase = np.polynomial.polynomial.polyval(idx, p).T.reshape(cube.shape)
+                _phase = polyval(idx, p).T.reshape(_phase.shape)
 
                 # Wrap back the phases to -pi pi, uncessary, but just in case
                 _phase = (_phase + np.pi) % (2 * np.pi) - np.pi
+                """
+fit data also incorporates smoothing in the
+out of band region to ensure zero phase and derivative discontinuities and zero amplitude at
+zero and Nyquist frequency.
+                """
 
             if plot:
                 axes[2].plot(freq, _phase[:, :, 0], linestyle="--")
@@ -365,10 +382,17 @@ class FTSData(NDDataArray):
             phase += _phase
 
             # Spencer 3.30
-            phase_correction_function = np.fft.fftshift(
-                np.fft.ifft(np.exp(-1j * np.fft.fftshift(phase, axes=0)), axis=0), axes=0
+            # Using rfft leads pure real pcf and strangely could lead to wrong results
+            # phase_correction_function = np.fft.irfft(np.exp(-1j * phase), axis=0, n=2*(phase.shape[0]-1)+1)
+            phase_correction_function = np.fft.ifft(
+                np.exp(-1j * np.fft.fftshift(np.concatenate([-phase[:0:-1], phase]), axes=0)), axis=0
             )
-            phase_correction_function *= pcf_apodization(phase.shape[0])[:, np.newaxis, np.newaxis]
+
+            # Apodization of the PCF
+            phase_correction_function = (
+                np.fft.fftshift(phase_correction_function, axes=0)
+                * pcf_apodization(phase_correction_function.shape[0])[:, np.newaxis, np.newaxis]
+            )
 
             if plot:
                 (x,) = itg.wcs.sub([3]).all_pix2world(np.arange(itg.shape[0]), 0)
