@@ -65,7 +65,7 @@ def decode_ip(int32_val):
 
 
 # @profile
-def read_info(filename, det2read="KID", list_data="all", silent=True):
+def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
     """Read header information from a binary file.
 
     Parameters
@@ -76,6 +76,8 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
         Detector type to read
     list_data : list or 'all'
         A list containing the list of data to be read, or the string 'all'
+    fix : boolean
+        fix the end of the detector names
     silent : bool (default:True)
         Silence the output of the C library
 
@@ -211,10 +213,17 @@ def read_info(filename, det2read="KID", list_data="all", silent=True):
     param_d = dict(zip(name_param_d, val_param_d))
 
     # nom1 & nom2 are actually defined as a struct Tname8 namedet (TconfingNika.h), ie char[8] ie 64 bit (public_def.h)
-    param_d["namedet"] = [
-        name.tobytes().strip(b"\x00").decode("ascii")
-        for name in np.append(param_d["nom1"], param_d["nom2"]).reshape(header.nb_detecteurs, 2).view(np.byte)
-    ]
+    namedet = np.append(param_d["nom1"], param_d["nom2"]).reshape(header.nb_detecteurs, 2).view(np.byte)
+
+    # In principle the last 2 bytes should be always 0, ie we code up to 6 character, instead of 8, but sometimes....
+    if np.any(namedet[:, 6:8]):
+        if fix:
+            namedet[:, 6:8] = 0
+            logging.warning("Corrupted namedet truncated to 6 characters")
+        else:
+            logging.error("Corrupted namedet")
+
+    param_d["namedet"] = [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
     for key in ["nom1", "nom2"]:
         del param_d[key]
 
