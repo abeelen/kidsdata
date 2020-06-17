@@ -2,7 +2,7 @@ import os
 import numpy as np
 from itertools import chain
 from pathlib import Path
-from functools import wraps
+from functools import wraps, partial
 from collections import namedtuple
 
 import matplotlib.pyplot as plt
@@ -69,20 +69,24 @@ def read_scan(scan, array=None, extra_data=None):
     return kd
 
 
-def kd_or_scan(array=None, extra_data=None):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(scan, *args, **kwargs):
-            # If scan number given, read the scan into the object and pass it to function
-            if isinstance(scan, (int, np.int, np.int64)):
+# Following David Baezly generic pattern
+# https://rednafi.github.io/digressions/python/2020/05/13/python-decorators.html
+def kd_or_scan(func=None, array=None, extra_data=None):
+    """Decorator to allow functions to be call with a scan number or kd object """
 
-                scan = read_scan(scan, array=array, extra_data=extra_data)
+    if func is None:
+        return partial(kd_or_scan, array=array, extra_data=extra_data)
 
-            return func(scan, *args, **kwargs)
+    @wraps(func)
+    def wrapper(scan, *args, **kwargs):
+        # If scan number given, read the scan into the object and pass it to function
+        if isinstance(scan, (int, np.int, np.int64)):
 
-        return wrapper
+            scan = read_scan(scan, array=array, extra_data=extra_data)
 
-    return decorator
+        return func(scan, *args, **kwargs)
+
+    return wrapper
 
 
 @kd_or_scan(array=None, extra_data=["I", "Q"])
