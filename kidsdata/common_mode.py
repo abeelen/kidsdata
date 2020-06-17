@@ -25,12 +25,12 @@ def basic_continuum(bgrd, diff_mask=False, medfilt_size=None, **kwargs):
 def median_filtering(bgrd, ikid_ref=0, offset=True, flat=True, **kwargs):
 
     # Note that bgrd content is lost here
-    bgrd_cleanned, flat, offset, _ = correlated_median_removal(bgrd, iref=ikid_ref, offset=offset, flat=flat)
+    bgrd_cleanned, flat_field, flat_offset, _ = correlated_median_removal(bgrd, iref=ikid_ref, offset=offset, flat=flat)
 
     if offset:
-        bgrd_cleanned -= offset[:, np.newaxis]
+        bgrd_cleanned -= flat_offset[:, np.newaxis]
     if flat:
-        bgrd_cleanned /= flat[:, np.newaxis]
+        bgrd_cleanned /= flat_field[:, np.newaxis]
 
     return bgrd_cleanned
 
