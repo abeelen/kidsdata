@@ -10,7 +10,8 @@ from astropy.time import Time
 from astropy.table import join
 
 from . import read_kidsdata
-from . import kids_log
+
+# from . import kids_log
 
 
 class KidsData(object):
@@ -66,7 +67,7 @@ class KidsRawData(KidsData):
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
         self._extended_kidpar = None
 
-        self.logger = kids_log.history_logger(self.__class__.__name__)
+        # self.logger = kids_log.history_logger(self.__class__.__name__)
 
     def __len__(self):
         return self.nsamples
@@ -237,10 +238,12 @@ class KidsRawData(KidsData):
             kidpar = deepcopy(self._kidpar)
             # astropy.table.join fails when index is masked so..
             # See astropy #9289
+            kidpar.sort("index")
             mask = deepcopy(kidpar["index"].mask)
             kidpar["index"].mask = False
             kidpar.remove_indices("namedet")
             kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="namedet")
+            kidpar.sort("index")
             kidpar["index"].mask = mask
             kidpar.add_index("namedet")
         else:
