@@ -22,7 +22,8 @@ from astropy.nddata import NDDataArray, StdDevUncertainty, VarianceUncertainty, 
 from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_cls_to_name
 
 from .kiss_data import KissRawData
-from .utils import roll_fft, build_wcs
+from .utils import roll_fft, build_celestial_wcs, extend_wcs
+from .kids_calib import ModulationValue, A_masq_to_flag
 
 # from .utils import _pool_global, _pool_initializer
 from . import common_mode as cm
@@ -59,12 +60,24 @@ def _pool_project_xyz_worker(ikid, **kwargs):
 
     ndet, nint, nptint = data.shape
 
+    # Match weights to the data shape
+    weights_shape_length = len(weights.shape)
+    if weights_shape_length == 1:
+        # Weights per detector
+        weights = weights[:, None, None]
+        repeat_weights = nint * nptint
+    elif weights_shape_length == 2:
+        # Weights per detector and per interferograms
+        weights = weights[:, :, None]
+        repeat_weights = nptint
+
     # x/y are repeated has we do not have the telescope position at 4 kHz
     # The np.repeat here will consume a LOT of memory
     sample = [z[ikid].flatten(), np.repeat(y[ikid], nptint), np.repeat(x[ikid], nptint)]
+
     hits, _ = np.histogramdd(sample, **kwargs)
-    data, _ = np.histogramdd(sample, **kwargs, weights=(data[ikid] * weights[ikid, None, None]).flatten())
-    weights, _ = np.histogramdd(sample, **kwargs, weights=np.repeat(weights[ikid], nint * nptint))
+    data, _ = np.histogramdd(sample, **kwargs, weights=(data[ikid] * weights[ikid]).flatten())
+    weights, _ = np.histogramdd(sample, **kwargs, weights=np.repeat(weights[ikid].flatten(), repeat_weights))
 
     return hits, data, weights
 
@@ -224,6 +237,7 @@ class KissSpectroscopy(KissRawData):
             # KB = np.char.startswith(self.list_detector, 'KB')
             interferograms[KA] *= -1
 
+        # MOVE this to interferogram_pipeline
         if self.mask_glitches:
             logging.debug("Masking glitches")
 
@@ -563,7 +577,7 @@ class KissSpectroscopy(KissRawData):
         ----------
         ikid : tuple
             the list of kid index in self.list_detector to use (default: all)
-        flatfield: str (None |'amplitude')
+        flatfield: str (None|'amplitude'|'interferograms'|'specFF')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
         cm_function : function
             Default: common_mode.pca_filtering
@@ -593,11 +607,11 @@ class KissSpectroscopy(KissRawData):
         # FlatField normalization
         if flatfield is None:
             flatfield = np.ones(interferograms.shape[0])
-        elif flatfield == "amplitude" and "amplitude" in self.kidpar.keys():
+        elif flatfield in ["amplitude", "interferogram", "specFF"] and flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
-            flatfield = _kidpar["amplitude"]
+            flatfield = _kidpar[flatfield]
         else:
-            raise ValueError("Can not use this fieldfield : {}".format(flatfield))
+            raise ValueError("Can not use this flat field : {}".format(flatfield))
 
         if isinstance(flatfield, MaskedColumn):
             flatfield = flatfield.filled(np.nan)
@@ -626,7 +640,7 @@ class KissSpectroscopy(KissRawData):
         ctype3="opd",
         cdelt=(0.1, 0.2),
         cunit=("deg", "mm"),
-        **kwargs
+        **kwargs,
     ):
         """Compute wcs and project the telescope position and optical path differences.
 
@@ -672,29 +686,35 @@ class KissSpectroscopy(KissRawData):
         kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt[0]
 
         if wcs is None:
-            wcs, _, _, z = build_wcs(
-                az,
-                el,
-                opds.flatten(),
-                ctype=("OLON-SFL", "OLAT-SFL", ctype3),
-                crval=(0, 0, 0),
-                cdelt=cdelt,
-                cunit=cunit,
-                **kwargs
+            # Project only the telescope position
+            wcs, _, _ = build_celestial_wcs(
+                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0], cunit=cunit[0],
             )
+
+            # Add marging from the kidpar offsets
             wcs.wcs.crpix[0:2] += (kidspar_margin_x / 2, kidspar_margin_y / 2)
-            # Round the crpix3
-            if ctype3 == "opd":
+
+        if wcs.is_celestial:
+            # extend the wcs for a third axis :
+            if ctype3.lower() == "opd":
+                wcs, z = extend_wcs(wcs, opds.flatten(), crval=0, ctype=ctype3, cdelt=cdelt[1], cunit=cunit[1])
+                # Round the crpix3
                 crpix3 = wcs.wcs.crpix[2]
                 crpix3_offset = np.round(crpix3) - crpix3
                 wcs.wcs.crpix[2] = np.round(crpix3)
-                z = (z + crpix3_offset).reshape(opds.shape)
+                z = z + crpix3_offset
+            else:
+                wcs, z = extend_wcs(wcs, opds.flatten(), ctype=ctype3, cdelt=cdelt[1], cunit=cunit[1])
         else:
-            z = wcs.sub([3]).all_world2pix(opds.flatten(), 0)[0].reshape(opds.shape)
+            # Full WCS given....
+            z = wcs.sub([3]).all_world2pix(opds.flatten(), 0)[0]
+
+        z = z.reshape(opds.shape)
 
         az_all = (az[:, np.newaxis] + _kidpar["x0"]).T
         el_all = (el[:, np.newaxis] + _kidpar["y0"]).T
 
+        # Recompute the full projected coordinates
         x, y = wcs.celestial.all_world2pix(az_all, el_all, 0)
 
         shape = (
@@ -704,6 +724,46 @@ class KissSpectroscopy(KissRawData):
         )
 
         return wcs, x, y, z, shape
+
+    def _modulation_std(self, ikid=None, flatfield="amplitude"):
+        """Compute the median standard deviation of kids within the modulation.
+
+        Parameters
+        ----------
+        ikid : tuple (optional)
+            The list of kid index in self.list_detector to use (default: all)
+        flatfield: str (None|'amplitude'|'interferograms'|'specFF')
+            the flatfield applied to the data prior to common mode removal (default: amplitude)
+
+        Returns
+        -------
+        weights ; array_like
+            the corresponding weights
+        """
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+        else:
+            ikid = np.asarray(ikid)
+
+        # KIDs selection
+        interferograms = self.interferograms_pipeline(ikid=tuple(ikid), flatfield=flatfield, cm_func=None)
+
+        if isinstance(interferograms, np.ma.MaskedArray):
+            interferograms = interferograms.data
+
+        A_masq = self.A_masq.reshape(self.nint, self.nptint)
+
+        A_high = A_masq_to_flag(A_masq, ModulationValue.high)
+        A_low = A_masq_to_flag(A_masq, ModulationValue.low)
+
+        mad_std = []
+        for itgs, low, high in zip(interferograms.swapaxes(0, 1), A_low, A_high):
+            itgs[:, low] -= np.median(itgs[:, low])
+            itgs[:, high] -= np.median(itgs[:, high])
+
+            mad_std.append(np.median(np.abs(itgs[:, high | low]), axis=1))
+
+        return np.asarray(mad_std).T
 
     def interferograms_cube(
         self, ikid=None, wcs=None, shape=None, coord="diff", weights=None, opd_mode="common", opd_trim=None, **kwargs
@@ -720,7 +780,7 @@ class KissSpectroscopy(KissRawData):
             The output shape to be used for the projected cube
         coord : str
             The coordinates type to be used (default: 'diff')
-        weights : str (None|'std'|'continuum_std')
+        weights : str (None|'std'|'continuum_std'|'modulation_std')
             The weights computation mode
         opd_mode : str ('common' | 'per_det' | 'per_int')
             See `KissSpectroscopy.opds`
@@ -731,6 +791,10 @@ class KissSpectroscopy(KissRawData):
         -------
         output : FTSData
             cube of projected interferograms
+
+        Notes
+        -----
+        Any keyword arguments from `KissSpectroscopy._project_xyz` or `KissSpectroscopy.interferogram_pipeline` can be used
         """
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -745,7 +809,7 @@ class KissSpectroscopy(KissRawData):
         # TODO: Shall we make interpolation or leave it like that ? This would require changes in _pool_project_xyz
         logging.debug("Computing projected quantities")
         wcs, x, y, z, _shape = self._project_xyz(
-            ikid=ikid, opd_mode=opd_mode, wcs=wcs, coord=coord, ctype3="opd", **kwargs
+            ikid=ikid, opd_mode=opd_mode, wcs=wcs, shape=shape, coord=coord, ctype3="opd", **kwargs
         )
 
         if shape is None:
@@ -755,11 +819,17 @@ class KissSpectroscopy(KissRawData):
         if weights is None:
             sample_weights = np.ones(sample.shape[0])
         elif weights == "std":
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
+            logging.warnings("Using std weights in spectroscopy is probably a bad idea")
+            with np.errstate(divide="ignore"):
                 # Compute the weight per kid as the std of the median per interferogram
                 # Probably NOT a good idea !!!!
                 sample_weights = 1 / sample.std(axis=(1, 2)) ** 2
+        elif weights == "continuum_std":
+            with np.errstate(divide="ignore"):
+                sample_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs).std(axis=1) ** 2
+        elif weights == "modulation_std":
+            with np.errstate(divide="ignore"):
+                sample_weights = 1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None)) ** 2
         else:
             raise ValueError("Unknown weights : {}".format(weights))
 
@@ -838,10 +908,12 @@ class KissSpectroscopy(KissRawData):
         _this = partial(_pool_project_xyz, **histdd_kwargs)
         with Pool(cpu_count(), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
             results = pool.map(_this, np.array_split(range(sample.shape[0]), cpu_count()))
-        hits = [result[0] for result in results]
-        data = [result[1] for result in results]
-        weight = [result[2] for result in results]
+        hits = [result[0] for result in results if result is not None]
+        data = [result[1] for result in results if result is not None]
+        weight = [result[2] for result in results if result is not None]
         del results
+
+        # Here we have results per kid data is actuall data*weight
         hits = np.asarray(hits).sum(axis=0)
         data = np.asarray(data).sum(axis=0)
         weight = np.asarray(weight).sum(axis=0)
@@ -868,7 +940,7 @@ class KissSpectroscopy(KissRawData):
 
         # TODO: CUT hits/data/weight and wcs here
         if opd_trim is not None and isinstance(opd_trim, (int, np.int, float, np.float)):
-            mostly_good_opd = np.isnan(data).sum(axis=(1, 2))
+            mostly_good_opd = (~np.isnan(data)).sum(axis=(1, 2))
             mostly_good_opd = np.abs(mostly_good_opd / np.median(mostly_good_opd) - 1) < opd_trim
             _slice = slice(*np.nonzero(mostly_good_opd)[0][[0, -1]])
             hits = hits[_slice]

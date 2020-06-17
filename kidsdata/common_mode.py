@@ -22,11 +22,17 @@ def basic_continuum(bgrd, diff_mask=False, medfilt_size=None, **kwargs):
     return bgrd
 
 
-def median_filtering(bgrd, ikid_ref=0, **kwargs):
+def median_filtering(bgrd, ikid_ref=0, offset=True, flat=True, **kwargs):
 
-    bgrd_cleanned, flat, offset, _ = correlated_median_removal(bgrd, iref=ikid_ref)
+    # Note that bgrd content is lost here
+    bgrd_cleanned, flat, offset, _ = correlated_median_removal(bgrd, iref=ikid_ref, offset=offset, flat=flat)
 
-    return (bgrd_cleanned - offset[:, np.newaxis]) / flat[:, np.newaxis]
+    if offset:
+        bgrd_cleanned -= offset[:, np.newaxis]
+    if flat:
+        bgrd_cleanned /= flat[:, np.newaxis]
+
+    return bgrd_cleanned
 
 
 def pca_filtering(bgrd, ncomp=1, **kwargs):

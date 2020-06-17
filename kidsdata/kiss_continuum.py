@@ -11,7 +11,7 @@ from astropy.io.fits import ImageHDU
 from astropy.utils.console import ProgressBar
 
 from .kiss_data import KissRawData
-from .utils import project, build_wcs, fit_gaussian
+from .utils import project, build_celestial_wcs, fit_gaussian
 
 from . import common_mode as cm
 from . import kids_plots
@@ -41,7 +41,7 @@ class KissContinuum(KissRawData):
         ----------
         ikid : tuple
             the list of kid index in self.list_detector to use
-        flatfield: str (None |'amplitude')
+        flatfield: str (None|'amplitude')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
         cm_function : function
             the common mode removal function (default: common_mode.basic_continuum)
@@ -51,7 +51,7 @@ class KissContinuum(KissRawData):
         Any other args and kwargs are given to the pipeline function.
         ikid *must* be a tuple when calling the function, for lru_cache to work
 
-        The flatfield values are taken from the amplitude column of the kidpar
+        The flatfield values are taken from columns of the kidpar
         """
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -64,9 +64,9 @@ class KissContinuum(KissRawData):
         # FlatField normalization
         if flatfield is None:
             flatfield = np.ones(bgrd.shape[0])
-        elif flatfield == "amplitude" and "amplitude" in self.kidpar.keys():
+        elif flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
-            flatfield = _kidpar["amplitude"]
+            flatfield = _kidpar[flatfield]
         else:
             raise ValueError("Can not use this fieldfield : {}".format(flatfield))
 
@@ -118,14 +118,17 @@ class KissContinuum(KissRawData):
         kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt
 
         if wcs is None:
-            wcs, _, _ = build_wcs(
-                az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, cunit=cunit, **kwargs
+            # Project only the telescope position
+            wcs, _, _ = build_celestial_wcs(
+                az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt, cunit=cunit
             )
+            # Add marging from the kidpar offsets
             wcs.wcs.crpix += (kidspar_margin_x / 2, kidspar_margin_y / 2)
 
         az_all = (az[:, np.newaxis] + _kidpar["x0"]).T
         el_all = (el[:, np.newaxis] + _kidpar["y0"]).T
 
+        # Recompute the full projected coordinates
         x, y = wcs.all_world2pix(az_all, el_all, 0)
 
         shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
@@ -249,7 +252,7 @@ class KissContinuum(KissRawData):
             bgrds = [bgrds]
 
         if wcs is None:
-            wcs, x, y = build_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), **kwargs)
+            wcs, x, y = build_celestial_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), **kwargs)
         else:
             x, y = wcs.all_world2pix(az, el, 0)
 

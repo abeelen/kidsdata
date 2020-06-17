@@ -122,81 +122,117 @@ def project(x, y, data, shape, weights=None):
     return output, _weights, _hits.astype(np.int)
 
 
-def build_wcs(lon, lat, freq=None, crval=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, cunit="deg", **kwargs):
-    """Build the wcs for full projection.
+def build_celestial_wcs(lon, lat, crval=None, crpix=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, cunit="deg"):
+    """Build a celestial wcs with square pixels for the projection.
 
     Arguments
     ---------
     lon, lat: array_like
         input longitude and latitude in degree
-    freq : array_like (optional)
-        potential 3rd axis values
     crval: tuple of 2 float
-        the center of the projection in degree (default: None, computed from the data)
+        the center of the projection in world coordinate (in cunit), by default: None, computed from the data
+    crpix : tuple of 2 float
+        the center of the projecttion in pixel coordinates, by default: None, computed from the data
     ctype: tuple of str
         the type of projection (default: Az/El telescope in TAN projection)
     cdelt: float (or tuple of 2 floats)
-        the size of the pixels in degree or (size of the pixels in degree, size in the 3rd axis)
+        the size of the pixels in cunit, see below, by default 0.1
+    cunit: str
+        the unit of cdelt, by default "deg"
 
     Returns
     -------
     wcs: `~astropy.wcs.WCS`
         the wcs for the projection
-    x, y (,z): list of floats
-        the projected positions
+    x, y : list of floats
+        the projected positions in pixel coordinates
     """
-    wcs = WCS(naxis=len(ctype))
+    wcs = WCS(naxis=2)
     wcs.wcs.ctype = ctype
-
-    if isinstance(cdelt, (float, int, np.float, np.int)):
-        cdelt = (cdelt,)
-
-    if isinstance(cunit, (str)):
-        cunit = (cunit,)
-
-    assert len(cdelt) == len(cunit), "cdelt and cunit must have the same length"
 
     if ctype == ("TLON-TAN", "TLAT-TAN"):
         wcs.wcs.name = "Terrestrial coordinates"
 
-    wcs.wcs.cdelt[0:2] = (-cdelt[0], cdelt[0])
-    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = cunit[0]
+    wcs.wcs.cdelt[0:2] = (-cdelt, cdelt)
+    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = cunit
 
     # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
     if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
-        wcs.wcs.cdelt[0] = cdelt[0]
-
-    if len(cdelt) == 2:
-        wcs.wcs.cdelt[2] = cdelt[1]
-        wcs.wcs.cunit[2] = cunit[1]
+        wcs.wcs.cdelt[0] = cdelt
 
     if crval is None:
         # find the center of the projection
         crval = ((lon.max() + lon.min()) / 2, (lat.max() + lat.min()) / 2)
-        wcs.wcs.crval[0:2] = crval
-    else:
-        wcs.wcs.crval = crval
 
-    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = "deg"
+    wcs.wcs.crval = crval
 
     # Determine the center of the map to project all data
-    x, y = wcs.celestial.all_world2pix(lon, lat, 0)
-    x_min, y_min = x.min(), y.min()
-    wcs.wcs.crpix[0:2] = (-x_min, -y_min)
-    x -= x_min
-    y -= y_min
+    if crpix is None:
+        x, y = wcs.all_world2pix(lon, lat, 0)
+        x_min, y_min = x.min(), y.min()
+        wcs.wcs.crpix[0:2] = (-x_min, -y_min)
+        x -= x_min
+        y -= y_min
+    else:
+        wcs.wcs.crpix = crpix
+        x, y = wcs.all_word2pix(lon, lat, 0)
 
-    projected = (x, y)
+    return wcs, x, y
 
-    if freq is not None:
-        # TODO: This part is slow...
-        z = wcs.swapaxes(0, 2).sub(1).all_world2pix(freq, 0)[0]
+
+def extend_wcs(wcs, data, crval=None, crpix=None, ctype="OPD", cdelt=0.1, cunit="mm"):
+    """Extend a celestial wcs with a new axis.
+
+    Parameters
+    ----------
+    wcs : ~astropy.wcs.WCS
+        the celestial wcs to be extended
+    data : array_like
+        the extra data to extend the wcs
+    crval: float
+        the center of the projection in world coordinate (in cunit), by default: None, computed from the data
+    crpix : float
+        the center of the projecttion in pixel coordinate, by default: None, computed from the data
+    ctype : str, optional
+        the type of axis, by default "OPD"
+    cdelt : float, optional
+        the size of the pixels of the new axis in cunit, by default 0.1
+    cunit : str, optional
+        the unit of the new axis pixel, by default "mm"
+
+    Returns
+    -------
+    wcs: `~astropy.wcs.WCS`
+        the extended wcs
+    z : list of floats
+        the projected extended coordinate in pixel coordinates
+    """
+    # Tick is to go to header first to extend the wcs
+    header = wcs.to_header()
+    naxis = header["WCSAXES"]
+    header["WCSAXES"] = naxis + 1
+    wcs = WCS(header)
+
+    wcs.wcs.ctype[naxis] = ctype
+    wcs.wcs.cdelt[naxis] = cdelt
+    wcs.wcs.cunit[naxis] = cunit
+
+    if crval is None:
+        # find the center of the projection
+        crval = (data.max() + data.min()) / 2
+
+    wcs.wcs.crval[naxis] = crval
+
+    if crpix is None:
+        (z,) = wcs.sub([naxis + 1]).all_world2pix(data, 0)
         z_min = z.min()
-        wcs.wcs.crpix[2] = -z_min
+        wcs.wcs.crpix[naxis] = -z_min
         z -= z_min
-        projected += (z,)
+    else:
+        wcs.wcs.crpix[naxis] = crpix
+        (z,) = wcs.sub([naxis + 1]).all_world2pix(data, 0)
 
-    return (wcs,) + projected
+    return wcs, z
 
 
 def elliptical_gaussian(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):
@@ -303,7 +339,7 @@ def fit_gaussian(data, weight=None, func=elliptical_gaussian):
     return popt
 
 
-def correlated_median_removal(data_array, iref=0):
+def correlated_median_removal(data_array, iref=0, offset=True, flat=True):
     """Remove correlated data as median value per timestamp.
 
     Parameters
@@ -312,6 +348,10 @@ def correlated_median_removal(data_array, iref=0):
         the input 2D datablock (see note)
     iref : int
         the reference index for flat field
+    offset : bool
+        compute an internal offset, by default True
+    flat : bool
+        compute an internal flat field, by default True
 
     Returns
     -------
@@ -330,23 +370,30 @@ def correlated_median_removal(data_array, iref=0):
     if the reference detector is bad, this could corrump the procedure
     """
 
-    # Remove median value in time
-    flat_offset = np.nanmedian(data_array, axis=1)
-    data_array -= flat_offset[:, np.newaxis]
+    if offset:
+        # Remove median value in time
+        flat_offset = np.nanmedian(data_array, axis=1)
+        data_array -= flat_offset[:, np.newaxis]
+    else:
+        flat_offset = None
 
-    # Compute the median flat field between all detectors
-    flat_field = np.array([np.nanmedian(_data_array / data_array[iref]) for _data_array in data_array])
-
-    # Remove the flat field value
-    data_array /= flat_field[:, np.newaxis]
+    if flat:
+        # Compute the median flat field between all detectors
+        flat_field = np.array([np.nanmedian(_data_array / data_array[iref]) for _data_array in data_array])
+        # Remove the flat field value
+        data_array /= flat_field[:, np.newaxis]
+    else:
+        flat_field = None
 
     # Remove the mean value per timestamp
     median_data = np.nanmedian(data_array, axis=0)
     data_array -= median_data
 
     # just in case
-    data_array *= flat_field[:, np.newaxis]
-    data_array += flat_offset[:, np.newaxis]
+    if flat:
+        data_array *= flat_field[:, np.newaxis]
+    if offset:
+        data_array += flat_offset[:, np.newaxis]
 
     return data_array, flat_field, flat_offset, median_data
 
