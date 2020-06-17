@@ -125,17 +125,31 @@ class FTSData(NDDataArray):
         """
         zpd_idx = self.wcs.sub([3]).world_to_pixel(0 * self.wcs.wcs.cunit[2]).astype(int)
 
-        # This assume a longer right hand side...
-        # Extract the positive part
-        onesided_itg = self.data[zpd_idx:].copy()
-        onesided_hits = self.hits[zpd_idx:].copy()
+        extrema_opd = np.abs(self.wcs.sub([3]).pixel_to_world([0, self.shape[0] - 1]))
 
-        # Take the mean with the other half of the double sided part, this assume positive onesided
-        onesided_itg[: zpd_idx + 1] += self.data[zpd_idx::-1]
-        onesided_itg[: zpd_idx + 1] /= 2
+        if extrema_opd[1] >= extrema_opd[0]:
+            # Positive single sided : longer right hand side...
+            # Or doublesided
+            extract_slice = slice(zpd_idx, None)
+            os_slice = slice(0, zpd_idx + 1)
+            db_slice = slice(zpd_idx, None, -1)
+        elif extrema_opd[1] < extrema_opd[0]:
+            # Negative single sided : longer left hand side...
+            # Or double sided
+            extract_slice = slice(zpd_idx, None, -1)
+            os_slice = slice(0, self.data.shape[0] - zpd_idx)
+            db_slice = slice(zpd_idx, None)
 
-        onesided_hits[: zpd_idx + 1] += self.hits[zpd_idx::-1]
-        onesided_hits[: zpd_idx + 1] /= 2
+        # Extract the longest part
+        onesided_itg = self.data[extract_slice].copy()
+        onesided_hits = self.hits[extract_slice].copy()
+
+        # Take the mean with the other half on the double sided part
+        onesided_itg[os_slice] += self.data[db_slice]
+        onesided_itg[os_slice] /= 2
+
+        onesided_hits[os_slice] += self.hits[db_slice]
+        onesided_hits[os_slice] /= 2
 
         wcs = deepcopy(self.wcs)
         wcs.wcs.crpix[2] = 1
