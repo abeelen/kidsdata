@@ -1,4 +1,5 @@
 import warnings
+from enum import Enum
 import numpy as np
 import dask.array as da
 from functools import partial
@@ -201,6 +202,43 @@ def _pool_reducs(iint, _reduc=np.median):
     return result
 
 
+class ModulationValue(Enum):
+    normal = 0
+    low = 3
+    high = 1
+
+
+def A_masq_to_flag(A_masq, modulation):
+    """Transform A_masq to clean flag value depending on the modulation value
+
+    Parameters
+    ----------
+    A_masq : array_like
+        the A_masq array
+    modulation : ModulationValue
+        the modulation for which to retrieve the flag
+    """
+
+    _masq = A_masq == modulation.value
+
+    # Make sure we have no issues with l1 and l2
+    structure = np.zeros((3, 3), np.bool)
+    structure[1] = True
+
+    # A_masq has problems when != (0,1,3), binary_closing opening,
+    # up to 6 iterations (see scan 800 iint=7)
+    _masq = binary_opening(_masq * 4, structure, output=_masq, iterations=4)
+
+    # Remove 2 samples at the edges of _low and _high to insure proper values
+    if modulation is not modulation.normal:
+        _masq = binary_erosion(_masq * 2, structure, output=_masq, iterations=2)
+    else:
+        # remove the first 6 points of the normal mask
+        _masq[:, :6] = False
+
+    return _masq
+
+
 def get_calfact_3pts(
     kids, do_calib=True, mod_factor=0.5, method=("per", "3tps"), nfilt=9, sigma=None, _reduc=np.median
 ):
@@ -267,25 +305,9 @@ def get_calfact_3pts(
     # shape = dataI.shape
     # ndet, nint, nptint = shape
 
-    A_low = A_masq == 3
-    A_high = A_masq == 1
-    A_normal = A_masq == 0
-
-    # Make sure we have no issues with l1 and l2
-    structure = np.zeros((3, 3), np.bool)
-    structure[1] = True
-
-    # A_masq has problems when != (0,1,3), binary_closing opening,
-    # up to 6 iterations (see scan 800 iint=7)
-    for _masq in [A_low, A_high, A_normal]:
-        _masq = binary_opening(_masq * 4, structure, output=_masq, iterations=4)
-
-    # Remove 2 samples at the edges of _low and _high
-    for _masq in [A_low, A_high]:
-        _masq = binary_erosion(_masq * 2, structure, output=_masq, iterations=2)
-
-    # remove first point in l3
-    A_normal[:, :6] = False
+    A_low = A_masq_to_flag(A_masq, ModulationValue.low)
+    A_high = A_masq_to_flag(A_masq, ModulationValue.high)
+    A_normal = A_masq_to_flag(A_masq, ModulationValue.normal)
 
     # Selection of the good data for each mask and reduction of the data to one point with `_reduc`
 
