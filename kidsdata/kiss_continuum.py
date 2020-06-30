@@ -3,6 +3,7 @@ import datetime
 import numpy as np
 
 from functools import lru_cache
+from autologging import logged
 
 from scipy.optimize import OptimizeWarning
 
@@ -18,20 +19,10 @@ from . import kids_plots
 
 
 # pylint: disable=no-member
+@logged
 class KissContinuum(KissRawData):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    @lru_cache(maxsize=1)
-    def continuum(self):
-        """Background based on calibration factors."""
-        self._KissRawData__check_attributes(["R0", "P0", "calfact"])
-        # In order to catch the potential RuntimeWarning which happens when some data can not be calibrated
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            bgrd = np.unwrap(self.R0 - self.P0, axis=1) * self.calfact
-        return bgrd
 
     @lru_cache(maxsize=3)
     def continuum_pipeline(self, ikid, *args, flatfield="amplitude", cm_func=cm.basic_continuum, **kwargs):
@@ -208,7 +199,7 @@ class KissContinuum(KissRawData):
         header = wcs.to_header()
         header["OBJECT"] = self.source
         header["OBS-ID"] = self.scan
-        header["FILENAME"] = self.filename
+        header["FILENAME"] = str(self.filename)
         header["EXPTIME"] = self.exptime.value
         header["DATE"] = datetime.datetime.now().isoformat()
         header["DATE-OBS"] = self.obstime[0].isot
@@ -304,7 +295,7 @@ class KissContinuum(KissRawData):
         kidpar.add_column(namedet, 0)
 
         kidpar.meta["scan"] = self.scan
-        kidpar.meta["filename"] = self.filename
+        kidpar.meta["filename"] = str(self.filename)
         kidpar.meta["created"] = datetime.datetime.now().isoformat()
 
         return outputs, wcs, kidpar, pointing_offset

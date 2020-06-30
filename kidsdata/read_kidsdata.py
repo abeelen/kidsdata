@@ -1,13 +1,17 @@
 # pylint: disable=C0301,C0103
 import os
 import gc
+import h5py
 
 import logging
+import warnings
 import ctypes
+import importlib
 import numpy as np
 from pathlib import Path
 from collections import namedtuple
 from astropy.table import Table, MaskedColumn
+from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
 # import line_profiler
 # import atexit
@@ -219,9 +223,9 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
     if np.any(namedet[:, 6:8]):
         if fix:
             namedet[:, 6:8] = 0
-            logging.warning("Corrupted namedet truncated to 6 characters")
+            warnings.warn("Corrupted namedet truncated to 6 characters")
         else:
-            logging.error("Corrupted namedet")
+            warnings.warn("Corrupted namedet")
 
     param_d["namedet"] = [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
     for key in ["nom1", "nom2"]:
@@ -266,7 +270,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
 def read_all(
     filename,
     det2read="KID",
-    list_data=["indice", "A_mask", "I", "Q"],
+    list_data=["indice", "A_masq", "I", "Q"],
     list_detector=None,
     start=None,
     end=None,
@@ -295,7 +299,7 @@ def read_all(
     correct_pps: bool
         correct the pps signal. The default is False
     ordering: str
-        memory ordering requested to convert data from NIKA eading library to python numpy array
+        memory ordering requested to convert data from NIKA reading library to python numpy array
         The default is 'K' which speedup the conversion by keeping memory ordering. It can be changed to 'C'. This
         variable must be really checked for further analysis and how it impact performances
     Returns
@@ -303,13 +307,13 @@ def read_all(
     nb_samples_read : int
         The number of sample read
     dataSc : dict:
-        A dictionnary containing all the requested sampled common quantities data as 1D :class:`~numpy.array`
+        A dictionnary containing all the requested sampled common quantities data as 2D :class:`~numpy.array` of shape (n_bloc, nb_pt_bloc)
     dataSd : dict
-        A dictionnary containing all the requested sampled data as 2D :class:`~numpy.array`
+        A dictionnary containing all the requested sampled data as 3D :class:`~numpy.array` of shape (n_det, n_bloc, nb_pt_bloc)
     dataUc : dict:
-        A dictionnary containing all the requested under-sampled common quantities data as 1D :class:`~numpy.array`
+        A dictionnary containing all the requested under-sampled common quantities data as 1D :class:`~numpy.array` of shape (n_bloc,)
     dataUd : dict
-        A dictionnary containing all the requested under-sampled data as 2D :class:`~numpy.array`
+        A dictionnary containing all the requested under-sampled data as 2D :class:`~numpy.array` of shape (n_det, n_bloc)
 
     Notes
     -----
@@ -323,9 +327,11 @@ def read_all(
         str_data = " ".join(list_data)
 
     # Read the basic header from the file and the name of the data
-    header, _, param_c, kidpar, names, nb_read_info = read_info(
-        filename, det2read=det2read, list_data=list_data, silent=silent
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        header, _, param_c, kidpar, names, nb_read_info = read_info(
+            filename, det2read=det2read, list_data=list_data, silent=silent
+        )
 
     if list_detector is None:
         list_detector = np.where(~kidpar["index"].mask)[0]
@@ -422,10 +428,12 @@ def read_all(
     # NOTE : This is causing a extra usage of RAM and CPU during
     # copy... Could be handled by the C library..
 
-    dataSc = {name: data.copy() for name, data in zip(names.ComputedDataSc, _dataSc)}
+    # TODO: Proper reshaping of quantities here !!!
+
+    dataSc = {name: data.reshape(-1, np_pt_bloc).copy() for name, data in zip(names.ComputedDataSc, _dataSc)}
     del _dataSc
     dataSd = {
-        name: data.astype(np.float32, order=ordering, casting="unsafe")
+        name: data.reshape(nb_detectors, -1, np_pt_bloc).astype(np.float32, order=ordering, casting="unsafe")
         for name, data in zip(names.ComputedDataSd, _dataSd)
     }
     del _dataSd
@@ -433,7 +441,7 @@ def read_all(
     dataUc = {name: data.copy() for name, data in zip(names.ComputedDataUc, _dataUc)}
     del _dataUc
     dataUd = {
-        name: data.astype(np.float32, order=ordering, casting="unsafe")
+        name: data.reshape(nb_detectors, -1).astype(np.float32, order=ordering, casting="unsafe")
         for name, data in zip(names.ComputedDataUd, _dataUd)
     }
     del _dataUd
@@ -441,7 +449,9 @@ def read_all(
     # Shift RF_didq if present
     if "RF_didq" in dataSd:
         shift_rf_didq = -49
-        dataSd["RF_didq"] = np.roll(dataSd["RF_didq"], shift_rf_didq, axis=1)
+        dataSd["RF_didq"] = np.roll(dataSd["RF_didq"].reshape(nb_detectors, -1), shift_rf_didq, axis=1).reshape(
+            dataSd["RF_didq"].shape
+        )
 
     # Convert units azimuth and elevation to degrees
     for ckey in ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"]:
@@ -479,33 +489,187 @@ def read_all(
     return nb_samples_read, dataSc, dataSd, dataUc, dataUd
 
 
-def data_to_hdf5(filename, dataset_name, dataset):
-    import h5py
+# https://stackoverflow.com/questions/2166818/how-to-check-if-an-object-is-an-instance-of-a-namedtuple
+def isnamedtupleinstance(x):
+    t = type(x)
+    b = t.__bases__
+    if len(b) != 1 or b[0] != tuple:
+        return False
+    f = getattr(t, "_fields", None)
+    if not isinstance(f, tuple):
+        return False
+    return all(type(n) == str for n in f)
 
-    """Save a dictionnary of numpy arrays in an hdf5 group."""
-    with h5py.File(filename, "a") as f:
-        if dataset_name in f:
-            grp = f[dataset_name]
+
+def _to_hdf5(parent_group, key, data, **kwargs):
+    """Save data to hdf5
+
+    Parameters
+    ----------
+    parent_group : `h5py.Group`
+        the parent group to save the dataset
+    key : str
+        the name of the dataset
+    data : (np.array|astropy.table.Table|int|float|namedtuple|tuple|list|dict)
+        the corresponding dataset
+
+    Notes
+    -----
+    the dataset can only be a combinaison of numpy arrays, tuple, list or dictionaries
+
+    Any keyword supported by h5py.create_dataset can be passed, usually :
+    kwargs={'chunks': True, 'compression': "gzip", 'compression_opts'=9, 'shuffle'=True}
+    """
+    if isinstance(data, np.ndarray):
+        # numpy arrays
+        if key in parent_group:
+            del parent_group[key]
+        return parent_group.create_dataset(key, data=data, **kwargs)
+
+    if isinstance(data, Table):
+        # astropy table
+        if key in parent_group:
+            del parent_group[key]
+        write_table_hdf5(data, parent_group, path=key, append=True, overwrite=True, serialize_meta=True)
+        dset = parent_group[key]
+        dset.attrs["type"] = "Table"
+        return dset
+
+    if isinstance(data, (str, int, np.int, np.int32, np.int64, float, np.float, np.float32, np.float64)):
+        # Scalar are put into the attribute of the group
+        if key in parent_group.attrs:
+            del parent_group.attrs[key]
+        parent_group.attrs[key] = data
+        return None
+
+    # list of same type
+    if isinstance(data, list) and all([isinstance(_data, type(data[0])) for _data in data[1:]]):
+        if isinstance(data[0], str):
+            # strings:
+            dt = h5py.string_dtype()
+            dset = parent_group.create_dataset(key, data=np.array(data, dtype="S"), dtype=dt)
         else:
-            grp = f.create_group(dataset_name)
-        for ckey in dataset:
-            grp.create_dataset(ckey, data=dataset[ckey], compression="gzip", compression_opts=9)
+            dset = parent_group.create_dataset(key, data=np.array(data))
+        dset.attrs["type"] = "list-array"
+        return dset
+
+    if isinstance(data, (tuple, list, dict)):
+        if key not in parent_group:
+            sub_group = parent_group.create_group(key)
+            sub_group.attrs["type"] = type(data).__name__
+        else:
+            sub_group = parent_group[key]
+    else:
+        raise TypeError("Can not handle type of {} :  {}".format(key, type(data)))
+
+    if isnamedtupleinstance(data):
+        _to_hdf5(sub_group, str(type(data)), data._asdict())
+        sub_group.attrs["type"] = "namedtuple"
+    elif isinstance(data, (tuple, list)):
+        for i, item in enumerate(data):
+            _to_hdf5(sub_group, str(i), item)
+    elif isinstance(data, dict):
+        for _key in data:
+            _to_hdf5(sub_group, _key, data[_key])
+
+
+def _from_hdf5(parent_group, key, array=None):
+    """Read any dataset saved by _to_hdf5
+
+    Parameters
+    ----------
+    parent_group : `h5py.Group`
+        the parent group to read the dataset from
+    key : str
+        the name of the dataset
+    array : func
+        apply this function to the returned Dataset, by default None
+
+    Returns
+    -------
+    data : (np.array|astropy.table.Table|tuple|list|dict)
+        the corresponding dataset
+
+    Notes
+    -----
+    Choice of array function could be np.array or dask.array.from_array
+    """
+    if key not in parent_group:
+        raise ValueError("{} not in {}".format(key, parent_group.name))
+
+    item = parent_group.get(key)
+    if isinstance(item, h5py.Dataset):
+        if item.shape == ():
+            # single float/int no shape
+            return item[()]
+
+        if "type" in item.attrs:
+            # Special types
+            if item.attrs["type"] == "list-array":
+                # originally a list
+                return list(item[:])
+            elif item.attrs["type"] == "Table":
+                return read_table_hdf5(item.parent, path=item.name, character_as_bytes=False)
+        else:
+            # numpy arrays returned as references (need [:] to get the data)
+            if array is not None:
+                return array(item)
+            else:
+                return item
+
+    elif isinstance(item, h5py.Group):
+        _type = item.attrs.get("type", None)
+        if _type == "tuple":
+            return (_from_hdf5(item, key, array=array) for key in item)
+        elif _type == "list":
+            return [_from_hdf5(item, key, array=array) for key in item]
+        elif _type in ["dict", "OrderedDict"]:
+            dict_ = {key: _from_hdf5(item, key, array=array) for key in item}
+            dict_attrs = dict(item.attrs.items())
+            del dict_attrs["type"]  # Remove special metadata
+            dict_.update(dict_attrs)
+            return dict_
+        elif _type == "namedtuple":
+            key = list(item.keys())[0]
+            data_asdict = _from_hdf5(item, key, array=array)
+            key = key.split("'")[1]
+
+            # Extract module and class from the key
+            module = ".".join(key.split(".")[:-1])
+            class_ = key.split(".")[-1]
+
+            module = importlib.import_module(module)
+            class_ = getattr(module, class_)
+            return class_(**data_asdict)
+        else:
+            raise ValueError("Unknown type for {}: {}".format(item.name, _type))
 
 
 def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples):
-    import h5py
-
     """Save all header information to hdf5 attribute or group."""
-    with h5py.File(filename, "a") as f:
-        if "header" in f:
-            grp = f["header"]
-        else:
-            grp = f.create_group("header", track_order=True)  # Fails....
-        for key, item in header._asdict().items():
-            print(key)
-            grp.attrs[key] = item
 
-        f.attrs["version_header"] = version_header
+    with h5py.File(filename, "a") as f:
+        _to_hdf5(f, "header", header)
+        _to_hdf5(f, "param_c", param_c)
+        _to_hdf5(f, "names", names)
+        _to_hdf5(f, "kidpar", kidpar)
+        f["nb_read_sample"] = nb_read_samples
+        f["version_header"] = version_header
+
+
+def data_to_hdf5(filename, dataSc, dataSd, dataUc, dataUd, calib):
+    """save data to hdf5"""
+    with h5py.File(filename, "a") as f:
+        if dataSc is not None:
+            _to_hdf5(f, "dataSc", dataSc)
+        if dataSd is not None:
+            _to_hdf5(f, "dataSd", dataSd)
+        if dataUc is not None:
+            _to_hdf5(f, "dataUc", dataUc)
+        if dataUd is not None:
+            _to_hdf5(f, "dataUd", dataUd)
+        if calib is not None:
+            _to_hdf5(f, "calib", calib)
 
 
 if __name__ == "__main__":

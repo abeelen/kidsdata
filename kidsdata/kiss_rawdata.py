@@ -16,10 +16,14 @@ from astropy.coordinates import AltAz
 from astropy.coordinates.name_resolve import NameResolveError
 from astropy.io.fits import ImageHDU
 
+import h5py
+from autologging import logged
+
 from . import kids_calib
 from . import kids_plots
 from .kids_data import KidsRawData
 from .kiss_object import get_coords
+from .read_kidsdata import _to_hdf5, _from_hdf5
 
 try:
     from .kiss_pointing_model import KISSPmodel
@@ -37,6 +41,7 @@ except ModuleNotFoundError:
 
 
 # pylint: disable=no-member
+@logged
 class KissRawData(KidsRawData):
     """Arrays of (I,Q) with associated information from KISS raw data.
 
@@ -70,12 +75,53 @@ class KissRawData(KidsRawData):
         self.nint = self.nsamples // self.nptint  # Number of interferograms
 
         self.pointing_model = pointing_model
+        self.__calib = {}
+
+    def _write_data(self, filename=None, **kwargs):
+        """write internal data to hdf5 file
+
+        Parameters
+        ----------
+        filename : [str]
+            output filename, default None, use the cache file name
+        dataSd : bool, optional
+            flag to output the fully sampled data, by default False
+
+        Notes
+        -----
+        Any additionnal keyword arguments are passed to the h5py.File() class
+        """
+        super()._write_data(filename, **kwargs)
+
+        if filename is None:
+            filename = self._cache_filename
+
+        # writing extra data
+        with h5py.File(filename, "a") as f:
+
+            if self.pointing_model:
+                self.__log.debug("Saving pointing model")
+                _to_hdf5(f, "pointing_model", self.pointing_model)
+            if self.__calib:
+                self.__log.debug("Saving calibrated data")
+                _to_hdf5(f, "calib", self.__calib)
 
     def calib_raw(self, calib_func=kids_calib.get_calfact, *args, **kwargs):
         """Calibrate the KIDS timeline."""
-        self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
 
-        self.calfact, self.Icc, self.Qcc, self.P0, self.R0, self.kidfreq = calib_func(self, *args, **kwargs)
+        if self.__calib == {}:
+            self.__log.debug("calibration using {}".format(calib_func))
+            self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
+            self.__calib = calib_func(self, *args, **kwargs)
+        else:
+            self.__log.warning("calibrated data already present")
+
+        # Expand keys :
+        # Does not double memory, but it will not be possible to
+        # partially free memory : All attribute read at the same time
+        # must be deleted together
+        for ckey in self.__calib.keys():
+            self.__dict__[ckey] = self.__calib[ckey]
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
@@ -106,10 +152,10 @@ class KissRawData(KidsRawData):
         # TODO: These Correction should be done at reading time
         idx = np.arange(self.nsamples)
 
-        mask = self.A_time_pps == 0
+        mask = self.A_time_pps.flatten() == 0
 
         # Masked array, to be able to unwrap properly
-        A_time = np.ma.array(self.A_time_pps + self.A_hours, mask=mask)
+        A_time = np.ma.array(self.A_time_pps.flatten() + self.A_hours.flatten(), mask=mask)
         A_time = np.ma.array(np.unwrap(A_time), mask=mask)
 
         # flag all data with time difference greater than 1 second
@@ -188,8 +234,38 @@ class KissRawData(KidsRawData):
         self.__check_attributes(["F_tl_az", " F_tl_el"])
         return kids_plots.checkPointing(self, *args, **kwargs)
 
-    def read_data(self, *args, **kwargs):
-        super().read_data(*args, **kwargs)
+    def read_data(self, *args, cache=False, array=np.array, **kwargs):
+        super().read_data(*args, cache=cache, array=array, **kwargs)
+
+        if cache and self._cache is not None:
+            self.__log.info("Reading cached data :")
+            datas = []
+            for data in ["calib"]:
+                try:
+                    self.__log.debug(" - {}".format(data))
+                    datas.append(_from_hdf5(self._cache, data, array=array))
+                except ValueError:
+                    # Data not present
+                    datas.append({})
+
+            (calib,) = datas
+
+            self.__log.debug("Updating dictionnaries with cached data")
+            self.__calib.update(calib)
+
+            keys = [key for data in datas for key in data]
+            self.__log.debug("Read cached data : {}".format(keys))
+
+            # Expand keys :
+            # Does not double memory, but it will not be possible to
+            # partially free memory : All attribute read at the same time
+            # must be deleted together
+
+            for _dict in [self.__calib]:
+                for ckey in _dict:
+                    self.__dict__[ckey] = _dict[ckey]
+
+            # TODO: list_detectors and nsamples
 
         # In case we do not read the full file, nsamples has changed
         self.nint = self.nsamples // self.nptint
@@ -219,7 +295,7 @@ class KissRawData(KidsRawData):
             and "F_tl_El" in self.__dict__
         ):
             self.F_sky_Az, self.F_sky_El = KISSPmodel(model=self.pointing_model).telescope2sky(
-                self.F_tl_Az, self.F_tl_El
+                np.array(self.F_tl_Az), np.array(self.F_tl_El)
             )
 
         if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:

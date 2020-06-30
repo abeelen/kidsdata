@@ -25,6 +25,15 @@ Module for kiss calibration
 logging.debug("KidsCalib Working on {} core".format(cpu_count()))
 
 
+def continuum(R0, P0, calfact):
+    """Background based on calibration factors."""
+    # In order to catch the potential RuntimeWarning which happens when some data can not be calibrated
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        bgrd = np.unwrap(R0 - P0, axis=1) * calfact
+    return bgrd
+
+
 def angle0(phi):
     return np.mod((phi + np.pi), (2 * np.pi)) - np.pi
 
@@ -58,7 +67,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
     """
 
     ndet = kids.ndet
-    nptint, nint = kids.nptint, kids.nint
+    nint = kids.nint
     fmod = kids.param_c["1-modulFreq"]  # value [Hz] for the calibration
 
     calfact = np.zeros((ndet, nint), np.float32)
@@ -66,9 +75,9 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
     P0 = np.zeros((ndet, nint), np.float32)
     R0 = np.zeros((ndet, nint), np.float32)
 
-    amask = kids.A_masq.reshape(nint, nptint)
-    dataI = kids.I.reshape(ndet, nint, nptint)
-    dataQ = kids.Q.reshape(ndet, nint, nptint)
+    amask = kids.A_masq
+    dataI = kids.I
+    dataQ = kids.Q
 
     kidfreq = np.zeros_like(dataI)
 
@@ -169,7 +178,17 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
         else:
             kidfreq[:, iint, :] = ra
 
-    return calfact, Icc, Qcc, P0, R0, kidfreq
+    output = {
+        "Icc": Icc,
+        "Qcc": Qcc,
+        "P0": P0,
+        "R0": R0,
+        "calfact": calfact,
+        "continuum": continuum(R0, P0, calfact),
+        "kidfreq": kidfreq,
+    }
+
+    return output
 
 
 # Help function for multiprocessing, must be a module level
@@ -298,9 +317,9 @@ def get_calfact_3pts(
     nptint, nint = kids.nptint, kids.nint
     fmod = kids.param_c["1-modulFreq"]  # value [Hz] for the calibration
 
-    A_masq = kids.A_masq.reshape(nint, nptint)
-    dataI = kids.I.reshape(ndet, nint, nptint)
-    dataQ = kids.Q.reshape(ndet, nint, nptint)
+    A_masq = kids.A_masq
+    dataI = kids.I
+    dataQ = kids.Q
 
     # shape = dataI.shape
     # ndet, nint, nptint = shape
@@ -439,6 +458,16 @@ def get_calfact_3pts(
     if do_calib:
         kidfreq *= calfact[..., np.newaxis]
 
+    output = {
+        "Icc": Icc,
+        "Qcc": Qcc,
+        "P0": P0,
+        "R0": R0,
+        "calfact": calfact,
+        "continuum": continuum(R0, P0, calfact),
+        "kidfreq": kidfreq,
+    }
+
     if sigma is not None:
         residual = R - da.median(R, axis=1)[:, np.newaxis]
         # TODO: Should be rewritten for dask array
@@ -446,6 +475,6 @@ def get_calfact_3pts(
         flag = np.abs(residual) > (sigma * std[:, np.newaxis])
         flag = flag.reshape(ndet, nint, nptint)
 
-        return calfact, Icc, Qcc, P0, R0, kidfreq, flag
-    else:
-        return calfact, Icc, Qcc, P0, R0, kidfreq
+        output["calib_flag"] = flag
+
+    return output

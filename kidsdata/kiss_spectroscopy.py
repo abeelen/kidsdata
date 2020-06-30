@@ -30,6 +30,7 @@ from . import common_mode as cm
 from .ftsdata import FTSData
 
 from multiprocessing import Pool, cpu_count
+from autologging import logged
 
 
 class LaserDirection(Enum):
@@ -135,6 +136,7 @@ def _pool_find_lasershifts_brute(rolls, **kwargs):
     return chi2
 
 
+@logged
 class KissSpectroscopy(KissRawData):
     def __init__(self, *args, laser_shift=None, optical_flip=True, mask_glitches=True, glitches_threshold=1, **kwargs):
         super().__init__(*args, **kwargs)
@@ -207,10 +209,10 @@ class KissSpectroscopy(KissRawData):
         """
         self._KissRawData__check_attributes(["A_masq", "kidfreq"])
 
-        logging.debug("Masking modulation phases")
+        self.__log.debug("Masking modulation phases")
 
         # TODO: Should be done elsewhere
-        A_masq = self.A_masq.reshape(self.nint, self.nptint)
+        A_masq = self.A_masq
 
         # Make sure we have no issues with A_masq
         structure = np.zeros((3, 3), np.bool)
@@ -239,7 +241,7 @@ class KissSpectroscopy(KissRawData):
 
         # MOVE this to interferogram_pipeline
         if self.mask_glitches:
-            logging.debug("Masking glitches")
+            self.__log.debug("Masking glitches")
 
             # Tests -- Rough Deglitching
             # Remove the mean value per interferogram index -> left with variations only
@@ -279,8 +281,10 @@ class KissSpectroscopy(KissRawData):
         """
         self._KissRawData__check_attributes(["C_laser1_pos", "C_laser2_pos"])
 
-        laser1 = self.C_laser1_pos
-        laser2 = self.C_laser2_pos
+        self.__log.debug("Computing laser position with {} shift".format(self.laser_shift))
+
+        laser1 = self.C_laser1_pos.flatten()
+        laser2 = self.C_laser2_pos.flatten()
 
         # Mirror positions are acquired at half he acquisition frequency thus...
         assert np.all(laser1[::2] == laser1[1::2])
@@ -751,7 +755,7 @@ class KissSpectroscopy(KissRawData):
         if isinstance(interferograms, np.ma.MaskedArray):
             interferograms = interferograms.data
 
-        A_masq = self.A_masq.reshape(self.nint, self.nptint)
+        A_masq = self.A_masq
 
         A_high = A_masq_to_flag(A_masq, ModulationValue.high)
         A_low = A_masq_to_flag(A_masq, ModulationValue.low)
@@ -802,7 +806,7 @@ class KissSpectroscopy(KissRawData):
         mask_tel = self.mask_tel
 
         # opds and #interferograms should be part of the object
-        logging.debug("Interferograms pipeline")
+        self.__log.debug("Interferograms pipeline")
         sample = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, mask_tel, :]
 
         ## We do not have the telescope position at 4kHz, but we NEED it !
@@ -815,7 +819,7 @@ class KissSpectroscopy(KissRawData):
         if shape is None:
             shape = _shape
 
-        logging.debug("Computing weights")
+        self.__log.debug("Computing weights")
         if weights is None:
             sample_weights = np.ones(sample.shape[0])
         elif weights == "std":
@@ -903,7 +907,7 @@ class KissSpectroscopy(KissRawData):
         #     weight += _weight
 
         # Higher memory footprint, but much much faster Need n_cpu * np.product(shape)
-        logging.debug("Computing histograms")
+        self.__log.debug("Computing histograms")
 
         _this = partial(_pool_project_xyz, **histdd_kwargs)
         with Pool(cpu_count(), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
@@ -926,7 +930,7 @@ class KissSpectroscopy(KissRawData):
         meta = {}
         meta["OBJECT"] = self.source
         meta["OBS-ID"] = self.scan
-        meta["FILENAME"] = self.filename
+        meta["FILENAME"] = str(self.filename)
         meta["EXPTIME"] = self.exptime.value
         meta["DATE"] = datetime.datetime.now().isoformat()
         meta["DATE-OBS"] = self.obstime[0].isot
