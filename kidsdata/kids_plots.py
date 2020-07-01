@@ -8,6 +8,7 @@ from astropy.stats import mad_std
 from astropy.wcs import WCS
 
 from matplotlib.colors import Normalize
+from astropy.nddata import InverseVariance, StdDevUncertainty, VarianceUncertainty
 
 
 def calibPlot(self, ikid=0):
@@ -220,14 +221,17 @@ def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0)):
     return fig_beammap
 
 
-def show_contmap(self, data, weights, hits, label=None, snr=False):
+def show_contmap(self, data, label=None, snr=False):
+
+    if not isinstance(data, list):
+        data = [data]
 
     # TODO: assert same header....
     fig, axes = plt.subplots(
         ncols=len(data),
         sharex=True,
         sharey=True,
-        subplot_kw={"projection": WCS(data[0].header)},
+        subplot_kw={"projection": data[0].wcs},
         gridspec_kw={"wspace": 0, "hspace": 0},
     )
 
@@ -235,16 +239,28 @@ def show_contmap(self, data, weights, hits, label=None, snr=False):
         axes = [axes]
 
     if snr:
-        datas = [_data.data * np.sqrt(_weight.data) for _data, _weight in zip(data, weights)]
-        datas = [_snr / np.nanstd(_snr) for _snr in datas]  # Proper weight normalization
+        datas_to_plot = [
+            _data.data * np.sqrt(_data.uncertainty.array)
+            if isinstance(_data.uncertainty, InverseVariance)
+            else _data.data / _data.uncertainty.array
+            if isinstance(_data.uncertainty, StdDevUncertainty)
+            else _data.data / np.sqrt(_data.uncertainty.array)
+            if isinstance(_data.uncertainty, VarianceUncertainty)
+            else None
+            for _data in data
+        ]
+        datas_to_plot = [_snr / np.nanstd(_snr) for _snr in datas_to_plot]  # Proper weight normalization
     else:
-        datas = [_data.data for _data in data]
+        datas_to_plot = [_data.data for _data in data]
 
-    norm = Normalize(vmin=np.nanmean(datas) - 3 * np.nanstd(datas), vmax=np.nanmean(datas) + 3 * np.nanstd(datas))
+    norm = Normalize(
+        vmin=np.nanmean(datas_to_plot) - 3 * np.nanstd(datas_to_plot),
+        vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
+    )
 
-    cdelt = data[0].header["CDELT1"], data[0].header["CDELT2"]
+    cdelt = np.diag(data[0].wcs.pixel_scale_matrix)
 
-    for ax, _data in zip(axes, datas):
+    for ax, _data in zip(axes, datas_to_plot):
         im = ax.imshow(_data, origin="lower", norm=norm)
         ax.set_aspect("equal")
 
@@ -263,10 +279,15 @@ def show_contmap(self, data, weights, hits, label=None, snr=False):
             )
 
     for ax in axes[1:]:
-        lon = ax.coords[1]
-        lon.set_ticklabel_visible(False)
-        lon.set_ticks_visible(False)
-        lon.set_axislabel("")
+        lat = ax.coords[1]
+        lat.set_ticklabel_visible(False)
+        lat.set_ticks_visible(False)
+        lat.set_axislabel("")
+
+    for ax in axes:
+        lon = ax.coords[0]
+        lon.set_ticklabel(exclude_overlapping=True)
+        lon.set_coord_type("longitude", 180)
 
     if label is not None:
         for ax, _label in zip(axes, label):

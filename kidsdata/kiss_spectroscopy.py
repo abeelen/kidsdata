@@ -209,7 +209,7 @@ class KissSpectroscopy(KissRawData):
         """
         self._KissRawData__check_attributes(["A_masq", "kidfreq"])
 
-        self.__log.debug("Masking modulation phases")
+        self.__log.info("Masking modulation phases")
 
         # TODO: Should be done elsewhere
         A_masq = self.A_masq
@@ -241,7 +241,7 @@ class KissSpectroscopy(KissRawData):
 
         # MOVE this to interferogram_pipeline
         if self.mask_glitches:
-            self.__log.debug("Masking glitches")
+            self.__log.info("Masking glitches")
 
             # Tests -- Rough Deglitching
             # Remove the mean value per interferogram index -> left with variations only
@@ -281,7 +281,7 @@ class KissSpectroscopy(KissRawData):
         """
         self._KissRawData__check_attributes(["C_laser1_pos", "C_laser2_pos"])
 
-        self.__log.debug("Computing laser position with {} shift".format(self.laser_shift))
+        self.__log.info("Computing laser position with {} shift".format(self.laser_shift))
 
         laser1 = self.C_laser1_pos.flatten()
         laser2 = self.C_laser2_pos.flatten()
@@ -608,6 +608,7 @@ class KissSpectroscopy(KissRawData):
         # KIDs selection
         interferograms = self.interferograms[ikid]
 
+        self.__log.info("Applying flatfield : {}".format(flatfield))
         # FlatField normalization
         if flatfield is None:
             flatfield = np.ones(interferograms.shape[0])
@@ -620,15 +621,14 @@ class KissSpectroscopy(KissRawData):
         if isinstance(flatfield, MaskedColumn):
             flatfield = flatfield.filled(np.nan)
 
-        logging.debug("Flatfielding")
         interferograms *= flatfield[:, np.newaxis, np.newaxis]
         shape = interferograms.shape
 
-        logging.debug("Common mode removal")
+        self.__log.info("Common mode removal")
         if cm_func is not None:
             output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
             # Put back the original mask
-            logging.debug("Masking back")
+            self.__log.info("Masking back")
             output = np.ma.array(output, mask=interferograms.mask)
         else:
             output = interferograms
@@ -806,12 +806,12 @@ class KissSpectroscopy(KissRawData):
         mask_tel = self.mask_tel
 
         # opds and #interferograms should be part of the object
-        self.__log.debug("Interferograms pipeline")
+        self.__log.info("Interferograms pipeline")
         sample = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, mask_tel, :]
 
         ## We do not have the telescope position at 4kHz, but we NEED it !
         # TODO: Shall we make interpolation or leave it like that ? This would require changes in _pool_project_xyz
-        logging.debug("Computing projected quantities")
+        self.__log.info("Computing projected quantities")
         wcs, x, y, z, _shape = self._project_xyz(
             ikid=ikid, opd_mode=opd_mode, wcs=wcs, shape=shape, coord=coord, ctype3="opd", **kwargs
         )
@@ -819,7 +819,7 @@ class KissSpectroscopy(KissRawData):
         if shape is None:
             shape = _shape
 
-        self.__log.debug("Computing weights")
+        self.__log.info("Computing weights")
         if weights is None:
             sample_weights = np.ones(sample.shape[0])
         elif weights == "std":
@@ -907,7 +907,7 @@ class KissSpectroscopy(KissRawData):
         #     weight += _weight
 
         # Higher memory footprint, but much much faster Need n_cpu * np.product(shape)
-        self.__log.debug("Computing histograms")
+        self.__log.info("Computing histograms")
 
         _this = partial(_pool_project_xyz, **histdd_kwargs)
         with Pool(cpu_count(), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:

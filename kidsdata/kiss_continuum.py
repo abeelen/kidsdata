@@ -1,6 +1,8 @@
+import os
 import warnings
 import datetime
 import numpy as np
+
 
 from functools import lru_cache
 from autologging import logged
@@ -17,6 +19,8 @@ from .utils import project, build_celestial_wcs, fit_gaussian
 from . import common_mode as cm
 from . import kids_plots
 
+from .continuumdata import ContinuumData
+from astropy.nddata import InverseVariance
 
 # pylint: disable=no-member
 @logged
@@ -53,6 +57,7 @@ class KissContinuum(KissRawData):
         bgrd = self.continuum[ikid]
 
         # FlatField normalization
+        self.__log.info("Applying flatfield : {}".format(flatfield))
         if flatfield is None:
             flatfield = np.ones(bgrd.shape[0])
         elif flatfield in self.kidpar.keys():
@@ -66,6 +71,7 @@ class KissContinuum(KissRawData):
 
         bgrd *= flatfield[:, np.newaxis]
 
+        self.__log.info("Common mode removal")
         return cm_func(bgrd, *args, **kwargs)
 
     def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, cunit="deg", **kwargs):
@@ -196,27 +202,24 @@ class KissContinuum(KissRawData):
         output, weight, hits = project(x.flatten(), y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
         # Add standard keyword to header
-        header = wcs.to_header()
-        header["OBJECT"] = self.source
-        header["OBS-ID"] = self.scan
-        header["FILENAME"] = str(self.filename)
-        header["EXPTIME"] = self.exptime.value
-        header["DATE"] = datetime.datetime.now().isoformat()
-        header["DATE-OBS"] = self.obstime[0].isot
-        header["DATE-END"] = self.obstime[-1].isot
-        header["INSTRUME"] = self.param_c["nomexp"]
-        header["AUTHOR"] = "KidsData"
-        header["ORIGIN"] = "LAM"
+        meta = {}
+
+        meta["OBJECT"] = self.source
+        meta["OBS-ID"] = self.scan
+        meta["FILENAME"] = str(self.filename)
+        meta["EXPTIME"] = self.exptime.value
+        meta["DATE"] = datetime.datetime.now().isoformat()
+        meta["DATE-OBS"] = self.obstime[0].isot
+        meta["DATE-END"] = self.obstime[-1].isot
+        meta["INSTRUME"] = self.param_c["nomexp"]
+        meta["AUTHOR"] = "KidsData"
+        meta["ORIGIN"] = os.environ.get("HOSTNAME")
 
         # Add extra keyword
-        header["SCAN"] = self.scan
-        header["LABEL"] = label
+        meta["SCAN"] = self.scan
+        meta["LABEL"] = label
 
-        return (
-            ImageHDU(output, header=header, name="data_{}".format(label) if label else "data"),
-            ImageHDU(weight, header=header, name="weight_{}".format(label) if label else "weight"),
-            ImageHDU(hits, header=header, name="hits_{}".format(label) if label else "hits"),
-        )
+        return ContinuumData(output, uncertainty=InverseVariance(weight), hits=hits, wcs=wcs, meta=meta)
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
         """Project individual detectors into square map in AltAz coordinates."""
@@ -318,16 +321,11 @@ class KissContinuum(KissRawData):
             kwargs["wcs"] = wcs
             kwargs["shape"] = shape
 
-        data = []
-        weights = []
-        hits = []
+        datas = []
         for _ikid, _label in zip(ikid, label or [None] * len(ikid)):
-            _data, _weights, _hits = self.continuum_map(*args, ikid=_ikid, label=_label, **kwargs)
-            data.append(_data)
-            weights.append(_weights)
-            hits.append(_hits)
+            datas.append(self.continuum_map(*args, ikid=_ikid, label=_label, **kwargs))
 
-        return kids_plots.show_contmap(self, data, weights, hits, label, snr=snr), (data, weights, hits)
+        return kids_plots.show_contmap(self, datas, label, snr=snr), datas
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
