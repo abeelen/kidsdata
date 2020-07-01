@@ -136,20 +136,53 @@ class KidsRawData(object):
         print("No. of time samples:\t", self.nsamples)
 
     def read_data(self, *args, cache=False, array=np.array, list_data=["indice", "A_masq", "I", "Q"], **kwargs):
+        """Read raw data.
+
+        Parameters
+        ----------
+        cache : bool or 'only', optional
+            use the cache file if present, by default False, see Notes
+        array : function, (np.array|dask.array.from_array|None) optional
+            function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
+        list_data : list, optional
+            list of data to read, by default ["indice", "A_masq", "I", "Q"]
+        **kwargs
+            additionnal parameters to be passed to the  `kidsdata.read_kidsdata.read_all`, in particular
+                list_detector : list, optional
+                    the list of detector indexes to be read, by default None: read all detectors
+                start : int
+                    the starting block, default 0.
+                end : type
+                    the ending block, default full available dataset.
+        Notes
+        -----
+        if `cache=True`, the function reads all possible data from the cache file, and read the missing data from the raw binary file
+        if `cache='only'`, the function reads all possible data from the cache file
+        """
         self.__log.debug("Reading data")
 
         if cache and self._cache is not None:
             self.__log.info("Reading cached raw data :")
             datas = []
-            for data in ["dataSc", "dataSd", "dataUc", "dataUd", "extended_kidpar"]:
+
+            # Special case for dataSd using the array argument
+            try:
+                self.__log.debug(" - {}".format("dataSd"))
+                datas.append(_from_hdf5(self._cache, "dataSd", array=array))
+            except ValueError:
+                # dataSd not present
+                datas.append({})
+
+            # Force numpy arrays for the other datasets
+            for data in ["dataSc", "dataUd", "dataUc", "extended_kidpar"]:
                 try:
                     self.__log.debug(" - {}".format(data))
-                    datas.append(_from_hdf5(self._cache, data, array=array))
+                    datas.append(_from_hdf5(self._cache, data, array=np.array))
                 except ValueError:
                     # Data not present
                     datas.append({})
 
-            dataSc, dataSd, dataUc, dataUd, extended_kidpar = datas
+            dataSd, dataSc, dataUd, dataUc, extended_kidpar = datas
 
             self.__log.debug("Updating dictionnaries with cached data")
             self.__dataSc.update(dataSc)
@@ -288,21 +321,24 @@ class KidsRawData(object):
         dependancies = [(['P0', 'R0'], ['I', 'Q', 'A_masq'])]
 
         """
+        # First check if some attributes are indeed missing...
+        missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
+
         # Adapt the list if we have dependancies
         _dependancies = []
-        if dependancies:
+        if dependancies and missing:
             for request_keys, depend_keys in dependancies:
                 # Check if these attributes are requested...
-                _dependancy = [attr_list.pop(attr_list.index(key)) for key in request_keys if key in attr_list]
+                _dependancy = [missing.pop(missing.index(key)) for key in request_keys if key in missing]
                 if _dependancy:
                     # Replace them by the dependancies..
-                    attr_list += depend_keys
+                    missing += depend_keys
                 _dependancies.append(_dependancy)
 
-        missing = set([attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)])
+        missing = set([attr for attr in missing if not hasattr(self, attr) or (getattr(self, attr) is None)])
         if missing and read_missing:
             # TODO: check that there attributes are present in the file
-            self.__log.warning("Missing data : ", missing)
+            self.__log.warning("Missing data : ", str(missing))
             self.__log.info("-----Now reading--------")
 
             self.read_data(list_data=missing, list_detector=self.list_detector)
@@ -336,9 +372,9 @@ class KidsRawData(object):
         """
         mask = ~self._kidpar["index"].mask
         if namedet is not None:
-            mask &= [namedet in name for name in self._kidpar["namedet"]]
+            mask = mask & [namedet in name for name in self._kidpar["namedet"]]
         if flag is not None:
-            mask &= self._kidpar["flag"] == flag
+            mask = mask & self._kidpar["flag"] == flag
 
         return np.array(self._kidpar[mask]["namedet"])
 

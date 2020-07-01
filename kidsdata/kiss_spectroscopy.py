@@ -508,7 +508,7 @@ class KissSpectroscopy(KissRawData):
 
         import dask.array as da
 
-        dainterferograms = da.from_array(interferograms)
+        dainterferograms = da.from_array(interferograms, name=False)
         interferograms_forward = dainterferograms[..., laser_forward_mask]
         interferograms_backward = dainterferograms[..., laser_backward_mask]
 
@@ -613,7 +613,7 @@ class KissSpectroscopy(KissRawData):
             flatfield = np.ones(interferograms.shape[0])
         elif flatfield in ["amplitude", "interferogram", "specFF"] and flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
-            flatfield = _kidpar[flatfield]
+            flatfield = _kidpar[flatfield].data
         else:
             raise ValueError("Can not use this flat field : {}".format(flatfield))
 

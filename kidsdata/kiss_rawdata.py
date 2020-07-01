@@ -235,6 +235,30 @@ class KissRawData(KidsRawData):
         return kids_plots.checkPointing(self, *args, **kwargs)
 
     def read_data(self, *args, cache=False, array=np.array, **kwargs):
+        """Read raw data.
+
+        Parameters
+        ----------
+        cache : bool or 'only', optional
+            use the cache file if present, by default False, see Notes
+        array : function, (np.array|dask.array.from_array|None) optional
+            function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
+        **kwargs
+            additionnal parameters to be passed to the  `kidsdata.read_kidsdata.read_all`, in particular
+                list_data : list, optional
+                    list of data to read, by default ["indice", "A_masq", "I", "Q"]
+                list_detector : list, optional
+                    the list of detector indexes to be read, by default None: read all detectors
+                start : int
+                    the starting block, default 0.
+                end : type
+                    the ending block, default full available dataset.
+
+        Notes
+        -----
+        if `cache=True`, the function reads all possible data from the cache file, and read the missing data from the raw binary file
+        if `cache='only'`, the function reads all possible data from the cache file
+        """
         super().read_data(*args, cache=cache, array=array, **kwargs)
 
         if cache and self._cache is not None:

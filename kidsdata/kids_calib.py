@@ -368,8 +368,8 @@ def get_calfact_3pts(
         y = np.vstack(pool.map(_reducs, grouper(range(nint), nint // cpu_count()))).T.swapaxes(0, 1)
 
     # Transform to dask array for later use
-    dataI = da.from_array(dataI)
-    dataQ = da.from_array(dataQ)
+    dataI = da.from_array(dataI, name=False)
+    dataQ = da.from_array(dataQ, name=False)
 
     data_method, fit_method = method
     if data_method.lower() == "all":

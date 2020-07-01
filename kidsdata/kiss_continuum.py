@@ -57,11 +57,11 @@ class KissContinuum(KissRawData):
             flatfield = np.ones(bgrd.shape[0])
         elif flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
-            flatfield = _kidpar[flatfield]
+            flatfield = _kidpar[flatfield].data
         else:
             raise ValueError("Can not use this fieldfield : {}".format(flatfield))
 
-        if isinstance(flatfield, MaskedColumn):
+        if isinstance(flatfield, (MaskedColumn, np.ma.MaskedArray)):
             flatfield = flatfield.filled(np.nan)
 
         bgrd *= flatfield[:, np.newaxis]
@@ -164,7 +164,7 @@ class KissContinuum(KissRawData):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 std_cont = np.std(self.continuum, axis=1)
-                kid_mask &= np.abs(std_cont / np.nanmedian(std_cont) - 1) < std_dev
+                kid_mask &= np.array(np.abs(std_cont / np.nanmedian(std_cont, axis=0) - 1) < std_dev)
 
         return kid_mask
 
@@ -177,7 +177,7 @@ class KissContinuum(KissRawData):
         mask_tel = self.mask_tel
 
         # Pipeline is here
-        bgrds = self.continuum_pipeline(tuple(ikid), amplitude=None, **kwargs)[:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
