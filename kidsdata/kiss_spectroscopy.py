@@ -1,3 +1,4 @@
+import os
 import logging
 import warnings
 import numpy as np
@@ -823,7 +824,7 @@ class KissSpectroscopy(KissRawData):
         if weights is None:
             sample_weights = np.ones(sample.shape[0])
         elif weights == "std":
-            logging.warnings("Using std weights in spectroscopy is probably a bad idea")
+            self.__log.warnings("Using std weights in spectroscopy is probably a bad idea")
             with np.errstate(divide="ignore"):
                 # Compute the weight per kid as the std of the median per interferogram
                 # Probably NOT a good idea !!!!
@@ -937,10 +938,11 @@ class KissSpectroscopy(KissRawData):
         meta["DATE-END"] = self.obstime[-1].isot
         meta["INSTRUME"] = self.param_c["nomexp"]
         meta["AUTHOR"] = "KidsData"
-        meta["ORIGIN"] = "LAM"
+        meta["ORIGIN"] = os.environ.get("HOSTNAME")
 
         # Add extra keyword
         meta["SCAN"] = self.scan
+        meta["N_KIDS"] = len(ikid)
 
         # TODO: CUT hits/data/weight and wcs here
         if opd_trim is not None and isinstance(opd_trim, (int, np.int, float, np.float)):

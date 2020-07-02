@@ -218,6 +218,7 @@ class KissContinuum(KissRawData):
         # Add extra keyword
         meta["SCAN"] = self.scan
         meta["LABEL"] = label
+        meta["N_KIDS"] = len(ikid)
 
         return ContinuumData(output, uncertainty=InverseVariance(weight), hits=hits, wcs=wcs, meta=meta)
 
