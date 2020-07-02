@@ -77,7 +77,7 @@ class KissRawData(KidsRawData):
         self.pointing_model = pointing_model
         self.__calib = {}
 
-    def _write_data(self, filename=None, **kwargs):
+    def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
 
         Parameters
@@ -86,25 +86,36 @@ class KissRawData(KidsRawData):
             output filename, default None, use the cache file name
         dataSd : bool, optional
             flag to output the fully sampled data, by default False
+        mode : str
+            the open mode for the h5py.File object, by default 'a'
+        file_kwargs, dict, optionnal
+            additionnal keyword for h5py.File object, by default None
+        **kwargs
+            additionnal keyword argument for the h5py.Dataset, see Note
 
         Notes
         -----
-        Any additionnal keyword arguments are passed to the h5py.File() class
+        Usual kwargs could be :
+
+        kwargs={'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
         """
-        super()._write_data(filename, **kwargs)
+        super()._write_data(filename, mode=mode, file_kwargs=file_kwargs, **kwargs)
 
         if filename is None:
             filename = self._cache_filename
 
+        if file_kwargs is None:
+            file_kwargs = {}
+
         # writing extra data
-        with h5py.File(filename, "a") as f:
+        with h5py.File(filename, mode="a", **file_kwargs) as f:
 
             if self.pointing_model:
                 self.__log.debug("Saving pointing model")
-                _to_hdf5(f, "pointing_model", self.pointing_model)
+                _to_hdf5(f, "pointing_model", self.pointing_model, **kwargs)
             if self.__calib:
                 self.__log.debug("Saving calibrated data")
-                _to_hdf5(f, "calib", self.__calib)
+                _to_hdf5(f, "calib", self.__calib, **kwargs)
 
     def calib_raw(self, calib_func=kids_calib.get_calfact, *args, **kwargs):
         """Calibrate the KIDS timeline."""
@@ -141,38 +152,6 @@ class KissRawData(KidsRawData):
 
         if _dependancies is not None:
             self.calib_raw()
-
-    @property
-    @lru_cache(maxsize=1)
-    def obstime(self):
-        """Recompute the proper obs time in UTC per interferograms."""
-        times = ["A_hours", "A_time_pps"]
-        self._KissRawData__check_attributes(times)
-
-        # TODO: These Correction should be done at reading time
-        idx = np.arange(self.nsamples)
-
-        mask = self.A_time_pps.flatten() == 0
-
-        # Masked array, to be able to unwrap properly
-        A_time = np.ma.array(self.A_time_pps.flatten() + self.A_hours.flatten(), mask=mask)
-        A_time = np.ma.array(np.unwrap(A_time), mask=mask)
-
-        # flag all data with time difference greater than 1 second
-        bad = (np.append(np.diff(np.unwrap(A_time)), 0) > 1) | A_time.mask
-
-        if any(bad) and any(~bad):
-            func = interp1d(idx[~bad], np.unwrap(A_time)[~bad], kind="linear", fill_value="extrapolate")
-            A_time[bad] = func(idx[bad])
-
-        obstime = self.obsdate
-
-        # Getting only time per interferograms here :
-        return obstime + np.median(A_time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
-
-    @property
-    def exptime(self):
-        return (self.obstime[-1] - self.obstime[0]).to(u.s)
 
     @lru_cache(maxsize=2)
     def get_object_altaz(self, npoints=None):
@@ -265,12 +244,7 @@ class KissRawData(KidsRawData):
             self.__log.info("Reading cached data :")
             datas = []
             for data in ["calib"]:
-                try:
-                    self.__log.debug(" - {}".format(data))
-                    datas.append(_from_hdf5(self._cache, data, array=array))
-                except ValueError:
-                    # Data not present
-                    datas.append({})
+                datas.append(_from_hdf5(self._cache, data, array=array) if data in self._cache else {})
 
             (calib,) = datas
 

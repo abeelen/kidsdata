@@ -2,6 +2,7 @@
 import os
 import gc
 import h5py
+from functools import partial, wraps
 
 import logging
 import warnings
@@ -278,7 +279,7 @@ def read_all(
     correct_pps=False,
     ordering="K",
 ):
-    """Short summary.
+    """Read Raw data from the binary file using the `read_nika_all` C function.
 
     Parameters
     ----------
@@ -501,6 +502,39 @@ def isnamedtupleinstance(x):
     return all(type(n) == str for n in f)
 
 
+def filename_or_h5py_file(func=None, mode="r"):
+    """Allow a filename/Path or a h5py.File instance as first argument.
+
+    The decorator will instantiate an h5py.File, open and close the file for the function if needed.
+
+    Parameters
+    ----------
+    mode : str,
+        the mode to potentially open the hdf5 file, by default 'r'
+    """
+
+    if func is None:
+        return partial(filename_or_h5py_file, mode=mode)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        filename = args[0]
+
+        if isinstance(filename, (str, Path)):
+            f = h5py.File(filename, mode=mode)
+        else:
+            f = filename
+        output = func(f, *args[1:], **kwargs)
+
+        if isinstance(filename, str):
+            f.close()
+
+        return output
+
+    return wrapper
+
+
+@filename_or_h5py_file(mode="a")
 def _to_hdf5(parent_group, key, data, **kwargs):
     """Save data to hdf5
 
@@ -518,7 +552,7 @@ def _to_hdf5(parent_group, key, data, **kwargs):
     the dataset can only be a combinaison of numpy arrays, tuple, list or dictionaries
 
     Any keyword supported by h5py.create_dataset can be passed, usually :
-    kwargs={'chunks': True, 'compression': "gzip", 'compression_opts'=9, 'shuffle'=True}
+    kwargs={'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
     """
     if isinstance(data, np.ndarray):
         # numpy arrays
@@ -553,6 +587,11 @@ def _to_hdf5(parent_group, key, data, **kwargs):
         dset.attrs["type"] = "list-array"
         return dset
 
+    if data is None:
+        if key in parent_group.attrs:
+            del parent_group.attrs[key]
+        return parent_group.create_dataset(key, dtype="f")
+
     if isinstance(data, (tuple, list, dict)):
         if key not in parent_group:
             sub_group = parent_group.create_group(key)
@@ -563,16 +602,17 @@ def _to_hdf5(parent_group, key, data, **kwargs):
         raise TypeError("Can not handle type of {} :  {}".format(key, type(data)))
 
     if isnamedtupleinstance(data):
-        _to_hdf5(sub_group, str(type(data)), data._asdict())
+        _to_hdf5(sub_group, str(type(data)), data._asdict(), **kwargs)
         sub_group.attrs["type"] = "namedtuple"
     elif isinstance(data, (tuple, list)):
         for i, item in enumerate(data):
-            _to_hdf5(sub_group, str(i), item)
+            _to_hdf5(sub_group, str(i), item, **kwargs)
     elif isinstance(data, dict):
         for _key in data:
-            _to_hdf5(sub_group, _key, data[_key])
+            _to_hdf5(sub_group, _key, data[_key], **kwargs)
 
 
+@filename_or_h5py_file
 def _from_hdf5(parent_group, key, array=None):
     """Read any dataset saved by _to_hdf5
 
@@ -602,6 +642,8 @@ def _from_hdf5(parent_group, key, array=None):
         if item.shape == ():
             # single float/int no shape
             return item[()]
+        elif item.shape is None:
+            return None
 
         if "type" in item.attrs:
             # Special types
@@ -645,31 +687,108 @@ def _from_hdf5(parent_group, key, array=None):
             raise ValueError("Unknown type for {}: {}".format(item.name, _type))
 
 
-def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples):
+@filename_or_h5py_file
+def read_info_hdf5(filename):
+    """Read header information from an hdf5 file.
+
+    Parameters
+    ----------
+    filename : str or ~h5py.File
+        input filename or h5py.File instance
+
+     Returns
+    -------
+    tconfigheader: namedtuple
+        a copy of the TconfigHeader of the file, or None if not present
+    version_header: int
+        the version of the header,, or None if not present
+    param_c: dict
+        the common variables for the file, or None if not present
+    kidpar: :class:`~astropy.table.Table`
+        the kidpar of the file, or None if not present
+    tname: namedtuple
+        the full name of the requested data and detectors,, or None if not present
+    nb_read_sample: int
+        the total  number of sample in the file, or None if not present
+
+    """
+
+    version_header = filename.attrs.get("version_header", None)
+    nb_read_samples = filename.attrs.get("nb_read_samples", None)
+
+    header = _from_hdf5(filename, "header") if "header" in filename else None
+    param_c = _from_hdf5(filename, "param_c") if "param_c" in filename else None
+    names = _from_hdf5(filename, "names") if "names" in filename else None
+    kidpar = _from_hdf5(filename, "kidpar") if "kidpar" in filename else None
+
+    return header, version_header, param_c, kidpar, names, nb_read_samples
+
+
+@filename_or_h5py_file
+def read_all_hdf5(filename, array=np.array):
+    """Short summary.
+
+    Parameters
+    ----------
+    filename : str or ~h5py.File
+        input filename or h5py.File instance
+    array : function, (np.array|dask.array.from_array|None) optional
+        function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
+
+    Returns
+    -------
+    nb_samples_read : int
+        The number of sample read
+    dataSc : dict:
+        A dictionnary containing all the sampled common quantities data as 2D :class:`~numpy.array` of shape (n_bloc, nb_pt_bloc), {} if not present
+    dataSd : dict
+        A dictionnary containing all the sampled data as 3D arrays of shape (n_det, n_bloc, nb_pt_bloc), {} if not present
+    dataUc : dict:
+        A dictionnary containing all the under-sampled common quantities data as 1D :class:`~numpy.array` of shape (n_bloc,), {} if not present
+    dataUd : dict
+        A dictionnary containing all the under-sampled data as 2D :class:`~numpy.array` of shape (n_det, n_bloc), {} if not present
+    extended_kidpar : ~astropy.table.Table
+        The extended kidpar found in the file, None if not present
+    """
+
+    datas = []
+    # Force np.array for small items, and array for the large fully sample data
+    for item, _array in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [np.array, array, np.array, np.array]):
+        datas.append(_from_hdf5(filename, item, array=_array) if item in filename else {})
+
+    extended_kidpar = _from_hdf5(filename, "extended_kidpar") if "extended_kidpar" in filename else None
+
+    return (*datas, extended_kidpar)
+
+
+def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples, file_kwargs=None, **kwargs):
     """Save all header information to hdf5 attribute or group."""
 
-    with h5py.File(filename, "a") as f:
-        _to_hdf5(f, "header", header)
-        _to_hdf5(f, "param_c", param_c)
-        _to_hdf5(f, "names", names)
-        _to_hdf5(f, "kidpar", kidpar)
-        f["nb_read_sample"] = nb_read_samples
-        f["version_header"] = version_header
+    if file_kwargs is None:
+        file_kwargs = {}
+
+    with h5py.File(filename, **file_kwargs) as f:
+        _to_hdf5(f, "header", header, **kwargs)
+        _to_hdf5(f, "param_c", param_c, **kwargs)
+        _to_hdf5(f, "names", names, **kwargs)
+        _to_hdf5(f, "kidpar", kidpar, **kwargs)
+        f.attrs["nb_read_samples"] = nb_read_samples
+        f.attrs["version_header"] = version_header
 
 
-def data_to_hdf5(filename, dataSc, dataSd, dataUc, dataUd, calib):
+def data_to_hdf5(filename, dataSc, dataSd, dataUc, dataUd, extended_kidpar, file_kwargs=None, **kwargs):
     """save data to hdf5"""
-    with h5py.File(filename, "a") as f:
-        if dataSc is not None:
-            _to_hdf5(f, "dataSc", dataSc)
-        if dataSd is not None:
-            _to_hdf5(f, "dataSd", dataSd)
-        if dataUc is not None:
-            _to_hdf5(f, "dataUc", dataUc)
-        if dataUd is not None:
-            _to_hdf5(f, "dataUd", dataUd)
-        if calib is not None:
-            _to_hdf5(f, "calib", calib)
+
+    if file_kwargs is None:
+        file_kwargs = {}
+
+    with h5py.File(filename, **file_kwargs) as f:
+        for item, data in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
+            if data is not None:
+                _to_hdf5(f, item, data, **kwargs)
+
+        if extended_kidpar is not None:
+            _to_hdf5(f, "extended_kidpar", extended_kidpar, **kwargs)
 
 
 if __name__ == "__main__":
