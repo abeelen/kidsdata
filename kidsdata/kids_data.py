@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 import warnings
 
@@ -11,7 +12,7 @@ from scipy.interpolate import interp1d
 
 from dateutil.parser import parse
 from astropy.time import Time
-from astropy.table import join
+from astropy.table import Table, join
 import astropy.units as u
 
 import h5py
@@ -20,6 +21,8 @@ from autologging import logged
 from .read_kidsdata import read_info, read_all
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
+
+from .db import RE_SCAN, RE_EXTRA
 
 CACHE_DIR = Path(os.getenv("KISS_CACHE", "/data/KISS/Cache"))
 
@@ -76,7 +79,18 @@ class KidsRawData(object):
 
         info = read_info_hdf5(self.filename) if h5py.is_hdf5(self.filename) else read_info(self.filename)
 
-        self.header, self.version_header, self.param_c, self._kidpar, self.names, self.nsamples = info
+        self.header, self.version_header, self.param_c, _kidpar, self.names, self.nsamples = info
+
+        # insure that kidpar is a masked table for kidpar and as an index
+        if "index" not in _kidpar.keys():
+            _kidpar["index"] = np.arange(len(_kidpar))
+
+        if not _kidpar.has_masked_values:
+            _kidpar = Table(_kidpar, masked=True, copy=False)
+
+        _kidpar.add_index("namedet")
+        self._kidpar = _kidpar
+
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
 
         self._extended_kidpar = None
@@ -109,12 +123,17 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def obsdate(self):
         """Return the obsdate of the observation, based on filename."""
-        split_name = self.filename.name[1:].split("_")
-        if len(split_name) == 5:  # Regular scans
-            date = split_name[0]
-        elif len(split_name) == 7:  # Extra scans.... WHY !!!
-            date = "".join(split_name[1:4])
-        return Time(parse(date), scale="utc")  # UTC ??
+        filename = self.filename.name
+        if RE_SCAN.match(filename):
+            date = RE_SCAN.match(filename).groups()[0]
+            return Time(parse(date), scale="utc")  # UTC ?
+        elif RE_EXTRA.match(filename):
+            date = "".join(RE_EXTRA.match(filename).groups()[0:3])
+            return Time(parse(date), scale="utc")  # UTC ?
+        else:
+            # Probably not a data scan
+            self.__log.error("No time on filename")
+            return Time.now()
 
     @property
     @lru_cache(maxsize=1)
@@ -152,13 +171,23 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def scan(self):
         """Return the scan number of the observation, based on filename."""
-        return int(self.filename.name[1:].split("_")[2][1:])
+        filename = self.filename.name
+        if RE_SCAN.match(filename):
+            return int(RE_SCAN.match(filename).groups()[2])
+        else:
+            self.__log.warning("No scan from filename")
+            return None
 
     @property
     @lru_cache(maxsize=1)
     def source(self):
         """Return the source name, based on filename."""
-        return self.filename.name[1:].split("_")[3]
+        filename = self.filename.name
+        if RE_SCAN.match(filename):
+            return RE_SCAN.match(filename).groups()[3]
+        else:
+            self.__log.warning("No source name from filename")
+            return None
 
     @property
     @lru_cache(maxsize=1)
@@ -425,10 +454,11 @@ class KidsRawData(object):
             kidpar = deepcopy(self._kidpar)
             # astropy.table.join fails when index is masked so..
             # See astropy #9289
+            # and fails to sort when there is an index.....
+            kidpar.remove_indices("namedet")
             kidpar.sort("index")
             mask = deepcopy(kidpar["index"].mask)
             kidpar["index"].mask = False
-            kidpar.remove_indices("namedet")
             kidpar = join(kidpar, self._extended_kidpar, join_type="outer", keys="namedet")
             kidpar.sort("index")
             kidpar["index"].mask = mask

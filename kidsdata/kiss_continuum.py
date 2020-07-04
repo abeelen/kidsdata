@@ -18,6 +18,7 @@ from .utils import project, build_celestial_wcs, fit_gaussian
 
 from . import common_mode as cm
 from . import kids_plots
+from .db import RE_SCAN
 
 from .continuumdata import ContinuumData
 from astropy.nddata import InverseVariance
@@ -71,8 +72,13 @@ class KissContinuum(KissRawData):
 
         bgrd *= flatfield[:, np.newaxis]
 
-        self.__log.info("Common mode removal")
-        return cm_func(bgrd, *args, **kwargs)
+        if cm_func is not None:
+            self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
+            output = cm_func(bgrd, *args, **kwargs)
+        else:
+            output = bgrd
+
+        return output
 
     def _project_xy(self, ikid=None, wcs=None, coord="diff", cdelt=0.1, cunit="deg", **kwargs):
         """Compute wcs and project the telescope position.
@@ -207,11 +213,12 @@ class KissContinuum(KissRawData):
         meta["OBJECT"] = self.source
         meta["OBS-ID"] = self.scan
         meta["FILENAME"] = str(self.filename)
-        meta["EXPTIME"] = self.exptime.value
-        meta["DATE"] = datetime.datetime.now().isoformat()
-        meta["DATE-OBS"] = self.obstime[0].isot
-        meta["DATE-END"] = self.obstime[-1].isot
-        meta["INSTRUME"] = self.param_c["nomexp"]
+        if RE_SCAN.match(self.filename.name):
+            meta["EXPTIME"] = self.exptime.value
+            meta["DATE"] = datetime.datetime.now().isoformat()
+            meta["DATE-OBS"] = self.obstime[0].isot
+            meta["DATE-END"] = self.obstime[-1].isot
+            meta["INSTRUME"] = self.param_c["nomexp"]
         meta["AUTHOR"] = "KidsData"
         meta["ORIGIN"] = os.environ.get("HOSTNAME")
 

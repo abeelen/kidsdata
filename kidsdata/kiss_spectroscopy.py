@@ -25,6 +25,7 @@ from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_
 from .kiss_data import KissRawData
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
 from .kids_calib import ModulationValue, A_masq_to_flag
+from .db import RE_SCAN
 
 # from .utils import _pool_global, _pool_initializer
 from . import common_mode as cm
@@ -69,6 +70,7 @@ def _pool_project_xyz_worker(ikid, **kwargs):
         weights = weights[:, None, None]
         repeat_weights = nint * nptint
     elif weights_shape_length == 2:
+        # TODO : Check that...
         # Weights per detector and per interferograms
         weights = weights[:, :, None]
         repeat_weights = nptint
@@ -156,6 +158,8 @@ class KissSpectroscopy(KissRawData):
     def laser_shift(self, value):
         self.__laser_shift = value
         KissSpectroscopy.laser.fget.cache_clear()
+        KissSpectroscopy.laser_directions.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
 
     @property
     def optical_flip(self):
@@ -165,6 +169,8 @@ class KissSpectroscopy(KissRawData):
     def optical_flip(self, value):
         self.__optical_flip = value
         KissSpectroscopy.interferograms.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
+        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
     def mask_glitches(self):
@@ -174,6 +180,8 @@ class KissSpectroscopy(KissRawData):
     def mask_glitches(self, value):
         self.__mask_glitches = value
         KissSpectroscopy.interferograms.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
+        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
     def glitches_threshold(self):
@@ -183,6 +191,8 @@ class KissSpectroscopy(KissRawData):
     def glitches_threshold(self, value):
         self.__glitches_threshold = value
         KissSpectroscopy.interferograms.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
+        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
     @lru_cache(maxsize=1)
@@ -287,19 +297,19 @@ class KissSpectroscopy(KissRawData):
         laser1 = self.C_laser1_pos.flatten()
         laser2 = self.C_laser2_pos.flatten()
 
-        # Mirror positions are acquired at half he acquisition frequency thus...
-        assert np.all(laser1[::2] == laser1[1::2])
-        assert np.all(laser2[::2] == laser2[1::2])
-
-        # ... we can sum the two positions to lower the noise ...
+        # Sum the two positions to lower the noise ...
         laser = (laser1 + laser2) / 2
 
-        # and quadratictly interpolate the second position...
-        laser[1::2] = interp1d(range(len(laser) // 2), laser[::2], kind="quadratic", fill_value="extrapolate")(
-            np.arange(len(laser) // 2) + 0.5
-        )
+        if np.all(laser[::2] == laser[1::2]):
+            self.__log.info("Interpolating mirror positions")
+            # Mirror positions are acquired at half he acquisition frequency thus...
+            # we can quadratictly interpolate the second position...
+            laser[1::2] = interp1d(range(len(laser) // 2), laser[::2], kind="quadratic", fill_value="extrapolate")(
+                np.arange(len(laser) // 2) + 0.5
+            )
 
         if self.laser_shift is not None:
+            self.__log.info("Shift mirror positions")
             ## TODO: different cases depending on the shape of laser_shift
             laser = roll_fft(laser, self.laser_shift)
 
@@ -387,6 +397,7 @@ class KissSpectroscopy(KissRawData):
         elif roll_func is roll_fft:
             rolls = np.linspace(min_roll, max_roll, n_roll)
 
+        self.__log.info("Brute force rolling of laser position from {} to {} ({})".format(min_roll, max_roll, n_roll))
         # laser_rolls = []
         # for roll in rolls:
         #     laser_rolls.append(find_shift__roll_chi2(interferograms, laser, laser_mask, roll))
@@ -463,13 +474,13 @@ class KissSpectroscopy(KissRawData):
         return lasershifts
 
     @lru_cache(maxsize=1)
-    def opds(self, plot=False, mode="common"):
+    def opds(self, ikid=None, mode="common", plot=False):
         """Retrieve the optical path differences for each detector.
 
         Parameters
         ----------
-        laser_shift : float
-            The shift that must be applied to the laser wrt detector timestream
+         ikid : tuple
+            the list of kid index in self.list_detector to use (default: all)
         mode : str ('common' | 'per_det' | 'per_int')
             See notes
         plot : bool
@@ -479,8 +490,8 @@ class KissSpectroscopy(KissRawData):
         -------
         opds : array_like (ndet, nint, nptint)
             the optical path difference for all the detectors
-        zpds : array_like
-            the zero path difference positions
+        zlds : array_like
+            the zero laser differences positions
 
         Notes
         -----
@@ -495,10 +506,13 @@ class KissSpectroscopy(KissRawData):
         -----
         This depends on the `laser_shift` property.
         """
-        # TODO: Check output dtype.....
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+        else:
+            ikid = np.asarray(ikid)
 
         # Raw interferograms, without pipeline to get residuals peaks
-        interferograms = self.interferograms
+        interferograms = self.interferograms[ikid]
 
         # Global Shift MUST be applied
         laser = self.laser
@@ -532,6 +546,7 @@ class KissSpectroscopy(KissRawData):
         # bad_max = (max_forward.sum(axis=2) > 1) | (max_backward.sum(axis=2) > 1)
         # max_forward.mask[bad_max, :] = True
         # max_backward.mask[bad_max, :] = True
+        self.__log.info("Finding interferograms maxima")
 
         # Retrieve the max per interferogram to set the 0
         with Pool(initializer=_pool_initializer, initargs=(laser, laser_forward_mask, max_forward)) as pool:
@@ -540,7 +555,8 @@ class KissSpectroscopy(KissRawData):
         with Pool(initializer=_pool_initializer, initargs=(laser, laser_backward_mask, max_backward)) as pool:
             max_laser_backward = np.asarray(pool.map(_pool_opd, np.arange(max_backward.shape[0])))
 
-        zpds = np.array([max_laser_backward, max_laser_forward]).mean(axis=0)
+        self.__log.info("Computing Zero Laser Differences")
+        zlds = np.array([max_laser_backward, max_laser_forward]).mean(axis=0)
 
         if plot:
             fig, axes = plt.subplots(ncols=2, sharex=True)
@@ -550,29 +566,29 @@ class KissSpectroscopy(KissRawData):
             axes[0].hist(
                 np.concatenate([max_laser_forward, max_laser_backward]).flatten(), label="full", alpha=0.7, **kwargs
             )
-            axes[0].axvline(np.median(zpds), c="r")
+            axes[0].axvline(np.median(zlds), c="r")
             axes[0].set_title("overall max. laser position")
             axes[0].legend()
             if mode != "common":
-                axes[1].hist(zpds.flatten(), **kwargs)
-            axes[1].axvline(np.median(zpds), c="r")
+                axes[1].hist(zlds.flatten(), **kwargs)
+            axes[1].axvline(np.median(zlds), c="r")
             axes[1].set_title("per det. max. laser position")
 
         if mode == "common":
             # overall median
-            zpds = np.nanmedian(zpds)
-            opds = np.broadcast_to(laser - zpds, interferograms.shape)
+            zlds = np.nanmedian(zlds)
+            opds = np.broadcast_to(laser - zlds, interferograms.shape)
         elif mode == "per_det":
             # per detector median
-            zpds = np.nanmedian(zpds, axis=1)
-            opds = np.broadcast_to(laser, interferograms.shape) - zpds[:, None, None]
+            zlds = np.nanmedian(zlds, axis=1)
+            opds = np.broadcast_to(laser, interferograms.shape) - zlds[:, None, None]
         elif mode == "per_int":
-            opds = np.broadcast_to(laser, interferograms.shape) - zpds[:, :, None]
+            opds = np.broadcast_to(laser, interferograms.shape) - zlds[:, :, None]
 
         # Optical path differences are actually twice the laser position difference
         opds = 2 * opds
 
-        return opds, zpds
+        return opds, zlds
 
     @lru_cache(maxsize=3)
     def interferograms_pipeline(self, ikid=None, flatfield="amplitude", cm_func=cm.pca_filtering, **kwargs):
@@ -625,8 +641,8 @@ class KissSpectroscopy(KissRawData):
         interferograms *= flatfield[:, np.newaxis, np.newaxis]
         shape = interferograms.shape
 
-        self.__log.info("Common mode removal")
         if cm_func is not None:
+            self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
             output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
             # Put back the original mask
             self.__log.info("Masking back")
@@ -682,7 +698,7 @@ class KissSpectroscopy(KissRawData):
         # Retrieve data
         az = getattr(self, az_coord)[mask_tel]
         el = getattr(self, el_coord)[mask_tel]
-        opds = self.opds(mode=opd_mode)[0][ikid]
+        opds = self.opds(ikid=tuple(ikid), mode=opd_mode)[0][:, mask_tel, :]
 
         _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
@@ -831,10 +847,12 @@ class KissSpectroscopy(KissRawData):
                 sample_weights = 1 / sample.std(axis=(1, 2)) ** 2
         elif weights == "continuum_std":
             with np.errstate(divide="ignore"):
-                sample_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs).std(axis=1) ** 2
+                sample_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel].std(axis=1) ** 2
         elif weights == "modulation_std":
             with np.errstate(divide="ignore"):
-                sample_weights = 1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None)) ** 2
+                sample_weights = (
+                    1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None))[:, mask_tel] ** 2
+                )
         else:
             raise ValueError("Unknown weights : {}".format(weights))
 
@@ -932,11 +950,12 @@ class KissSpectroscopy(KissRawData):
         meta["OBJECT"] = self.source
         meta["OBS-ID"] = self.scan
         meta["FILENAME"] = str(self.filename)
-        meta["EXPTIME"] = self.exptime.value
-        meta["DATE"] = datetime.datetime.now().isoformat()
-        meta["DATE-OBS"] = self.obstime[0].isot
-        meta["DATE-END"] = self.obstime[-1].isot
-        meta["INSTRUME"] = self.param_c["nomexp"]
+        if RE_SCAN.match(self.filename.name):
+            meta["EXPTIME"] = self.exptime.value
+            meta["DATE"] = datetime.datetime.now().isoformat()
+            meta["DATE-OBS"] = self.obstime[0].isot
+            meta["DATE-END"] = self.obstime[-1].isot
+            meta["INSTRUME"] = self.param_c["nomexp"]
         meta["AUTHOR"] = "KidsData"
         meta["ORIGIN"] = os.environ.get("HOSTNAME")
 

@@ -1,16 +1,16 @@
 import os
+import re
 import numpy as np
 import logging
 from pathlib import Path
 from itertools import chain
 from datetime import datetime
-from functools import wraps
+from functools import wraps, partial
 
 import astropy.units as u
 from astropy.table import Table, join, vstack  # for now
 from astropy.utils.console import ProgressBar
 
-from .kids_data import KidsRawData
 
 BASE_DIRS = [Path(os.getenv("KISS_DATA", "/data/KISS/Raw/nika2c-data3/KISS"))]
 DATABASE_SCAN = None
@@ -18,6 +18,9 @@ DATABASE_EXTRA = None
 DATABASE_PARAM = None
 
 __all__ = ["list_scan", "get_scan", "list_extra", "get_extra"]
+
+RE_SCAN = re.compile(r"^X(\d{8,8})_(\d{4,4})_S(\d{4,4})_([\w|\+]*)_(\w*)$")
+RE_EXTRA = re.compile(r"^X_(\d{4,4})_(\d{2,2})_(\d{2,2})_(\d{2,2})h(\d{2,2})m(\d{2,2})_AA_man$")
 
 
 def update_scan_database(dirs=None):
@@ -33,7 +36,7 @@ def update_scan_database(dirs=None):
     if dirs is None:
         dirs = BASE_DIRS
 
-    # Regular scan files
+    # Regular scan files, actually faster to make a glob with pattern here
     filenames = chain(*[Path(path).glob("**/X*_*_S????_*_*") for path in dirs])
 
     data_rows = []
@@ -44,9 +47,12 @@ def update_scan_database(dirs=None):
         # Removing already scanned files
         if (DATABASE_SCAN is not None) and (filename.as_posix() in DATABASE_SCAN["filename"]):
             continue
-        date, hour, scan, source, obsmode = filename.name[1:].split("_")
+
+        if not RE_SCAN.match(filename.name):
+            continue
+        date, hour, scan, source, obsmode = RE_SCAN.match(filename.name).groups()
         dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
-        scan = int(scan[1:])
+        scan = int(scan)
         stat = filename.stat()
         # Do not add empty files
         if stat.st_size == 0:
@@ -105,8 +111,11 @@ def update_extra_database(dirs=None):
         # Removing already scanned files
         if DATABASE_EXTRA is not None and filename not in DATABASE_EXTRA["filename"]:
             continue
-        year, month, day, hour = filename.name[2:].split("_")[0:4]
-        dtime = datetime.strptime(" ".join([year, month, day, hour]), "%Y %m %d %Hh%Mm%S")
+
+        if not RE_EXTRA.match(filename.name):
+            continue
+        time_data = [int(item) for item in RE_EXTRA.match(filename.name).groups()]
+        dtime = datetime(*time_data)
         stat = filename.stat()
         data_rows.append(
             (
@@ -135,11 +144,18 @@ def update_extra_database(dirs=None):
             DATABASE_EXTRA = NEW_EXTRA
 
 
-def auto_update(func):
+def auto_update(func=None, scan=True, extra=True):
+    """Decorator to auto update the scan list."""
+
+    if func is None:
+        return partial(auto_update, scan=scan, extra=extra)
+
     @wraps(func)
     def wrapper(*args, **kwargs):
-        update_scan_database()
-        update_extra_database()
+        if scan:
+            update_scan_database()
+        if extra:
+            update_extra_database()
         return func(*args, **kwargs)
 
     return wrapper
@@ -149,6 +165,8 @@ def auto_update(func):
 def extend_database():
     """Read the header of each file and construct the parameter database."""
     global DATABASE_SCAN, DATABASE_PARAM
+
+    from .kids_data import KidsRawData  # To avoid import loop
 
     data_rows = []
     param_rows = {}
@@ -176,7 +194,7 @@ def extend_database():
     DATABASE_SCAN = join(DATABASE_SCAN, Table(data_rows))
 
 
-@auto_update
+@auto_update(extra=False)
 def get_scan(scan=None):
     """Get filename of corresponding scan number.
 
@@ -198,7 +216,7 @@ def get_scan(scan=None):
     return DATABASE_SCAN[mask]["filename"].data[0]
 
 
-@auto_update
+@auto_update(scan=False)
 def get_extra(start=None, end=None):
     """Get filename for extra scans (skydips) between two timestamp.
 
@@ -216,7 +234,7 @@ def get_extra(start=None, end=None):
     return DATABASE_EXTRA[mask]["filename"].data
 
 
-@auto_update
+@auto_update(extra=False)
 def list_scan(output=False, **kwargs):
     """List (with filtering) all scans in the database.
 
@@ -227,7 +245,9 @@ def list_scan(output=False, **kwargs):
 
     Notes
     -----
-    One can filter on any key of the database by giving kwargs, for example
+    One can filter on any key of the database
+    ["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"]
+    by giving kwargs, for example
 
     >>> list_scan(source="Moon")
 
@@ -262,7 +282,7 @@ def list_scan(output=False, **kwargs):
         _database[["date", "scan", "source", "obsmode", "size"]].pprint(max_lines=-1, max_width=-1)
 
 
-@auto_update
+@auto_update(scan=False)
 def list_extra(**kwargs):
     """List (with filtering) all extra scans in the database.
 
