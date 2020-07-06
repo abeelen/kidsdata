@@ -24,6 +24,7 @@ from . import kids_plots
 from .kids_data import KidsRawData
 from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
+from .utils import _import_from
 
 try:
     from .kiss_pointing_model import KISSPmodel
@@ -117,12 +118,13 @@ class KissRawData(KidsRawData):
                 self.__log.debug("Saving calibrated data")
                 _to_hdf5(f, "calib", self.__calib, **kwargs)
 
-    def calib_raw(self, calib_func=kids_calib.get_calfact, *args, **kwargs):
+    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", *args, **kwargs):
         """Calibrate the KIDS timeline."""
 
         if self.__calib == {}:
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
+            calib_func = _import_from(calib_func)
             self.__calib = calib_func(self, *args, **kwargs)
         else:
             self.__log.warning("calibrated data already present")

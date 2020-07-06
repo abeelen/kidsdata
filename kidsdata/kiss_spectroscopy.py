@@ -24,11 +24,10 @@ from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_
 
 from .kiss_data import KissRawData
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
+from .utils import _import_from
 from .kids_calib import ModulationValue, A_masq_to_flag
 from .db import RE_SCAN
 
-# from .utils import _pool_global, _pool_initializer
-from . import common_mode as cm
 from .ftsdata import FTSData
 
 from multiprocessing import Pool, cpu_count
@@ -103,11 +102,13 @@ def _pool_project_xyz(ikids, **kwargs):
     return hits, data, weights
 
 
-def _pool_find_lasershifts_brute_worker(roll, _roll_func=np.roll):
+def _pool_find_lasershifts_brute_worker(roll, _roll_func="numpy.roll"):
     """Worker function to compute 3D histogram for a given detector list"""
 
     global _pool_global
     interferograms, lasers, laser_mask_forward, laser_mask_backward = _pool_global
+
+    _roll_func = _import_from(_roll_func)
 
     chi2s = []
     # Loop on interferograms
@@ -348,7 +349,7 @@ class KissSpectroscopy(KissRawData):
         return laser_directions
 
     def find_lasershifts_brute(
-        self, ikid=None, min_roll=-10, max_roll=10, n_roll=21, roll_func=np.roll, plot=False, mode="single"
+        self, ikid=None, min_roll=-10, max_roll=10, n_roll=21, roll_func="numpy.roll", plot=False, mode="single"
     ):
         """Find potential shift between mirror position and interferograms timeline.
 
@@ -362,8 +363,8 @@ class KissSpectroscopy(KissRawData):
             the minimum and maximum shift to consider
         n_roll : int
             the number of rolls between those two values
-        roll_func : function (np.roll|roll_fft)
-            the rolling function to be used np.roll for integer rolls and roll_fft for floating values
+        roll_func : str ('numpy.roll'|'kidsdata.utils.roll_fft')
+            the rolling function to be used 'numpy.roll' for integer rolls and 'kidsdata.utils.roll_fft' for floating values
         plot : bool
             display so debugging plots
         mode : str (single|per_det|per_int|per_det_int)
@@ -392,9 +393,9 @@ class KissSpectroscopy(KissRawData):
         #     baseline = np.asarray(list(map(_this, p.T)))
         #     _interferogram -= baseline
 
-        if roll_func is np.roll:
+        if roll_func == "numpy.roll":
             rolls = np.linspace(min_roll, max_roll, n_roll, dtype=int)
-        elif roll_func is roll_fft:
+        elif roll_func == "kidsdata.utils.roll_fft":
             rolls = np.linspace(min_roll, max_roll, n_roll)
 
         self.__log.info("Brute force rolling of laser position from {} to {} ({})".format(min_roll, max_roll, n_roll))
@@ -591,7 +592,9 @@ class KissSpectroscopy(KissRawData):
         return opds, zlds
 
     @lru_cache(maxsize=3)
-    def interferograms_pipeline(self, ikid=None, flatfield="amplitude", cm_func=cm.pca_filtering, **kwargs):
+    def interferograms_pipeline(
+        self, ikid=None, flatfield="amplitude", cm_func="kidsdata.common_mode.pca_filtering", **kwargs
+    ):
         """Return the interferograms processed by given pipeline.
 
         Parameters
@@ -600,8 +603,8 @@ class KissSpectroscopy(KissRawData):
             the list of kid index in self.list_detector to use (default: all)
         flatfield: str (None|'amplitude'|'interferograms'|'specFF')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
-        cm_function : function
-            Default: common_mode.pca_filtering
+        cm_func : str
+            Function to use for the common mode removal, by default 'kidsdata.common_mode.pca_filtering'
 
         Returns
         -------
@@ -643,6 +646,7 @@ class KissSpectroscopy(KissRawData):
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
+            cm_func = _import_from(cm_func)
             output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
             # Put back the original mask
             self.__log.info("Masking back")

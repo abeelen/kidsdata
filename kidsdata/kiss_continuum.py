@@ -15,8 +15,8 @@ from astropy.utils.console import ProgressBar
 
 from .kiss_data import KissRawData
 from .utils import project, build_celestial_wcs, fit_gaussian
+from .utils import _import_from
 
-from . import common_mode as cm
 from . import kids_plots
 from .db import RE_SCAN
 
@@ -30,7 +30,9 @@ class KissContinuum(KissRawData):
         super().__init__(*args, **kwargs)
 
     @lru_cache(maxsize=3)
-    def continuum_pipeline(self, ikid, *args, flatfield="amplitude", cm_func=cm.basic_continuum, **kwargs):
+    def continuum_pipeline(
+        self, ikid, *args, flatfield="amplitude", cm_func="kidsdata.common_mode.basic_continuum", **kwargs
+    ):
         """Return the continuum data processed by given pipeline.
 
         Parameters
@@ -39,8 +41,8 @@ class KissContinuum(KissRawData):
             the list of kid index in self.list_detector to use
         flatfield: str (None|'amplitude')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
-        cm_function : function
-            the common mode removal function (default: common_mode.basic_continuum)
+        cm_func : str
+            Function to use for the common mode removal, by default 'kidsdata.common_mode.basic_continuum'
 
         Notes
         -----
@@ -74,6 +76,7 @@ class KissContinuum(KissRawData):
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
+            cm_func = _import_from(cm_func)
             output = cm_func(bgrd, *args, **kwargs)
         else:
             output = bgrd

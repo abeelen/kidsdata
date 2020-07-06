@@ -1,6 +1,7 @@
 import warnings
 import numpy as np
 from scipy import optimize
+import importlib
 
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
@@ -378,8 +379,15 @@ def correlated_median_removal(data_array, iref=0, offset=True, flat=True):
         flat_offset = None
 
     if flat:
+        data_ref = data_array[iref]
+    elif flat < 0:
+        data_ref = np.nanmedian(data_array, axis=0)
+    else:
+        data_ref = None
+
+    if data_ref is not None:
         # Compute the median flat field between all detectors
-        flat_field = np.array([np.nanmedian(_data_array / data_array[iref]) for _data_array in data_array])
+        flat_field = np.array([np.nanmedian(_data_array / data_ref) for _data_array in data_array])
         # Remove the flat field value
         data_array /= flat_field[:, np.newaxis]
     else:
@@ -709,3 +717,27 @@ _pool_global = None
 def _pool_initializer(*args):
     global _pool_global
     _pool_global = args
+
+
+# To help importing functions/class from names
+def _import_from(attribute, module=None):
+    """import from a string
+
+    Parameters
+    ----------
+    attribute : str
+        the name of the attribute to import
+    module : str, optionnal
+        the module to import from
+
+    Notes
+    -----
+    if no module is given, the function try to infer one from the attribute name
+    """
+
+    if module is None and "." in attribute:
+        module = ".".join(attribute.split(".")[:-1])
+        attribute = attribute.split(".")[-1]
+
+    module = importlib.import_module(module)
+    return getattr(module, attribute)

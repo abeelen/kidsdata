@@ -16,7 +16,6 @@ from astropy.table import Table
 from astropy.io import fits
 
 from .db import get_scan
-from . import common_mode as cm
 from .kiss_data import KissRawData
 from .kids_plots import show_contmap
 
@@ -130,7 +129,7 @@ def beammap(kd):
 
 
 @kd_or_scan(array=None, extra_data=["I", "Q"])
-def contmap(kd, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filtering, **kwargs):
+def contmap(kd, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.common_mode.pca_filtering", **kwargs):
     """Display a continuum map.
 
     Parameters
@@ -163,7 +162,7 @@ def contmap(kd, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filtering, **kwa
     return kd, fig
 
 
-def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filtering, **kwargs):
+def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.common_mode.pca_filtering", **kwargs):
     """Continuum coaddition of several scans.
 
     Parameters
@@ -172,9 +171,10 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func=cm.pca_filteri
         the list of scans to be coadd
     e_kidpar: str
         the extended kidpar filename to be used
-    cm_func : function
-        the continuum pipeline function to be used
-        and its additionnal keyword
+    cm_func : str
+        the continuum pipeline function to be used...
+    **kwargs:
+        ... and its additionnal keyword
 
     Returns
     -------

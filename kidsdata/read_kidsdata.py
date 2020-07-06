@@ -14,6 +14,8 @@ from collections import namedtuple
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
+from .utils import _import_from
+
 # import line_profiler
 # import atexit
 # profile = line_profiler.LineProfiler()
@@ -676,12 +678,7 @@ def _from_hdf5(parent_group, key, array=None):
             data_asdict = _from_hdf5(item, key, array=array)
             key = key.split("'")[1]
 
-            # Extract module and class from the key
-            module = ".".join(key.split(".")[:-1])
-            class_ = key.split(".")[-1]
-
-            module = importlib.import_module(module)
-            class_ = getattr(module, class_)
+            class_ = _import_from(key)
             return class_(**data_asdict)
         else:
             raise ValueError("Unknown type for {}: {}".format(item.name, _type))
