@@ -6,7 +6,8 @@ import importlib
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
 
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
+from os import sched_getaffinity
 
 from itertools import zip_longest
 
@@ -636,7 +637,7 @@ def fit_circle_leastsq(xs, ys):
     In xs and ys, different circles do not need to have the same number of points
     """
 
-    with Pool(cpu_count()) as pool:
+    with Pool(len(sched_getaffinity(0))) as pool:
         center_2d = pool.starmap(_pool_f2b, zip(xs, ys))
 
     return np.array(center_2d).T

@@ -30,7 +30,8 @@ from .db import RE_SCAN
 
 from .ftsdata import FTSData
 
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
+from os import sched_getaffinity
 from autologging import logged
 
 
@@ -404,7 +405,7 @@ class KissSpectroscopy(KissRawData):
         #     laser_rolls.append(find_shift__roll_chi2(interferograms, laser, laser_mask, roll))
         _this = partial(_pool_find_lasershifts_brute, _roll_func=roll_func)
         with Pool(
-            cpu_count(),
+            len(sched_getaffinity(0)),
             initializer=_pool_initializer,
             initargs=(
                 interferograms,
@@ -413,7 +414,7 @@ class KissSpectroscopy(KissRawData):
                 laser_mask == LaserDirection.BACKWARD.value,
             ),
         ) as pool:
-            laser_rolls = pool.map(_this, np.array_split(rolls, cpu_count()))
+            laser_rolls = pool.map(_this, np.array_split(rolls, len(sched_getaffinity(0))))
 
         # At this stages (n_roll, nint, ndet) -> (ndet, nint, n_roll)
         laser_rolls = np.concatenate([_this for _this in laser_rolls if _this is not None]).transpose(2, 1, 0)
@@ -933,8 +934,8 @@ class KissSpectroscopy(KissRawData):
         self.__log.info("Computing histograms")
 
         _this = partial(_pool_project_xyz, **histdd_kwargs)
-        with Pool(cpu_count(), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
-            results = pool.map(_this, np.array_split(range(sample.shape[0]), cpu_count()))
+        with Pool(len(sched_getaffinity(0)), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
+            results = pool.map(_this, np.array_split(range(sample.shape[0]), len(sched_getaffinity(0))))
         hits = [result[0] for result in results if result is not None]
         data = [result[1] for result in results if result is not None]
         weight = [result[2] for result in results if result is not None]
