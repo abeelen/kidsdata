@@ -5,7 +5,8 @@ import dask.array as da
 from functools import partial
 from itertools import zip_longest
 
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
+from os import sched_getaffinity
 
 from scipy.ndimage.morphology import binary_erosion, binary_opening
 from scipy.ndimage import uniform_filter1d
@@ -22,7 +23,7 @@ import logging
 Module for kiss calibration
 """
 
-logging.debug("KidsCalib Working on {} core".format(cpu_count()))
+logging.debug("KidsCalib Working on {} core".format(len(sched_getaffinity(0))))
 
 
 def continuum(R0, P0, calfact):
@@ -361,11 +362,11 @@ def get_calfact_3pts(
 
     # Switch to multiprocessing
     _reducs = partial(_pool_reducs, _reduc=_reduc)
-    with Pool(cpu_count(), _pool_reducs_initializer, (dataI, A_low, A_high, A_normal)) as pool:
-        x = np.vstack(pool.map(_reducs, grouper(range(nint), nint // cpu_count()))).T.swapaxes(0, 1)
+    with Pool(len(sched_getaffinity(0)), _pool_reducs_initializer, (dataI, A_low, A_high, A_normal)) as pool:
+        x = np.vstack(pool.map(_reducs, grouper(range(nint), nint // len(sched_getaffinity(0))))).T.swapaxes(0, 1)
 
-    with Pool(cpu_count(), _pool_reducs_initializer, (dataQ, A_low, A_high, A_normal)) as pool:
-        y = np.vstack(pool.map(_reducs, grouper(range(nint), nint // cpu_count()))).T.swapaxes(0, 1)
+    with Pool(len(sched_getaffinity(0)), _pool_reducs_initializer, (dataQ, A_low, A_high, A_normal)) as pool:
+        y = np.vstack(pool.map(_reducs, grouper(range(nint), nint // len(sched_getaffinity(0))))).T.swapaxes(0, 1)
 
     # Transform to dask array for later use
     dataI = da.from_array(dataI, name=False)
