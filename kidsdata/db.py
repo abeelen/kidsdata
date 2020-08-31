@@ -8,14 +8,29 @@ from datetime import datetime
 from functools import wraps, partial
 
 import astropy.units as u
-from astropy.table import Table, join, vstack  # for now
+from astropy.time import Time
+from astropy.table import Table, join, vstack, unique, MaskedColumn
 from astropy.utils.console import ProgressBar
 
 
 BASE_DIRS = [Path(os.getenv("KISS_DATA", "/data/KISS/Raw/nika2c-data3/KISS"))]
-DATABASE_SCAN = None
-DATABASE_EXTRA = None
-DATABASE_PARAM = None
+KISSDB_DIR = Path(os.getenv("KISSDB_DIR", "."))
+
+DB_SCAN_FILE = KISSDB_DIR / ".kissdb_scans.fits"
+DB_EXTRA_FILE = KISSDB_DIR / ".kissdb_extra.fits"
+DB_PARAM_FILE = KISSDB_DIR / ".kissdb_param.fits"
+
+table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
+DATABASE_SCAN = Table.read(DB_SCAN_FILE, **table_read_kwd) if DB_SCAN_FILE.exists() else None
+DATABASE_EXTRA = Table.read(DB_EXTRA_FILE, **table_read_kwd) if DB_EXTRA_FILE.exists() else None
+DATABASE_PARAM = Table.read(DB_PARAM_FILE, **table_read_kwd) if DB_PARAM_FILE.exists() else None
+
+# If we read the data, the time column will be in float... fix that to iso format
+logging.debug("Converting time in DB table")
+for table in [DATABASE_SCAN, DATABASE_EXTRA]:
+    for key in ["date", "ctime", "mtime"]:
+        if (table is not None) and (key in table.colnames):
+            table[key] = Time(table[key], format="iso")
 
 __all__ = ["list_scan", "get_scan", "list_extra", "get_extra"]
 
@@ -75,16 +90,21 @@ def update_scan_database(dirs=None):
         NEW_SCAN = Table(
             names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
         )
+        for key in ["date", "ctime", "mtime"]:
+            NEW_SCAN[key] = Time(NEW_SCAN[key]).iso
         NEW_SCAN.sort("date")
         NEW_SCAN["size"].unit = "byte"
-        NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MiB)
+        NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MB)
         NEW_SCAN["size"].info.format = "7.3f"
 
         if DATABASE_SCAN is not None:
+            # TODO: This fails on Time Column...
             DATABASE_SCAN = vstack([DATABASE_SCAN, NEW_SCAN])
             DATABASE_SCAN.sort("scan")
         else:
             DATABASE_SCAN = NEW_SCAN
+
+        DATABASE_SCAN.write(DB_SCAN_FILE, overwrite=True)
 
 
 def update_extra_database(dirs=None):
@@ -132,9 +152,12 @@ def update_extra_database(dirs=None):
         logging.info("Found {} new extra scans".format(len(data_rows)))
 
         NEW_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
+        for key in ["date", "ctime", "mtime"]:
+            NEW_EXTRA[key] = Time(NEW_EXTRA[key]).iso
+
         NEW_EXTRA.sort("date")
         NEW_EXTRA["size"].unit = "byte"
-        NEW_EXTRA["size"] = NEW_EXTRA["size"].to(u.MiB)
+        NEW_EXTRA["size"] = NEW_EXTRA["size"].to(u.MB)
         NEW_EXTRA["size"].info.format = "7.3f"
 
         if DATABASE_EXTRA is not None:
@@ -142,6 +165,8 @@ def update_extra_database(dirs=None):
             DATABASE_EXTRA.sort("scan")
         else:
             DATABASE_EXTRA = NEW_EXTRA
+
+        DATABASE_EXTRA.write(DB_EXTRA_FILE, overwrite=True)
 
 
 def auto_update(func=None, scan=True, extra=True):
@@ -170,7 +195,11 @@ def extend_database():
 
     data_rows = []
     param_rows = {}
-    for filename in ProgressBar(DATABASE_SCAN["filename"]):
+    for item in ProgressBar(DATABASE_SCAN):
+        if "param_id" in item.colnames and item["param_id"]:
+            # Skip if present
+            continue
+        filename = item["filename"]
         kd = KidsRawData(filename)
         hash_param = hash(str(kd.param_c))
         data_row = {"filename": filename, "param_id": hash_param}
@@ -180,18 +209,53 @@ def extend_database():
         param_rows[hash_param] = param_row
         del kd
 
-    param_rows = [*param_rows.values()]
+    if len(param_rows) > 0:
+        # We found new scans and/or new parameters
+        param_rows = [*param_rows.values()]
 
-    # Get unique parameter list
-    param_set = set(chain(*[param.keys() for param in param_rows]))
-    # Fill missing value
-    for param in param_rows:
-        for key in param_set:
-            if key not in param:
-                param[key] = None
+        # Get unique parameter list
+        param_set = set(
+            chain(*[param.keys() for param in param_rows] + [DATABASE_PARAM.colnames if DATABASE_PARAM else []])
+        )
 
-    DATABASE_PARAM = Table(param_rows)
-    DATABASE_SCAN = join(DATABASE_SCAN, Table(data_rows))
+        # Fill missing value
+        missing = []
+        for param in param_rows:
+            for key in param_set:
+                if key not in param:
+                    param[key] = None
+                    missing.append(key)
+        missing = set(missing)
+
+        NEW_PARAM = Table(param_rows)
+        for key in missing:
+            mask = NEW_PARAM[key] == None  # noqa: E711
+            _dtype = type(NEW_PARAM[key][~mask][0])
+            NEW_PARAM[key][mask] = _dtype(0)
+            NEW_PARAM[key] = MaskedColumn(_dtype(NEW_PARAM[key].data), mask=mask)
+
+        if DATABASE_PARAM is not None:
+            DATABASE_PARAM = vstack([DATABASE_PARAM, NEW_PARAM])
+            DATABASE_PARAM = unique(DATABASE_PARAM, "param_id")
+        else:
+            DATABASE_PARAM = NEW_PARAM
+
+        DATABASE_PARAM.write(DB_PARAM_FILE)
+
+        # Update DATABASE_SCAN
+        NEW_PARAM = Table(data_rows)
+        if "param_id" in DATABASE_SCAN.colnames:
+            DATABASE_SCAN.add_index("filename")
+            idx = DATABASE_SCAN.loc_indices[NEW_PARAM["filename"]]
+            DATABASE_SCAN["param_id"][idx] = NEW_PARAM["param_id"]
+        else:
+            # a simple join
+            DATABASE_SCAN = join(DATABASE_SCAN, NEW_PARAM, keys="filename", join_type="outer")
+
+        DATABASE_SCAN.sort("scan")
+
+        DATABASE_PARAM.write(DB_PARAM_FILE, overwrite=True)
+        DATABASE_SCAN.write(DB_SCAN_FILE, overwrite=True)
 
 
 @auto_update(extra=False)
@@ -283,7 +347,7 @@ def list_scan(output=False, **kwargs):
 
 
 @auto_update(scan=False)
-def list_extra(**kwargs):
+def list_extra(output=False, **kwargs):
     """List (with filtering) all extra scans in the database.
 
     Notes
@@ -305,4 +369,7 @@ def list_extra(**kwargs):
             else:
                 _database = _database[_database[key] == kwargs[key]]
 
-    print(_database[["name", "date", "size"]])
+    if output:
+        return _database
+    else:
+        _database[["name", "date", "size"]].pprint(max_lines=-1, max_width=-1)
