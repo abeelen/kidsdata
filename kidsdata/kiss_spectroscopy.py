@@ -25,6 +25,7 @@ from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_
 from .kiss_data import KissRawData
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
 from .utils import _import_from
+from .utils import interferograms_regrid
 from .kids_calib import ModulationValue, A_masq_to_flag
 from .db import RE_SCAN
 
@@ -46,13 +47,6 @@ _pool_global = None
 def _pool_initializer(*args):
     global _pool_global
     _pool_global = args
-
-
-def _pool_opd(i):
-    """Helper function to compute optical path differences in parallel."""
-    global _pool_global
-    laser, laser_mask, max_mask = _pool_global
-    return [np.median(_laser[_that]) for _laser, _that in zip(laser[:, laser_mask], max_mask[i])]
 
 
 def _pool_project_xyz_worker(ikid, **kwargs):
@@ -138,6 +132,16 @@ def _pool_find_lasershifts_brute(rolls, **kwargs):
         chi2.append(_pool_find_lasershifts_brute_worker(roll, **kwargs))
 
     return chi2
+
+
+def _pool_interferograms_regrid(i_kid, bins=None):
+    """Regrid interferograms to a common grid."""
+
+    global _pool_global
+
+    interferograms, laser = _pool_global
+
+    return interferograms_regrid(interferograms[i_kid], laser, bins=bins)
 
 
 @logged
@@ -238,18 +242,18 @@ class KissSpectroscopy(KissRawData):
         A_masq = binary_dilation(A_masq, structure, iterations=2)
 
         # Make kidfreq into a masked array (copy data just in case here, should not be needed)
-        # This copy the data...
+        # TODO: This copy the data...
         interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(A_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0
+            self.kidfreq, mask=np.tile(A_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
 
         if self.optical_flip:
             # By optical construction KB = -KA
             # KA = [det.startswith('KA') for det in self.list_detector]
             # KB = [det.startswith('KB') for det in self.list_detector]
-            KA = np.char.startswith(self.list_detector, "KA")
-            # KB = np.char.startswith(self.list_detector, 'KB')
-            interferograms[KA] *= -1
+            # KA = np.char.startswith(self.list_detector, "KA")
+            to_flip = np.char.startswith(self.list_detector, "KB")
+            interferograms[to_flip] *= -1
 
         # MOVE this to interferogram_pipeline
         if self.mask_glitches:
@@ -339,6 +343,10 @@ class KissSpectroscopy(KissRawData):
         # Find the forward and backward phases
         # rough cut on the the mean mirror position : find the large peaks of the derivatives
         turnovers, _ = find_peaks(-np.abs(np.diff(laser.mean(axis=0))), width=[100])
+
+        # Mainly for cosine simulations which actually start on a turnover
+        if len(turnovers) == 1:
+            turnovers = np.append([0], turnovers)
 
         assert len(turnovers) == 2
 
@@ -475,17 +483,17 @@ class KissSpectroscopy(KissRawData):
         return lasershifts
 
     @lru_cache(maxsize=1)
-    def opds(self, ikid=None, mode="common", plot=False):
+    def opds(self, ikid=None, mode="per_det", bins="sqrt"):
         """Retrieve the optical path differences for each detector.
 
         Parameters
         ----------
          ikid : tuple
             the list of kid index in self.list_detector to use (default: all)
-        mode : str ('common' | 'per_det' | 'per_int')
+        mode : str ('common' | 'per_det' )
             See notes
-        plot : bool
-            plot intermediate results
+        bins : int or sequence of scalars or str, optional
+            the binning for the common laser position, by default 'sqrt'
 
         Returns
         -------
@@ -496,12 +504,9 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        Three modes are possible :
-            * 'common' : one single zpd for all the detectors
-            * 'per_det' : one zpd per detector
-            * 'per_int' : one zpd per detector and interferogram
-
-        The 'per_int' mode is too noisy and do not work
+        Two modes are possible :
+            * 'common' : one single zld for all the detectors
+            * 'per_det' : one zld per detector
 
         Notes
         -----
@@ -513,67 +518,29 @@ class KissSpectroscopy(KissRawData):
             ikid = np.asarray(ikid)
 
         # Raw interferograms, without pipeline to get residuals peaks
-        interferograms = self.interferograms[ikid]
+        # interferograms = self.interferograms[ikid]
+        interferograms = self.interferograms_pipeline(ikid=tuple(ikid), cm_func=None, flatfield=None, baseline=3)
 
-        # Global Shift MUST be applied
+        # Global Shift MUST be applied before using this...
         laser = self.laser
-        laser_directions = self.laser_directions
 
-        laser_forward_mask = laser_directions == LaserDirection.FORWARD.value
-        laser_backward_mask = laser_directions == LaserDirection.BACKWARD.value
+        # Regrid all interferograms to the same laser grid
+        binned_laser, bins = np.histogram(laser.flatten(), bins="sqrt")
+        c_bins = np.mean([bins[1:], bins[:-1]], axis=0)
 
-        import dask.array as da
+        self.__log.info("Regriding iterferograms")
+        worker = partial(_pool_interferograms_regrid, bins=bins)
+        with Pool(cpu_count(), initializer=_pool_initializer, initargs=(interferograms.filled(0), laser)) as p:
+            output = p.map(worker, range(len(ikid)))
 
-        dainterferograms = da.from_array(interferograms, name=False)
-        interferograms_forward = dainterferograms[..., laser_forward_mask]
-        interferograms_backward = dainterferograms[..., laser_backward_mask]
+        output = np.array(output).reshape(interferograms.shape[0], interferograms.shape[1], -1)
 
-        max_forward = interferograms_forward == da.max(interferograms_forward, axis=2, keepdims=1)
-        max_backward = interferograms_backward == da.max(interferograms_backward, axis=2, keepdims=1)
-        max_forward = da.ma.filled(max_forward, False).compute()
-        max_backward = da.ma.filled(max_backward, False).compute()
-
-        # bad_max = (max_forward.sum(axis=2) > 1) | (max_backward.sum(axis=2) > 1)
-        # max_forward[bad_max, :] = False
-        # max_backward[bad_max, :] = False
-
-        # Find the maximum of interferograms in forward and backward interferograms (Note : this is a duplicate from find_delay)
-        # interferograms_forward = interferograms[..., laser_forward]
-        # interferograms_backward = interferograms[..., laser_backward]
-        # max_forward = interferograms_forward == np.max(interferograms_forward, axis=2, keepdims=1)
-        # max_backward = interferograms_backward == np.max(interferograms_backward, axis=2, keepdims=1)
-
-        # Sometimes interferograms have several maxima, impossible to disantangle, need to flag them here
-        # bad_max = (max_forward.sum(axis=2) > 1) | (max_backward.sum(axis=2) > 1)
-        # max_forward.mask[bad_max, :] = True
-        # max_backward.mask[bad_max, :] = True
-        self.__log.info("Finding interferograms maxima")
-
-        # Retrieve the max per interferogram to set the 0
-        with Pool(initializer=_pool_initializer, initargs=(laser, laser_forward_mask, max_forward)) as pool:
-            max_laser_forward = np.asarray(pool.map(_pool_opd, np.arange(max_forward.shape[0])))
-
-        with Pool(initializer=_pool_initializer, initargs=(laser, laser_backward_mask, max_backward)) as pool:
-            max_laser_backward = np.asarray(pool.map(_pool_opd, np.arange(max_backward.shape[0])))
-
+        # Take the mean per detector
+        output_per_det = np.nanmean(output, axis=1)
         self.__log.info("Computing Zero Laser Differences")
-        zlds = np.array([max_laser_backward, max_laser_forward]).mean(axis=0)
+        zlds = c_bins[np.argmax(output_per_det, axis=1)]
 
-        if plot:
-            fig, axes = plt.subplots(ncols=2, sharex=True)
-            kwargs = {"range": (82, 88), "bins": 200, "density": True}
-            axes[0].hist(max_laser_forward.flatten(), label="forward", alpha=0.3, **kwargs)
-            axes[0].hist(max_laser_backward.flatten(), label="backward", alpha=0.3, **kwargs)
-            axes[0].hist(
-                np.concatenate([max_laser_forward, max_laser_backward]).flatten(), label="full", alpha=0.7, **kwargs
-            )
-            axes[0].axvline(np.median(zlds), c="r")
-            axes[0].set_title("overall max. laser position")
-            axes[0].legend()
-            if mode != "common":
-                axes[1].hist(zlds.flatten(), **kwargs)
-            axes[1].axvline(np.median(zlds), c="r")
-            axes[1].set_title("per det. max. laser position")
+        # spec_FF = np.max(output_per_det, axis=1)
 
         if mode == "common":
             # overall median
@@ -581,10 +548,7 @@ class KissSpectroscopy(KissRawData):
             opds = np.broadcast_to(laser - zlds, interferograms.shape)
         elif mode == "per_det":
             # per detector median
-            zlds = np.nanmedian(zlds, axis=1)
             opds = np.broadcast_to(laser, interferograms.shape) - zlds[:, None, None]
-        elif mode == "per_int":
-            opds = np.broadcast_to(laser, interferograms.shape) - zlds[:, :, None]
 
         # Optical path differences are actually twice the laser position difference
         opds = 2 * opds
@@ -593,7 +557,7 @@ class KissSpectroscopy(KissRawData):
 
     @lru_cache(maxsize=3)
     def interferograms_pipeline(
-        self, ikid=None, flatfield="amplitude", cm_func="kidsdata.common_mode.pca_filtering", **kwargs
+        self, ikid=None, flatfield="amplitude", baseline=None, cm_func="kidsdata.common_mode.pca_filtering", **kwargs
     ):
         """Return the interferograms processed by given pipeline.
 
@@ -603,8 +567,12 @@ class KissSpectroscopy(KissRawData):
             the list of kid index in self.list_detector to use (default: all)
         flatfield: str (None|'amplitude'|'interferograms'|'specFF')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
+        baseline : int, optionnal
+            the polynomial degree (in opd space) of final baselines to be removed
         cm_func : str
             Function to use for the common mode removal, by default 'kidsdata.common_mode.pca_filtering'
+        **kwargs :
+            Additionnal keyword argument passed to cm_func
 
         Returns
         -------
@@ -641,18 +609,35 @@ class KissSpectroscopy(KissRawData):
         if isinstance(flatfield, MaskedColumn):
             flatfield = flatfield.filled(np.nan)
 
-        interferograms *= flatfield[:, np.newaxis, np.newaxis]
+        # Do not touch self.interferograms -> copy
+        interferograms = interferograms * flatfield[:, np.newaxis, np.newaxis]
         shape = interferograms.shape
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
+
+            # ugly hack for now :
+            if cm_func == "kidsdata.common_mode.common_itg" and "laser" not in kwargs:
+                kwargs["laser"] = self.laser
+
             cm_func = _import_from(cm_func)
+            # There is a copy here (with the .filled(0))
             output = cm_func(interferograms.reshape(shape[0], -1).filled(0), **kwargs).reshape(shape)
             # Put back the original mask
             self.__log.info("Masking back")
             output = np.ma.array(output, mask=interferograms.mask)
         else:
             output = interferograms
+
+        if baseline is not None:
+            self.__log.info("Polynomial baseline per block on laser position of deg {}".format(baseline))
+            baselines = []
+            for _laser, _output in zip(self.laser, output.swapaxes(0, 1)):
+                # .filled is mandatory here...
+                p = np.polynomial.polynomial.polyfit(_laser, _output.T.filled(0), deg=baseline)
+                baselines.append(np.polynomial.polynomial.polyval(_laser, p))
+
+            output -= np.array(baselines).swapaxes(0, 1)
 
         return output
 
@@ -781,6 +766,7 @@ class KissSpectroscopy(KissRawData):
         A_high = A_masq_to_flag(A_masq, ModulationValue.high)
         A_low = A_masq_to_flag(A_masq, ModulationValue.low)
 
+        # Compute median standard deviation in the modulation points
         mad_std = []
         for itgs, low, high in zip(interferograms.swapaxes(0, 1), A_low, A_high):
             itgs[:, low] -= np.median(itgs[:, low])
@@ -844,7 +830,7 @@ class KissSpectroscopy(KissRawData):
         if weights is None:
             sample_weights = np.ones(sample.shape[0])
         elif weights == "std":
-            self.__log.warnings("Using std weights in spectroscopy is probably a bad idea")
+            self.__log.warning("Using std weights in spectroscopy is probably a bad idea")
             with np.errstate(divide="ignore"):
                 # Compute the weight per kid as the std of the median per interferogram
                 # Probably NOT a good idea !!!!

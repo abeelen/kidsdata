@@ -123,7 +123,9 @@ def project(x, y, data, shape, weights=None):
     return output, _weights, _hits.astype(np.int)
 
 
-def build_celestial_wcs(lon, lat, crval=None, crpix=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, cunit="deg"):
+def build_celestial_wcs(
+    lon, lat, crval=None, crpix=None, ctype=("TLON-TAN", "TLAT-TAN"), cdelt=0.1, cunit="deg", **kwargs
+):
     """Build a celestial wcs with square pixels for the projection.
 
     Arguments
@@ -741,3 +743,36 @@ def _import_from(attribute, module=None):
 
     module = importlib.import_module(module)
     return getattr(module, attribute)
+
+
+def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
+    """Regrid a given set of interferograms into a common grid
+
+    Parameters
+    ----------
+    interferograms : 2D array (n_blocks, n_points_per_block)
+        the interferograms to be regrided
+    laser : 2D array (n_blocks, n_points_per_block)
+        the laser position
+    bins : int or sequence of scalars or str, optional
+        the binning for the regrided interferograms (see `numpy.histogram` bins)
+    flatten : bool
+        do we flatten the interferograms, by default False
+
+    Returns
+    -------
+    output : 2D array (n_blocks, n_bins) or (n_bins, ) if flatten is True
+        The regrided interferograms
+    """
+
+    if flatten:
+        laser = [laser.flatten()]
+        interferograms = [interferograms.flatten()]
+
+    output = []
+    for _laser, _interferograms in zip(laser, interferograms):
+        histo, _ = np.histogram(_laser, weights=_interferograms, bins=bins)
+        hits, _ = np.histogram(_laser, bins=bins)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            output.append(histo / hits)
+    return np.squeeze(output)
