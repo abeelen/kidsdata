@@ -407,7 +407,7 @@ class KidsRawData(object):
             self.read_data(list_data=missing, list_detector=self.list_detector)
 
         # Check that everything was read
-        for key in attr_list:
+        for key in missing:
             assert hasattr(self, key) and (getattr(self, key) is not None), "Missing data {}".format(key)
 
         # Check in _dependancies that everything was read, if not we are missing something
@@ -418,7 +418,7 @@ class KidsRawData(object):
             return missing or None
         return None
 
-    def get_list_detector(self, namedet=None, flag=None):
+    def get_list_detector(self, namedet=None, flag=None, typedet=None):
         """Retrieve the valid detector list given a pattern.
 
         Attributes
@@ -427,6 +427,8 @@ class KidsRawData(object):
             any string pattern a KID name should match in a `in` operation
         flag: int
             select only KIDs with the given flag
+        typedet: int or list of int
+            select only KIDs with the given type or types
 
         Returns
         -------
@@ -438,6 +440,10 @@ class KidsRawData(object):
             mask = mask & [namedet in name for name in self._kidpar["namedet"]]
         if flag is not None:
             mask = mask & self._kidpar["flag"] == flag
+        if typedet is not None:
+            if not isinstance(typedet, list):
+                typedet = [typedet]
+            mask = mask & [_typedet in typedet for _typedet in self._kidpar["typedet"]]
 
         return np.array(self._kidpar[mask]["namedet"])
 

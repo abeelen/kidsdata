@@ -76,7 +76,7 @@ class KissRawData(KidsRawData):
         self.nint = self.nsamples // self.nptint  # Number of interferograms
 
         self.pointing_model = pointing_model
-        self.__calib = {}
+        self.__calib = None
 
     def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
@@ -121,7 +121,7 @@ class KissRawData(KidsRawData):
     def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", *args, **kwargs):
         """Calibrate the KIDS timeline."""
 
-        if self.__calib == {}:
+        if hasattr(self, "_KissRawData___calib") is not None:
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)

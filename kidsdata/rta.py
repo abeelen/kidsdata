@@ -16,7 +16,7 @@ from astropy.table import Table
 from astropy.io import fits
 
 from .db import get_scan
-from .kiss_data import KissRawData
+from .kiss_data import KissData
 from .kids_plots import show_contmap
 
 plt.ion()
@@ -45,7 +45,7 @@ def read_scan(scan, array=None, extra_data=None):
     kd : KissRawData
         the corresponding object
     """
-    kd = KissRawData(get_scan(scan))
+    kd = KissData(get_scan(scan))
 
     list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
 
@@ -60,7 +60,7 @@ def read_scan(scan, array=None, extra_data=None):
     # Add extra data at read time directly... otherwise there is a core dump...
     if extra_data is not None:
         list_data = list_data + extra_data
-    list_detector = kd.get_list_detector(array, flag=0)
+    list_detector = kd.get_list_detector(array, flag=0, typedet=1)
 
     # Read data
     kd.read_data(list_data=list_data, list_detector=list_detector, silent=True)
@@ -312,7 +312,7 @@ def skydip(scans):
 
     for scan in scans:
 
-        kd = KissRawData(scan)
+        kd = KissData(scan)
         kd.read_data(list_data=["A_masq", "I", "Q", "F_tone", "F_tl_Az", "F_tl_El"])
 
         # TODO: Why do we need copy here, seems that numpy strides are making
