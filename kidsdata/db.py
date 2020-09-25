@@ -264,7 +264,7 @@ def get_scan(scan=None):
 
     Parameters
     ----------
-    scan : int
+    scan : int or str
         the scan number to retrieve
 
     Returns
@@ -272,6 +272,11 @@ def get_scan(scan=None):
     filename : str
        the full path of the file
     """
+    try:
+        scan = int(scan)
+    except ValueError as ex:
+        raise ValueError("{} can not be converted to int: {}".format(scan, ex))
+
     mask = DATABASE_SCAN["scan"] == scan
 
     if not np.any(mask):
