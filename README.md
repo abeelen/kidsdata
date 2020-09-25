@@ -97,7 +97,7 @@ plt.ion()
 kd = KissRawData(get_scan(431))
 
 # Read All the valid data from array B
-list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "Q"])
+list_data = " ".join(kd.names.DataSc + kd.names.DataUc + ["I", "Q"])
 kd.read_data(list_data=list_data, list_detector=kd.get_list_detector("B", flag=0), silent=True)
 
 # Compute and plot the beam map

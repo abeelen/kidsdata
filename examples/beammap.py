@@ -3,20 +3,22 @@ import matplotlib.pyplot as plt
 
 from astropy.wcs import WCS
 
-from src.kiss_data import KissRawData
-from src.db import list_scan, get_scan
+from kidsdata import KissData
+from kidsdata.db import list_scan, get_scan
 
 plt.ion()
 
 # Open the scan 431
-kd = KissRawData(get_scan(431))
+kd = KissData(get_scan(431))
 
 # Read All the valid data from array B
-list_data = " ".join(kd.names.ComputedDataSc + kd.names.ComputedDataUc + ["I", "Q"])
-kd.read_data(list_data=list_data, list_detector=kd.get_list_detector("B", flag=0), silent=True)
+list_data = kd.names.DataSc + kd.names.DataUc + ["I", "Q"]
+kd.read_data(list_data=list_data, list_detector=kd.get_list_detector("B", flag=0, typedet=1), silent=True)
 
 # Compute and plot the beam map
-beammap, (datas, wcs, popts) = kd.plot_beammap(coord="pdiff")
+beammap, (datas, wcs, popts) = kd.plot_beammap(
+    coord="pdiff", flatfield=None, cm_func="kidsdata.common_mode.pca_filtering", ncomp=2
+)
 
 # Update the kidpar
 for key in ["x0", "y0"]:

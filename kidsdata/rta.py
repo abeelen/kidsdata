@@ -47,7 +47,7 @@ def read_scan(scan, array=None, extra_data=None):
     """
     kd = KissData(get_scan(scan))
 
-    list_data = kd.names.ComputedDataSc + kd.names.ComputedDataUc
+    list_data = kd.names.DataSc + kd.names.DataUc
 
     # Do not use F_sky_* from file....
     remove_Uc = ["F_sky_Az", "F_sky_El"]

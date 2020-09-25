@@ -252,12 +252,7 @@ class KidsRawData(object):
 
             # Removing cache data from the requested list_data:
             if list_data == "all":
-                list_data = (
-                    self.names.ComputedDataSc
-                    + self.names.ComputedDataSd
-                    + self.names.ComputedDataUc
-                    + self.names.ComputedDataUd
-                )
+                list_data = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
 
             keys = [key for data in datas for key in data if key in list_data]
 

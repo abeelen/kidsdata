@@ -58,7 +58,7 @@ TconfigHeader = namedtuple(
 )
 
 # Tname list the name of the computed/requested variables and detectors
-TName = namedtuple("TName", ["ComputedDataSc", "ComputedDataSd", "ComputedDataUc", "ComputedDataUd", "RawDataDetector"])
+TName = namedtuple("TName", ["DataSc", "DataSd", "DataUc", "DataUd", "RawDataDetector"])
 
 
 DETECTORS_CODE = {"kid": 3, "kod": 2, "all": 1, "a1": 4, "a2": 5, "a3": 6}
@@ -81,8 +81,8 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
         Full filename
     det2read : str (kid, kod, all, a1, a2, a3)
         Detector type to read
-    list_data : list or 'all'
-        A list containing the list of data to be read, or the string 'all'
+    list_data : list or 'all' or 'raw'
+        A list containing the list of data to be read, or the string 'all' or 'raw'
     fix : boolean
         fix the end of the detector names
     silent : bool (default:True)
@@ -104,7 +104,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
         the total  number of sample in the file
 
     """
-    if list_data == "all":
+    if list_data in ["all", "raw"]:
         str_data = list_data
     else:
         str_data = " ".join(list_data)
@@ -289,8 +289,8 @@ def read_all(
         Full filename
     det2read : str {kid, kod, all, a1, a2, a3}
         Detector type to read
-    list_data : list or 'all'
-        A list containing the list of data to be read, or the string 'all'
+    list_data : list of string, or  'all' or 'raw'
+        A list containing the list of data to be read, or the string 'all' to read all data, or 'raw' to only read the raw data
     list_detector : :class:`~numpy.array`
         The names of detectors to read, by default `None` read all available KIDs.
     start : int
@@ -324,7 +324,7 @@ def read_all(
 
     """
 
-    if list_data == "all":
+    if list_data in ["all", "raw"]:
         str_data = list_data
     else:
         str_data = " ".join(list_data)
@@ -367,10 +367,10 @@ def read_all(
     ]
 
     # Number of data to read
-    nb_Sc = len(names.ComputedDataSc)
-    nb_Sd = len(names.ComputedDataSd)
-    nb_Uc = len(names.ComputedDataUc)
-    nb_Ud = len(names.ComputedDataUd)
+    nb_Sc = len(names.DataSc)
+    nb_Sd = len(names.DataSd)
+    nb_Uc = len(names.DataUc)
+    nb_Ud = len(names.DataUd)
     nb_detectors = list_detector[0]
 
     np_pt_bloc = header.nb_pt_bloc
@@ -433,19 +433,19 @@ def read_all(
 
     # TODO: Proper reshaping of quantities here !!!
 
-    dataSc = {name: data.reshape(-1, np_pt_bloc).copy() for name, data in zip(names.ComputedDataSc, _dataSc)}
+    dataSc = {name: data.reshape(-1, np_pt_bloc).copy() for name, data in zip(names.DataSc, _dataSc)}
     del _dataSc
     dataSd = {
         name: data.reshape(nb_detectors, -1, np_pt_bloc).astype(np.float32, order=ordering, casting="unsafe")
-        for name, data in zip(names.ComputedDataSd, _dataSd)
+        for name, data in zip(names.DataSd, _dataSd)
     }
     del _dataSd
 
-    dataUc = {name: data.copy() for name, data in zip(names.ComputedDataUc, _dataUc)}
+    dataUc = {name: data.copy() for name, data in zip(names.DataUc, _dataUc)}
     del _dataUc
     dataUd = {
         name: data.reshape(nb_detectors, -1).astype(np.float32, order=ordering, casting="unsafe")
-        for name, data in zip(names.ComputedDataUd, _dataUd)
+        for name, data in zip(names.DataUd, _dataUd)
     }
     del _dataUd
 
@@ -795,7 +795,7 @@ if __name__ == "__main__":
     # TODO: Save read_info output
     header, version_header, param_c, kidpar, names, nb_read_samples = read_info(input)
     # TODO: Some of the data must be computed on-line... check that in C library
-    ComputedData = [
+    Data = [
         "u_ph_IQ",
         "u_ph_rel",
         "ph_IQ",
@@ -824,8 +824,8 @@ if __name__ == "__main__":
         "sampleU",
     ]
 
-    list_data = names.ComputedDataSc + names.ComputedDataSd + names.ComputedDataUc + names.ComputedDataUd
-    for item in ComputedData:
+    list_data = names.DataSc + names.DataSd + names.DataUc + names.DataUd
+    for item in Data:
         if item in list_data:
             list_data.remove(item)
 
