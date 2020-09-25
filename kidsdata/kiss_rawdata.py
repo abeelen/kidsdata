@@ -121,7 +121,7 @@ class KissRawData(KidsRawData):
     def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", *args, **kwargs):
         """Calibrate the KIDS timeline."""
 
-        if hasattr(self, "_KissRawData___calib") is not None:
+        if getattr(self, "__calib", None) is None:
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)
@@ -144,7 +144,7 @@ class KissRawData(KidsRawData):
             # I & Q will need A_masq
             (["I", "Q"], ["I", "Q", "A_masq"]),
             # Calibration data depends on the I, Q & A_masq raw data
-            (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq"], ["I", "Q", "A_masq"]),
+            (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq", "continuum"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
             (["mask_tel"], ["F_tl_Az", "F_tl_El"]),

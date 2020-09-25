@@ -56,6 +56,8 @@ class KissContinuum(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
+        self._KissRawData__check_attributes(["continuum"])
+
         # KIDs selection
         bgrd = self.continuum[ikid]
 
