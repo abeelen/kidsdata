@@ -91,11 +91,11 @@ def update_scan_database(dirs=None):
             names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
         )
         for key in ["date", "ctime", "mtime"]:
-            NEW_SCAN[key] = Time(NEW_SCAN[key]).iso
+            NEW_SCAN[key] = Time(NEW_SCAN[key])
+            NEW_SCAN[key].format = "iso"
         NEW_SCAN.sort("date")
         NEW_SCAN["size"].unit = "byte"
         NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MB)
-        NEW_SCAN["size"].info.format = "7.3f"
 
         if DATABASE_SCAN is not None:
             # TODO: This fails on Time Column...
