@@ -5,4 +5,4 @@ matplotlib
 astropy>=3.2.3
 autologging
 h5py
-
+dask
