@@ -107,7 +107,8 @@ class KidsRawData(object):
 
         if self._cache_filename.exists():
             self.__log.info("Cache file found")
-            # self._cache = h5py.File(self._cache_filename, "r")
+            # Need to keep it as open file if we use dask arrays (memmap)
+            self._cache = h5py.File(self._cache_filename, "r")
 
     def __len__(self):
         return self.nsamples

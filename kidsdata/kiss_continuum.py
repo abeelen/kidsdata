@@ -60,7 +60,6 @@ class KissContinuum(KissRawData):
 
         # KIDs selection
         bgrd = self.continuum[ikid]
-
         # FlatField normalization
         self.__log.info("Applying flatfield : {}".format(flatfield))
         if flatfield is None:
@@ -69,7 +68,7 @@ class KissContinuum(KissRawData):
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             flatfield = _kidpar[flatfield].data
         else:
-            raise ValueError("Can not use this fieldfield : {}".format(flatfield))
+            raise ValueError("Can not use this flatfield : {}".format(flatfield))
 
         if isinstance(flatfield, (MaskedColumn, np.ma.MaskedArray)):
             flatfield = flatfield.filled(np.nan)
@@ -205,10 +204,29 @@ class KissContinuum(KissRawData):
         if shape is None:
             shape = _shape
 
-        if weights == "std":
+        self.__log.info("Computing weights")
+        if weights is None:
+            bgrd_weights = np.ones(bgrds.shape[0])
+        elif weights == "std":
             bgrd_weights = 1 / bgrds.std(axis=1) ** 2
+        elif weights in self.kidpar.keys():
+            _kidpar = self.kidpar.loc[self.list_detector[ikid]]
+            bgrd_weights = _kidpar[weights].data
+        else:
+            raise ValueError("Unknown weights : {}".format(weights))
+
+        bad_weight = np.isnan(bgrd_weights) | np.isinf(bgrd_weights)
+        if np.any(bad_weight):
+            bgrd_weights[bad_weight] = 0
+
+        if isinstance(bgrd_weights, np.ma.MaskedArray):
+            bgrd_weights = bgrd_weights.filled(0)
 
         bgrd_weights = np.repeat(bgrd_weights, bgrds.shape[1]).reshape(bgrds.shape)
+
+        if isinstance(bgrds, np.ma.MaskedArray):
+            bgrd_weights[bgrds.mask] = 0
+            bgrds = bgrds.filled(0)
 
         output, weight, hits = project(x.flatten(), y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
@@ -252,6 +270,7 @@ class KissContinuum(KissRawData):
         el = getattr(self, el_coord)[mask_tel]
 
         # Pipeline is here : simple baseline for now
+        kwargs["flatfield"] = None
         bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
 
         # In case we project only one detector

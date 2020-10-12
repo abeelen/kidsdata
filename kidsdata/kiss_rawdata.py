@@ -76,7 +76,7 @@ class KissRawData(KidsRawData):
         self.nint = self.nsamples // self.nptint  # Number of interferograms
 
         self.pointing_model = pointing_model
-        self.__calib = None
+        self.__calib = {}
 
     def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
@@ -210,9 +210,11 @@ class KissRawData(KidsRawData):
         self.__check_attributes(["Icc", "Qcc", "calfact", "kidfreq"])
         return kids_plots.calibPlot(self, *args, **kwargs)
 
-    def plot_pointing(self, *args, **kwargs):
+    def plot_pointing(self, *args, coord="tl", **kwargs):
         """Plot azimuth and elevation to check pointing."""
-        self.__check_attributes(["F_tl_az", " F_tl_el"])
+        # TODO: Generalize that function
+        warnings.warn("Deprecated function needs update.", DeprecationWarning)
+        self.__check_attributes(["F_{}_az".format(coord), " F_{}_el".format(coord)])
         return kids_plots.checkPointing(self, *args, **kwargs)
 
     def read_data(self, *args, cache=False, array=np.array, **kwargs):
@@ -269,6 +271,9 @@ class KissRawData(KidsRawData):
 
         # In case we do not read the full file, nsamples has changed
         self.nint = self.nsamples // self.nptint
+
+        # Default telescope mask : keep all/undersampled position per block
+        self.mask_tel = np.ones(self.nint, dtype=np.bool)
 
         if "indice" in self._KidsRawData__dataSc.keys():
             indice = self._KidsRawData__dataSc["indice"]
