@@ -153,7 +153,8 @@ def update_extra_database(dirs=None):
 
         NEW_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
         for key in ["date", "ctime", "mtime"]:
-            NEW_EXTRA[key] = Time(NEW_EXTRA[key]).iso
+            NEW_EXTRA[key] = Time(NEW_EXTRA[key])
+            NEW_EXTRA[key].format = "iso"
 
         NEW_EXTRA.sort("date")
         NEW_EXTRA["size"].unit = "byte"
