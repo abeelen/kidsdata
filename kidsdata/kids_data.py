@@ -24,7 +24,7 @@ from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
 from .db import RE_SCAN, RE_EXTRA
 
-CACHE_DIR = Path(os.getenv("KISS_CACHE", "/data/KISS/Cache"))
+CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
 
 if not CACHE_DIR.exists():
     warnings.warn("Cache dir created : {}".format(CACHE_DIR))

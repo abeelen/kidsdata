@@ -13,12 +13,12 @@ from astropy.table import Table, join, vstack, unique, MaskedColumn
 from astropy.utils.console import ProgressBar
 
 
-BASE_DIRS = [Path(os.getenv("KISS_DATA", "/data/KISS/Raw/nika2c-data3/KISS"))]
-KISSDB_DIR = Path(os.getenv("KISSDB_DIR", "."))
+BASE_DIRS = [Path(directory) for directory in os.getenv("DATA_DIR", "/data/KISS/Raw/nika2c-data3/KISS").split(";")]
+DB_DIR = Path(os.getenv("DB_DIR", "."))
 
-DB_SCAN_FILE = KISSDB_DIR / ".kissdb_scans.fits"
-DB_EXTRA_FILE = KISSDB_DIR / ".kissdb_extra.fits"
-DB_PARAM_FILE = KISSDB_DIR / ".kissdb_param.fits"
+DB_SCAN_FILE = DB_DIR / ".kidsdb_scans.fits"
+DB_EXTRA_FILE = DB_DIR / ".kidsdb_extra.fits"
+DB_PARAM_FILE = DB_DIR / ".kidsdb_param.fits"
 
 table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
 DATABASE_SCAN = Table.read(DB_SCAN_FILE, **table_read_kwd) if DB_SCAN_FILE.exists() else None
@@ -331,7 +331,7 @@ def list_scan(output=False, **kwargs):
     global DATABASE_SCAN
 
     if DATABASE_SCAN is None:
-        raise ValueError("No scans found, check the KISS_DATA variable")
+        raise ValueError("No scans found, check the DATA_DIR variable")
 
     _database = DATABASE_SCAN
 
@@ -360,7 +360,7 @@ def list_extra(output=False, **kwargs):
     You can filter the list see `list_scan`
     """
     if DATABASE_EXTRA is None:
-        raise ValueError("No scans found, check the KISS_DATA variable")
+        raise ValueError("No scans found, check the DATA_DIR variable")
 
     _database = DATABASE_EXTRA
 
