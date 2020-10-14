@@ -615,10 +615,12 @@ def Df_2b(c, xy):
 
 
 def _pool_f2b(x, y):
-
-    center_estimate = fit_circle_algebraic(x, y)
-    center_2d, ier = optimize.leastsq(f_2b, center_estimate, args=([x, y],), Dfun=Df_2b, col_deriv=True)
-    return center_2d
+    try:
+        center_estimate = fit_circle_algebraic(x, y)
+        center_2d, _ = optimize.leastsq(f_2b, center_estimate, args=([x, y],), Dfun=Df_2b, col_deriv=True)
+        return center_2d
+    except (np.linalg.LinAlgError):
+        return (np.nan, np.nan)
 
 
 def fit_circle_leastsq(xs, ys):
@@ -764,16 +766,20 @@ def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
     -------
     output : 2D array (n_blocks, n_bins) or (n_bins, ) if flatten is True
         The regrided interferograms
+    binning: 1D array (n_bins, )
+        The corresponding binning
     """
 
     if flatten:
         laser = [laser.flatten()]
         interferograms = [interferograms.flatten()]
 
+    _, binning = np.histogram(laser, bins=bins)
+
     output = []
     for _laser, _interferograms in zip(laser, interferograms):
-        histo, _ = np.histogram(_laser, weights=_interferograms, bins=bins)
-        hits, _ = np.histogram(_laser, bins=bins)
+        histo, _ = np.histogram(_laser, weights=_interferograms, bins=binning)
+        hits, _ = np.histogram(_laser, bins=binning)
         with np.errstate(divide="ignore", invalid="ignore"):
             output.append(histo / hits)
-    return np.squeeze(output)
+    return np.squeeze(output), binning

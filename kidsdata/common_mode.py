@@ -73,7 +73,7 @@ def _pool_interferograms_regrid(i_kid, bins=None):
 
     interferograms, laser = _pool_global
 
-    return interferograms_regrid(interferograms[i_kid], laser, bins=bins, flatten=True)
+    return interferograms_regrid(interferograms[i_kid], laser, bins=bins, flatten=True)[0]
 
 
 def common_itg(bgrd, laser=None, deg=None, bins="sqrt", flat=True, ncomp=None, **kwargs):

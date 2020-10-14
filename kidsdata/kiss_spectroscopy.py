@@ -31,7 +31,7 @@ from .db import RE_SCAN
 
 from .ftsdata import FTSData
 
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 from os import sched_getaffinity
 from autologging import logged
 
@@ -142,7 +142,7 @@ def _pool_interferograms_regrid(i_kid, bins=None):
 
     interferograms, laser = _pool_global
 
-    return interferograms_regrid(interferograms[i_kid], laser, bins=bins)
+    return interferograms_regrid(interferograms[i_kid], laser, bins=bins)[0]
 
 
 @logged
@@ -247,6 +247,11 @@ class KissSpectroscopy(KissRawData):
         interferograms = np.ma.array(
             self.kidfreq, mask=np.tile(A_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
+
+        # Mask nans if present
+        nan_itg = np.isnan(interferograms)
+        if np.any(nan_itg):
+            interferograms.mask = interferograms.mask | nan_itg
 
         if self.optical_flip:
             # By optical construction KB = -KA
@@ -526,7 +531,7 @@ class KissSpectroscopy(KissRawData):
         laser = self.laser
 
         # Regrid all interferograms to the same laser grid
-        binned_laser, bins = np.histogram(laser.flatten(), bins="sqrt")
+        _, bins = np.histogram(laser.flatten(), bins="sqrt")
         c_bins = np.mean([bins[1:], bins[:-1]], axis=0)
 
         self.__log.info("Regriding iterferograms")
@@ -844,6 +849,9 @@ class KissSpectroscopy(KissRawData):
                 sample_weights = (
                     1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None))[:, mask_tel] ** 2
                 )
+        elif weights in self.kidpar.keys():
+            _kidpar = self.kidpar.loc[self.list_detector[ikid]]
+            sample_weights = _kidpar[weights].data
         else:
             raise ValueError("Unknown weights : {}".format(weights))
 
@@ -920,7 +928,9 @@ class KissSpectroscopy(KissRawData):
         self.__log.info("Computing histograms")
 
         _this = partial(_pool_project_xyz, **histdd_kwargs)
-        with Pool(len(sched_getaffinity(0)), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
+        with Pool(
+            len(sched_getaffinity(0)), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)
+        ) as pool:
             results = pool.map(_this, np.array_split(range(sample.shape[0]), len(sched_getaffinity(0))))
         hits = [result[0] for result in results if result is not None]
         data = [result[1] for result in results if result is not None]
