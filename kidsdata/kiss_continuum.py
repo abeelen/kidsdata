@@ -73,7 +73,7 @@ class KissContinuum(KissRawData):
         if isinstance(flatfield, (MaskedColumn, np.ma.MaskedArray)):
             flatfield = flatfield.filled(np.nan)
 
-        bgrd *= flatfield[:, np.newaxis]
+        bgrd /= flatfield[:, np.newaxis]
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))

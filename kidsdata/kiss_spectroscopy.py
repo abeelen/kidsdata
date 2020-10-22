@@ -616,7 +616,7 @@ class KissSpectroscopy(KissRawData):
             flatfield = flatfield.filled(np.nan)
 
         # Do not touch self.interferograms -> copy
-        interferograms = interferograms * flatfield[:, np.newaxis, np.newaxis]
+        interferograms = interferograms / flatfield[:, np.newaxis, np.newaxis]
         shape = interferograms.shape
 
         if cm_func is not None:
