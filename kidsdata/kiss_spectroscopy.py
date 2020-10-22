@@ -147,13 +147,31 @@ def _pool_interferograms_regrid(i_kid, bins=None):
 
 @logged
 class KissSpectroscopy(KissRawData):
-    def __init__(self, *args, laser_shift=None, optical_flip=True, mask_glitches=True, glitches_threshold=1, **kwargs):
+    def __init__(
+        self,
+        *args,
+        laser_keys="auto",
+        laser_shift=None,
+        optical_flip=True,
+        mask_glitches=True,
+        glitches_threshold=1,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
 
         self.__laser_shift = laser_shift
         self.__optical_flip = optical_flip
         self.__mask_glitches = mask_glitches
         self.__glitches_threshold = glitches_threshold
+        self.__laser_keys = laser_keys
+
+        if laser_keys == "auto":
+            # Look for laser position key
+            keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
+            laser_keys = [key for key in keys if "laser" in key and key.endswith("pos")]
+            if not laser_keys:
+                self.__log.error("Could not find laser position keys")
+            self.__laser_keys = laser_keys
 
     # TODO: This could probably be done more elegantly
     @property
@@ -301,15 +319,23 @@ class KissSpectroscopy(KissRawData):
         -----
         This depends on the `laser_shift` property.
         """
-        self._KissRawData__check_attributes(["C_laser1_pos", "C_laser2_pos"])
+        laser_keys = self.__laser_keys
+        self._KissRawData__check_attributes(laser_keys)
 
-        self.__log.info("Computing laser position with {} shift".format(self.laser_shift))
+        self.__log.info("Computing mean laser position from {} with {} shift".format(laser_keys, self.laser_shift))
 
-        laser1 = self.C_laser1_pos.flatten()
-        laser2 = self.C_laser2_pos.flatten()
+        laser = [getattr(self, key) for key in laser_keys]
 
-        # Sum the two positions to lower the noise ...
-        laser = (laser1 + laser2) / 2
+        # Check laser consistancy:
+        if len(laser) > 1:
+            # Differences between different laser measurements
+            diff_laser = np.diff(laser, axis=0)
+            std_diff_laser = np.std(diff_laser)
+            if std_diff_laser > 1:  # More than 1mm variation in time between the two laser
+                self.__log.error("Varying differences between {} : {}".format(laser_keys, std_diff_laser))
+
+        # mean laser position
+        laser = np.mean(laser, axis=0)
 
         if np.all(laser[::2] == laser[1::2]):
             self.__log.info("Interpolating mirror positions")
