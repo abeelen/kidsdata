@@ -8,7 +8,6 @@ from copy import deepcopy
 
 from functools import lru_cache
 from itertools import chain
-from scipy.interpolate import interp1d
 
 from dateutil.parser import parse
 from astropy.time import Time
@@ -140,29 +139,14 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def obstime(self):
         """Recompute the proper obs time in UTC per interferograms."""
-        times = ["A_hours", "A_time_pps"]
+        times = ["time"]
         self.__check_attributes(times)
 
-        # TODO: These Correction should be done at reading time
-        idx = np.arange(self.nsamples)
-
-        mask = self.A_time_pps.flatten() == 0
-
-        # Masked array, to be able to unwrap properly
-        A_time = np.ma.array(self.A_time_pps.flatten() + self.A_hours.flatten(), mask=mask)
-        A_time = np.ma.array(np.unwrap(A_time), mask=mask)
-
-        # flag all data with time difference greater than 1 second
-        bad = (np.append(np.diff(np.unwrap(A_time)), 0) > 1) | A_time.mask
-
-        if any(bad) and any(~bad):
-            func = interp1d(idx[~bad], np.unwrap(A_time)[~bad], kind="linear", fill_value="extrapolate")
-            A_time[bad] = func(idx[bad])
-
+        time = self.time
         obstime = self.obsdate
 
-        # Getting only time per interferograms here :
-        return obstime + np.median(A_time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
+        # Getting only median time per interferograms here :
+        return obstime + np.median(time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
 
     @property
     def exptime(self):
@@ -380,6 +364,14 @@ class KidsRawData(object):
         dependancies = [(['P0', 'R0'], ['I', 'Q', 'A_masq'])]
 
         """
+        if dependancies is None:
+            dependancies = []
+
+        dependancies += [
+            # hours will need at least some data, default first time
+            (["time"], ["A_time_pps", "A_hours"]),
+        ]
+
         # First check if some attributes are indeed missing...
         missing = [attr for attr in attr_list if not hasattr(self, attr) or (getattr(self, attr) is None)]
 

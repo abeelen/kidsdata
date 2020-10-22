@@ -7,10 +7,12 @@ from functools import partial, wraps
 import logging
 import warnings
 import ctypes
-import importlib
-import numpy as np
 from pathlib import Path
 from collections import namedtuple
+
+import numpy as np
+from scipy.interpolate import interp1d
+
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
@@ -104,6 +106,8 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
         the total  number of sample in the file
 
     """
+    assert Path(filename).exists(), "{} does not exist".format(filename)
+
     if list_data in ["all", "raw"]:
         str_data = list_data
     else:
@@ -203,13 +207,11 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
             param_c[key] = ".".join([str(int8) for int8 in decode_ip(param_c[key])])
 
     # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
-    if param_c["div_kid"] > 0:
-        param_c["div_kid"] *= 4
-    else:
-        param_c["div_kid"] += 2  # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz
+    # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz
+    div_kid = param_c["div_kid"] * 4 if param_c["div_kid"] > 0 else param_c["div_kid"] + 2
 
     # Note: it was done later in the original code, bugged anyway
-    param_c["acqfreq"] = 5.0e8 / 2.0 ** 19 / param_c["div_kid"]
+    param_c["acqfreq"] = 5.0e8 / 2.0 ** 19 / div_kid
 
     # Retrieve the param detector
     idx += header.nb_param_c
@@ -280,6 +282,7 @@ def read_all(
     silent=True,
     diff_pps=False,
     correct_pps=False,
+    correct_time=False,
     ordering="K",
 ):
     """Read Raw data from the binary file using the `read_nika_all` C function.
@@ -304,6 +307,8 @@ def read_all(
         pre-compute pps time differences. The default is False
     correct_pps: bool
         correct the pps signal. The default is False
+    correct_time: bool or float
+        correct the time signal by interpolating jumps higher that given value in second. The default is False
     ordering: str
         memory ordering requested to convert data from NIKA reading library to python numpy array
         The default is 'K' which speedup the conversion by keeping memory ordering. It can be changed to 'C'. This
@@ -326,6 +331,7 @@ def read_all(
     `list_detector` is an :class:`~numpy.array` of int listing the index of the requested KIDs.
 
     """
+    assert Path(filename).exists(), "{} does not exist".format(filename)
 
     if list_data in ["all", "raw"]:
         str_data = list_data
@@ -469,26 +475,61 @@ def read_all(
     #     logging.warn("Correcting diff corrdinates")
     #     dataUc['F_diff_Az'] = dataUc['F_diff_Az'] * np.cos(np.radians(dataUc['F_sky_El']))
 
-    # Compute time pps_time difference
-    if "A_time" in dataSc:
-        pps = dataSc["A_time"]
+    # Compute median pps_time and differences and corrections
+    pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
+    if pps_keys:
+        logging.debug("Using {} to compute median pps time".format(pps_keys))
+        times = [dataSc.get(key) for key in pps_keys]
+        pps = np.nanmedian(times, axis=0)
         if diff_pps:
-            other_time = [key for key in dataSc if key.endswith("_time") and key != "A_time"]
-            if other_time and "sample" in dataSc:
-                pps_diff = {"A_time-{}".format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
-                pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0)
+            pps_diff = {"pps-{}".format(key): (pps - dataSc[key]) * 1e6 for key in pps_keys}
+            pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0)
 
-                dataSc.update(pps_diff)
+            dataSc.update(pps_diff)
 
-        # Fake pps time if necessary
+        # Fake pps time if necessary,
+        # TODO : based on acqfreq : must be correct !
         if correct_pps:
+            logging.info("Correcting pps time")
+
             dummy = np.append(np.diff(pps), 0)
             good = np.abs(dummy - 1 / param_c["acqfreq"]) < 0.02
             if any(~good):
                 param = np.polyfit(dataSc["sample"][good], pps[good], 1)
                 pps[~good] = np.polyval(param, dataSc["sample"][~good])
 
-        dataSc["pps"] = pps
+        dataSc["time_pps"] = pps
+
+    # Compute median hours
+    hours_keys = [key for key in dataSc if key.endswith("_hours")]
+    if hours_keys:
+        logging.debug("Using {} to compute median hours".format(hours_keys))
+        hours = [dataSc.get(key) for key in hours_keys]
+        hours = np.nanmedian(hours, axis=0)
+        dataSc["hours"] = hours
+
+    # Compute time if possible
+    if "time_pps" in dataSc and "hours" in dataSc:
+
+        time_pps = dataSc["time_pps"]
+        hours = dataSc["hours"]
+        mask = time_pps.flatten() == 0
+
+        # Masked array, to be able to unwrap properly
+        time = np.ma.array(time_pps.flatten() + hours.flatten(), mask=mask)
+        time = np.ma.array(np.unwrap(time), mask=mask)
+
+        # Correct jumps in time
+        if correct_time:
+            logging.info("Correcting time differences greather than {} s".format(float(correct_time)))
+            bad = (np.append(np.diff(np.unwrap(time)), 0) > correct_time) | time.mask
+            if any(bad) and any(~bad):
+                # Interpolate bad values
+                idx = np.arange(time.shape[0])
+                func = interp1d(idx[~bad], np.unwrap(time)[~bad], kind="linear", fill_value="extrapolate")
+                time[bad] = func(idx[bad])
+
+        dataSc["time"] = time.reshape(hours.shape)
 
     gc.collect()
     ctypes._reset_cache()
