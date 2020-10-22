@@ -234,7 +234,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
     for key in ["nom1", "nom2"]:
         del param_d[key]
 
-    # typedet is actually a Utype typedet (TconfigNika.h), ie a union of either a int32 val or a struct with 4 8 bit int.
+    # typedet is actually a Utype typedet (TconfigNika.h & public_def.h) , ie a union of either a int32 val or a struct with 4 8 bit int.
     param_d["typedet"], param_d["masqdet"], param_d["acqbox"], param_d["array"] = (
         param_d["typedet"].view(np.byte).reshape(header.nb_detecteurs, 4).T
     )
@@ -278,6 +278,7 @@ def read_all(
     start=None,
     end=None,
     silent=True,
+    diff_pps=False,
     correct_pps=False,
     ordering="K",
 ):
@@ -299,6 +300,8 @@ def read_all(
         The ending block, default full available dataset.
     silent : bool
         Silence the output of the C library. The default is True
+    diff_pps: bool
+        pre-compute pps time differences. The default is False
     correct_pps: bool
         correct the pps signal. The default is False
     ordering: str
@@ -469,12 +472,13 @@ def read_all(
     # Compute time pps_time difference
     if "A_time" in dataSc:
         pps = dataSc["A_time"]
-        other_time = [key for key in dataSc if key.endswith("_time") and key != "A_time"]
-        if other_time and "sample" in dataSc:
-            pps_diff = {"A_time-{}".format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
-            pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0)
+        if diff_pps:
+            other_time = [key for key in dataSc if key.endswith("_time") and key != "A_time"]
+            if other_time and "sample" in dataSc:
+                pps_diff = {"A_time-{}".format(key): (pps - dataSc[key]) * 1e6 for key in other_time}
+                pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0)
 
-            dataSc.update(pps_diff)
+                dataSc.update(pps_diff)
 
         # Fake pps time if necessary
         if correct_pps:
