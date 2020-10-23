@@ -21,7 +21,7 @@ from autologging import logged
 
 from . import kids_calib
 from . import kids_plots
-from .kids_data import KidsRawData
+from .kids_rawdata import KidsRawData
 from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
 from .utils import _import_from

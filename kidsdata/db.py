@@ -93,7 +93,7 @@ def update_scan_database(dirs=None):
         for key in ["date", "ctime", "mtime"]:
             NEW_SCAN[key] = Time(NEW_SCAN[key])
             NEW_SCAN[key].format = "iso"
-        NEW_SCAN.sort("date")
+        NEW_SCAN.sort("scan")
         NEW_SCAN["size"].unit = "byte"
         NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MB)
 
@@ -192,7 +192,7 @@ def extend_database():
     """Read the header of each file and construct the parameter database."""
     global DATABASE_SCAN, DATABASE_PARAM
 
-    from .kids_data import KidsRawData  # To avoid import loop
+    from .kids_rawdata import KidsRawData  # To avoid import loop
 
     data_rows = []
     param_rows = {}
