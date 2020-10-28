@@ -31,7 +31,13 @@ class KissContinuum(KissRawData):
 
     @lru_cache(maxsize=3)
     def continuum_pipeline(
-        self, ikid, *args, flatfield="amplitude", cm_func="kidsdata.common_mode.basic_continuum", **kwargs
+        self,
+        ikid,
+        *args,
+        flatfield="amplitude",
+        baseline=None,
+        cm_func="kidsdata.common_mode.basic_continuum",
+        **kwargs
     ):
         """Return the continuum data processed by given pipeline.
 
@@ -41,6 +47,8 @@ class KissContinuum(KissRawData):
             the list of kid index in self.list_detector to use
         flatfield: str (None|'amplitude')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
+        baseline : int, optionnal
+            the polynomial degree of scan wise baselines to be removed
         cm_func : str
             Function to use for the common mode removal, by default 'kidsdata.common_mode.basic_continuum'
 
@@ -81,6 +89,16 @@ class KissContinuum(KissRawData):
             output = cm_func(bgrd, *args, **kwargs)
         else:
             output = bgrd
+
+        if baseline is not None:
+            self.__log.info("Polynomial baseline per kid  of deg {}".format(baseline))
+            baselines = []
+            idx = np.arange(output.shape[1])
+            for _bgrd in output:
+                p = np.polynomial.polynomial.polyfit(idx, _bgrd, deg=baseline)
+                baselines.append(np.polynomial.polynomial.polyval(idx, p))
+
+            output -= np.array(baselines)
 
         return output
 
