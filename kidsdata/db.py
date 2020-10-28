@@ -261,6 +261,19 @@ class KidsDB(Table):
                 self[key] = Time(self[key])
                 self[key].format = "iso"
 
+        # Astropy 4.0.3 introduces a regression on this (#10824)
+        try:
+            self.sort("ctime")
+        except AttributeError:
+            indexes = np.argsort(self["ctime"])
+            with self.index_mode("freeze"):
+                for name, col in self.columns.items():
+                    new_col = col.take(indexes, axis=0)
+                    try:
+                        col[:] = new_col
+                    except Exception:
+                        self[col.info.name] = new_col
+
     def update(self):
         """Fill the table."""
         filenames = [file for path in self.dirs for file in Path(path).glob("**/*") if self.re_pattern.match(file.name)]
@@ -308,7 +321,6 @@ class KidsDB(Table):
 
                 self.add_columns(columns)
                 self._correct_time()
-                self.sort("ctime")
 
                 # Put size in MB for all scans
                 self["size"] = self["size"].to(u.MB)
