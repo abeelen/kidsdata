@@ -5,11 +5,11 @@ import logging
 from pathlib import Path
 from itertools import chain
 from datetime import datetime
-from functools import wraps, partial
+from functools import wraps, partial, update_wrapper
 
 import astropy.units as u
 from astropy.time import Time
-from astropy.table import Table, join, vstack, unique, MaskedColumn
+from astropy.table import Table, join, vstack, unique, MaskedColumn, Column
 from astropy.utils.console import ProgressBar
 
 
@@ -19,184 +19,56 @@ DB_DIR = Path(os.getenv("DB_DIR", "."))
 DB_SCAN_FILE = DB_DIR / ".kidsdb_scans.fits"
 DB_EXTRA_FILE = DB_DIR / ".kidsdb_extra.fits"
 DB_PARAM_FILE = DB_DIR / ".kidsdb_param.fits"
+DB_TABLE_FILE = DB_DIR / ".kidsdb_table.fits"
 
-table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
-DATABASE_SCAN = Table.read(DB_SCAN_FILE, **table_read_kwd) if DB_SCAN_FILE.exists() else None
-DATABASE_EXTRA = Table.read(DB_EXTRA_FILE, **table_read_kwd) if DB_EXTRA_FILE.exists() else None
-DATABASE_PARAM = Table.read(DB_PARAM_FILE, **table_read_kwd) if DB_PARAM_FILE.exists() else None
+__all__ = ["list_scan", "get_scan", "list_extra", "get_extra", "list_table", "get_filename"]
 
-# If we read the data, the time column will be in float... fix that to iso format
-logging.debug("Converting time in DB table")
-for table in [DATABASE_SCAN, DATABASE_EXTRA]:
-    for key in ["date", "ctime", "mtime"]:
-        if (table is not None) and (key in table.colnames):
-            table[key] = Time(table[key], format="iso")
+RE_DIR = re.compile(r"X(\d*)_(\d{4,4})_(\d{2,2})_(\d{2,2})$")
 
-__all__ = ["list_scan", "get_scan", "list_extra", "get_extra"]
-
+# Regular scans :
 RE_SCAN = re.compile(r"^X(\d{8,8})_(\d{4,4})_S(\d{4,4})_([\w|\+]*)_(\w*)$")
+
+# Extra files : X_2020_10_22_12h53m20_AA_man :
 RE_EXTRA = re.compile(r"^X_(\d{4,4})_(\d{2,2})_(\d{2,2})_(\d{2,2})h(\d{2,2})m(\d{2,2})_AA_man$")
 
-
-def update_scan_database(dirs=None):
-    """Fill the scan database with the filenames.
-
-    Parameters
-    ----------
-    dirs : list
-        list of directories to scan
-    """
-    global DATABASE_SCAN
-
-    if dirs is None:
-        dirs = BASE_DIRS
-
-    # Regular scan files, actually faster to make a glob with pattern here
-    filenames = chain(*[Path(path).glob("**/X*_*_S????_*_*") for path in dirs])
-
-    data_rows = []
-    for filename in filenames:
-        # Cleaning other type of files ?!?
-        if filename.suffix in [".fits", ".hdf5"]:
-            continue
-        # Removing already scanned files
-        if (DATABASE_SCAN is not None) and (filename.as_posix() in DATABASE_SCAN["filename"]):
-            continue
-
-        if not RE_SCAN.match(filename.name):
-            continue
-        date, hour, scan, source, obsmode = RE_SCAN.match(filename.name).groups()
-        dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
-        scan = int(scan)
-        stat = filename.stat()
-        # Do not add empty files
-        if stat.st_size == 0:
-            continue
-        data_rows.append(
-            (
-                filename.as_posix(),
-                dtime,
-                scan,
-                source,
-                obsmode,
-                stat.st_size,
-                datetime.fromtimestamp(stat.st_ctime),
-                datetime.fromtimestamp(stat.st_ctime),
-            )
-        )
-
-    if len(data_rows) > 0:
-        logging.info("Found {} new scans".format(len(data_rows)))
-        NEW_SCAN = Table(
-            names=["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"], rows=data_rows
-        )
-        for key in ["date", "ctime", "mtime"]:
-            NEW_SCAN[key] = Time(NEW_SCAN[key])
-            NEW_SCAN[key].format = "iso"
-        NEW_SCAN.sort("scan")
-        NEW_SCAN["size"].unit = "byte"
-        NEW_SCAN["size"] = NEW_SCAN["size"].to(u.MB)
-
-        if DATABASE_SCAN is not None:
-            # TODO: This fails on Time Column...
-            DATABASE_SCAN = vstack([DATABASE_SCAN, NEW_SCAN])
-            DATABASE_SCAN.sort("scan")
-        else:
-            DATABASE_SCAN = NEW_SCAN
-
-        DATABASE_SCAN.write(DB_SCAN_FILE, overwrite=True)
+# CONCERTO InLab test : X14_04_Tablebt_scanStarted_10 :
+RE_TABLE = re.compile(r"X(\d{2,2})_(\d{2,2})_Tablebt_scanStarted_(\d*)$")
 
 
-def update_extra_database(dirs=None):
-    """Fill the extra database with the filenames.
-
-    Parameters
-    ----------
-    dirs : list
-        list of directories to scan
-    """
-    global DATABASE_EXTRA
-
-    if dirs is None:
-        dirs = BASE_DIRS
-
-    # Extra files for skydips
-    filenames = chain(*[Path(path).glob("**/X_*_AA_man") for path in dirs])
-
-    data_rows = []
-    for filename in filenames:
-        # Cleaning fits files ?!?
-        if filename.suffix == ".fits":
-            continue
-        # Removing already scanned files
-        if DATABASE_EXTRA is not None and filename not in DATABASE_EXTRA["filename"]:
-            continue
-
-        if not RE_EXTRA.match(filename.name):
-            continue
-        time_data = [int(item) for item in RE_EXTRA.match(filename.name).groups()]
-        dtime = datetime(*time_data)
-        stat = filename.stat()
-        data_rows.append(
-            (
-                filename.as_posix(),
-                filename.name,
-                dtime,
-                stat.st_size,
-                datetime.fromtimestamp(stat.st_ctime),
-                datetime.fromtimestamp(stat.st_ctime),
-            )
-        )
-
-    if len(data_rows) > 0:
-        logging.info("Found {} new extra scans".format(len(data_rows)))
-
-        NEW_EXTRA = Table(names=["filename", "name", "date", "size", "ctime", "mtime"], rows=data_rows)
-        for key in ["date", "ctime", "mtime"]:
-            NEW_EXTRA[key] = Time(NEW_EXTRA[key])
-            NEW_EXTRA[key].format = "iso"
-
-        NEW_EXTRA.sort("date")
-        NEW_EXTRA["size"].unit = "byte"
-        NEW_EXTRA["size"] = NEW_EXTRA["size"].to(u.MB)
-        NEW_EXTRA["size"].info.format = "7.3f"
-
-        if DATABASE_EXTRA is not None:
-            DATABASE_EXTRA = vstack([DATABASE_EXTRA, NEW_EXTRA])
-            DATABASE_EXTRA.sort("scan")
-        else:
-            DATABASE_EXTRA = NEW_EXTRA
-
-        DATABASE_EXTRA.write(DB_EXTRA_FILE, overwrite=True)
+def scan_columns(filename, re_pattern=None):
+    date, hour, scan, source, obsmode = re_pattern.match(filename.name).groups()
+    dtime = Time(datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M").isoformat())
+    scan = int(scan)
+    return {
+        "date": dtime,
+        "scan": scan,
+        "source": source,
+        "obsmode": obsmode,
+    }
 
 
-def auto_update(func=None, scan=True, extra=True):
-    """Decorator to auto update the scan list."""
-
-    if func is None:
-        return partial(auto_update, scan=scan, extra=extra)
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        if scan:
-            update_scan_database()
-        if extra:
-            update_extra_database()
-        return func(*args, **kwargs)
-
-    return wrapper
+def extra_columns(filename, re_pattern=None):
+    time_data = [int(item) for item in re_pattern.match(filename.name).groups()]
+    return {"date": Time(datetime(*time_data).isoformat())}
 
 
-@auto_update
+def table_columns(filename, re_pattern=None):
+    hour, minute, scan = re_pattern.match(filename.name).groups()
+    _, year, month, day = RE_DIR.match(filename.parent.name).groups()
+    dtime = Time(datetime.strptime(" ".join([year, month, day, hour, minute]), "%Y %m %d %H %M").isoformat())
+    return {"date": dtime, "scan": scan}
+
+
 def extend_database():
     """Read the header of each file and construct the parameter database."""
-    global DATABASE_SCAN, DATABASE_PARAM
+    ## WIP
+    global DB_SCAN, DB_PARAM
 
     from .kids_rawdata import KidsRawData  # To avoid import loop
 
     data_rows = []
     param_rows = {}
-    for item in ProgressBar(DATABASE_SCAN):
+    for item in ProgressBar(DB_SCAN):
         if "param_id" in item.colnames and item["param_id"]:
             # Skip if present
             continue
@@ -215,9 +87,7 @@ def extend_database():
         param_rows = [*param_rows.values()]
 
         # Get unique parameter list
-        param_set = set(
-            chain(*[param.keys() for param in param_rows] + [DATABASE_PARAM.colnames if DATABASE_PARAM else []])
-        )
+        param_set = set(chain(*[param.keys() for param in param_rows] + [DB_PARAM.colnames if DB_PARAM else []]))
 
         # Fill missing value
         missing = []
@@ -235,31 +105,30 @@ def extend_database():
             NEW_PARAM[key][mask] = _dtype(0)
             NEW_PARAM[key] = MaskedColumn(_dtype(NEW_PARAM[key].data), mask=mask)
 
-        if DATABASE_PARAM is not None:
-            DATABASE_PARAM = vstack([DATABASE_PARAM, NEW_PARAM])
-            DATABASE_PARAM = unique(DATABASE_PARAM, "param_id")
+        if DB_PARAM is not None:
+            DB_PARAM = vstack([DB_PARAM, NEW_PARAM])
+            DB_PARAM = unique(DB_PARAM, "param_id")
         else:
-            DATABASE_PARAM = NEW_PARAM
+            DB_PARAM = NEW_PARAM
 
-        DATABASE_PARAM.write(DB_PARAM_FILE)
+        DB_PARAM.write(DB_PARAM_FILE)
 
-        # Update DATABASE_SCAN
+        # Update DB_SCAN
         NEW_PARAM = Table(data_rows)
-        if "param_id" in DATABASE_SCAN.colnames:
-            DATABASE_SCAN.add_index("filename")
-            idx = DATABASE_SCAN.loc_indices[NEW_PARAM["filename"]]
-            DATABASE_SCAN["param_id"][idx] = NEW_PARAM["param_id"]
+        if "param_id" in DB_SCAN.colnames:
+            DB_SCAN.add_index("filename")
+            idx = DB_SCAN.loc_indices[NEW_PARAM["filename"]]
+            DB_SCAN["param_id"][idx] = NEW_PARAM["param_id"]
         else:
             # a simple join
-            DATABASE_SCAN = join(DATABASE_SCAN, NEW_PARAM, keys="filename", join_type="outer")
+            DB_SCAN = join(DB_SCAN, NEW_PARAM, keys="filename", join_type="outer")
 
-        DATABASE_SCAN.sort("scan")
+        DB_SCAN.sort("ctime")
 
-        DATABASE_PARAM.write(DB_PARAM_FILE, overwrite=True)
-        DATABASE_SCAN.write(DB_SCAN_FILE, overwrite=True)
+        DB_PARAM.write(DB_PARAM_FILE, overwrite=True)
+        DB_SCAN.write(DB_SCAN_FILE, overwrite=True)
 
 
-@auto_update(extra=False)
 def get_scan(scan=None):
     """Get filename of corresponding scan number.
 
@@ -273,22 +142,24 @@ def get_scan(scan=None):
     filename : str
        the full path of the file
     """
+    global DB_SCAN
+    DB_SCAN.update()
+
     try:
         scan = int(scan)
     except ValueError as ex:
         raise ValueError("{} can not be converted to int: {}".format(scan, ex))
 
-    mask = DATABASE_SCAN["scan"] == scan
+    mask = DB_SCAN["scan"] == scan
 
     if not np.any(mask):
         raise IndexError("Scan {} not found".format(scan))
 
-    return DATABASE_SCAN[mask]["filename"].data[0]
+    return DB_SCAN[mask]["filename"].data[0]
 
 
-@auto_update(scan=False)
 def get_extra(start=None, end=None):
-    """Get filename for extra scans (skydips) between two timestamp.
+    """Get path for extra scans (typically skydips or dome observation) between two timestamp.
 
     Parameters
     ----------
@@ -300,82 +171,158 @@ def get_extra(start=None, end=None):
     filename : list
         the list of corresponding files
     """
-    mask = (DATABASE_EXTRA["date"] > start) & (DATABASE_EXTRA["date"] < end)
-    return DATABASE_EXTRA[mask]["filename"].data
+    global DB_EXTRA
+    DB_EXTRA.update()
+
+    mask = (DB_EXTRA["date"] > start) & (DB_EXTRA["date"] < end)
+    return DB_EXTRA[mask]["filename"].data
 
 
-@auto_update(extra=False)
-def list_scan(output=False, **kwargs):
-    """List (with filtering) all scans in the database.
+def get_filename(filename=None):
+    """Get path base on filenames.
 
     Parameters
     ----------
-    output: boolean
-        Return a light table for the database
+    filename : str
+        the filename of the observation
+
+    Returns
+    -------
+    filename : str
+       the full path of the file
+    """
+    global DBs
+    for db in DBs:
+        db.update()
+
+    merge_DB = vstack([db[["filename", "name"]] for db in DBs if db is not None and len(db) != 0])
+
+    mask = merge_DB["name"] == filename
+
+    if not np.any(mask):
+        raise IndexError("Scan {} not found".format(filename))
+
+    return merge_DB[mask]["filename"].data[0]
+
+
+def list_data(database=None, pprint_columns=None, output=False, **kwargs):
+    """List (with filtering) all data in the database.
 
     Notes
     -----
-    One can filter on any key of the database
-    ["filename", "date", "scan", "source", "obsmode", "size", "ctime", "mtime"]
-    by giving kwargs, for example
-
-    >>> list_scan(source="Moon")
-
-    will display all the scan on the moon. One can also use the `__gt` and
-    `__lt` postfix to the keyword to filter greather_tan and lower_than values :
-
-    >>> list_scan(scan__gt=400)
-
-    will return all the scan greather than 400
+    You can filter the list see `list_data`
     """
+    if database is not None:
+        database.update()
 
-    global DATABASE_SCAN
-
-    if DATABASE_SCAN is None:
+    if len(database) == 0:
         raise ValueError("No scans found, check the DATA_DIR variable")
 
-    _database = DATABASE_SCAN
+    # Default output, no filtering
+    _database = database
 
     # Filtering on all possible key from table
     for key in kwargs.keys():
-        if key.split("__")[0] in DATABASE_SCAN.keys():
+        if key.split("__")[0] in database.keys():
             if "__gt" in key:
-                _database = _database[_database[key.split("__")[0]] > kwargs[key]]
+                _database = database[database[key.split("__")[0]] > kwargs[key]]
             elif "__lt" in key:
-                _database = _database[_database[key.split("__")[0]] < kwargs[key]]
+                _database = database[database[key.split("__")[0]] < kwargs[key]]
             else:
-                _database = _database[_database[key] == kwargs[key]]
-
-    if output:
-        return _database[["filename", "date", "scan", "source", "obsmode", "size"]]
-    else:
-        _database[["date", "scan", "source", "obsmode", "size"]].pprint(max_lines=-1, max_width=-1)
-
-
-@auto_update(scan=False)
-def list_extra(output=False, **kwargs):
-    """List (with filtering) all extra scans in the database.
-
-    Notes
-    -----
-    You can filter the list see `list_scan`
-    """
-    if DATABASE_EXTRA is None:
-        raise ValueError("No scans found, check the DATA_DIR variable")
-
-    _database = DATABASE_EXTRA
-
-    # Filtering on all possible key from table
-    for key in kwargs.keys():
-        if key.split("__")[0] in DATABASE_EXTRA.keys():
-            if "__gt" in key:
-                _database = _database[_database[key.split("__")[0]] > kwargs[key]]
-            elif "__lt" in key:
-                _database = _database[_database[key.split("__")[0]] < kwargs[key]]
-            else:
-                _database = _database[_database[key] == kwargs[key]]
+                _database = database[database[key] == kwargs[key]]
 
     if output:
         return _database
+    elif pprint_columns is not None:
+        _database[pprint_columns].pprint(max_lines=-1, max_width=-1)
     else:
-        _database[["name", "date", "size"]].pprint(max_lines=-1, max_width=-1)
+        _database.pprint(max_lines=-1, max_width=-1)
+
+
+class KidsDB(Table):
+    def __init__(self, *args, filename=None, dirs=None, re_pattern=None, extract_func=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filename = filename
+        self.dirs = dirs
+        self.re_pattern = re_pattern
+        self.extract_func = extract_func
+
+        if self.filename is not None and self.filename.exists():
+            table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
+            this = Table.read(self.filename, **table_read_kwd)
+            self.add_columns(this.columns)
+            self._correct_time()
+
+    def _correct_time(self):
+        logging.debug("Converting time in DB table")
+        # Ugly hack for Time columns
+        for key in ["date", "mtime", "ctime"]:
+            if key in self.columns:
+                self[key] = Time(self[key])
+                self[key].format = "iso"
+
+    def update(self):
+        """Fill the table."""
+        filenames = [file for path in self.dirs for file in Path(path).glob("**/*") if self.re_pattern.match(file.name)]
+
+        data_rows = []
+        for filename in filenames:
+            # Removing already scanned files
+            if self.__len__() != 0 and filename not in self.columns["filename"]:
+                continue
+
+            stat = filename.stat()
+            row = {
+                "filename": filename.as_posix(),
+                "name": filename.name,
+                "size": stat.st_size * u.byte,
+                "ctime": Time(datetime.fromtimestamp(stat.st_ctime).isoformat()),
+                "mtime": Time(datetime.fromtimestamp(stat.st_mtime).isoformat()),
+                # "comment": " " * 128
+            }
+
+            if self.extract_func is not None:
+                row.update(self.extract_func(filename, self.re_pattern))
+
+            data_rows.append(row)
+
+        if len(data_rows) > 0:
+            logging.info("Found {} new scans".format(len(data_rows)))
+
+            if self.__len__() != 0:
+                for row in data_rows:
+                    self.add_row(row)
+            else:
+                # Create the columns, taking quantity into account
+                columns = [
+                    Column(
+                        [
+                            _[key].to(data_rows[0][key].unit).value if isinstance(_[key], u.Quantity) else _[key]
+                            for _ in data_rows
+                        ],
+                        name=key,
+                        unit=getattr(data_rows[0][key], "unit", None),
+                    )
+                    for key in data_rows[0].keys()
+                ]
+
+                self.add_columns(columns)
+                self._correct_time()
+                self.sort("ctime")
+
+                # Put size in MB for all scans
+                self["size"] = self["size"].to(u.MB)
+                self["size"].info.format = "7.3f"
+
+                self.write(self.filename, overwrite=True)
+
+
+DB_SCAN = KidsDB(filename=DB_SCAN_FILE, re_pattern=RE_SCAN, extract_func=scan_columns, dirs=BASE_DIRS)
+DB_EXTRA = KidsDB(filename=DB_EXTRA_FILE, re_pattern=RE_EXTRA, extract_func=extra_columns, dirs=BASE_DIRS)
+DB_TABLE = KidsDB(filename=DB_TABLE_FILE, re_pattern=RE_TABLE, extract_func=table_columns, dirs=BASE_DIRS)
+
+DBs = [DB_SCAN, DB_EXTRA, DB_TABLE]
+
+list_scan = partial(list_data, database=DB_SCAN, pprint_columns=["date", "scan", "source", "obsmode", "size"])
+list_extra = partial(list_data, database=DB_EXTRA, pprint_columns=["name", "date", "size"])
+list_table = partial(list_data, database=DB_TABLE, pprint_columns=["name", "date", "scan", "size"])
