@@ -281,14 +281,14 @@ class KidsDB(Table):
         data_rows = []
         for filename in filenames:
             # Removing already scanned files
-            if self.__len__() != 0 and filename not in self.columns["filename"]:
+            if self.__len__() != 0 and str(filename) in self.columns["filename"]:
                 continue
 
             stat = filename.stat()
             row = {
                 "filename": filename.as_posix(),
                 "name": filename.name,
-                "size": stat.st_size * u.byte,
+                "size": (stat.st_size * u.byte).to(u.MB),
                 "ctime": Time(datetime.fromtimestamp(stat.st_ctime).isoformat()),
                 "mtime": Time(datetime.fromtimestamp(stat.st_mtime).isoformat()),
                 # "comment": " " * 128
@@ -323,7 +323,6 @@ class KidsDB(Table):
                 self._correct_time()
 
                 # Put size in MB for all scans
-                self["size"] = self["size"].to(u.MB)
                 self["size"].info.format = "7.3f"
 
                 self.write(self.filename, overwrite=True)
