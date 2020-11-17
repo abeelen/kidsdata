@@ -74,7 +74,7 @@ def decode_ip(int32_val):
 
 
 # @profile
-def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
+def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, silent=True):
     """Read header information from a binary file.
 
     Parameters
@@ -107,6 +107,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
 
     """
     assert Path(filename).exists(), "{} does not exist".format(filename)
+    assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
 
     if list_data in ["all", "raw"]:
         str_data = list_data
@@ -187,7 +188,10 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
     # Proper way to do it :
     # var_name = [var_name_buffer.raw[ind: ind+16].strip(b'\x00').decode('ascii') for ind in range(0, len(var_name_buffer.raw), 16)]
     # Faster way :
-    var_name = [name for name in var_name_buffer.raw.decode("ascii").split("\x00") if name != ""]
+    # var_name = [name for name in var_name_buffer.raw.decode("ascii").split("\x00") if name != ""]
+    # Mix of the two :
+    var_name_buffer = var_name_buffer.raw.decode("ascii")
+    var_name = [var_name_buffer[ind : ind + 16].strip("\x00") for ind in range(0, len(var_name_buffer), 16)]
 
     # Retrieve the param commun
     idx = 0
@@ -196,8 +200,9 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
     param_c = dict(zip(name_param_c, val_param_c))
 
     # Decode the name
+    nomexp_keys = sorted([key for key in param_c.keys() if "nomexp" in key], key=lambda x: int(x[6:]))
     param_c["nomexp"] = ""
-    for key in ["nomexp1", "nomexp2", "nomexp3", "nomexp4"]:
+    for key in nomexp_keys:
         param_c["nomexp"] += param_c[key].tobytes().strip(b"\x00").decode("ascii")
         del param_c[key]
 
@@ -207,11 +212,22 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, silent=True):
             param_c[key] = ".".join([str(int8) for int8 in decode_ip(param_c[key])])
 
     # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
-    # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz
-    div_kid = param_c["div_kid"] * 4 if param_c["div_kid"] > 0 else param_c["div_kid"] + 2
+    # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz  40=23Hz
+    param_c["div_kid"] = int(param_c["div_kid"])
+    # AB: Private Comm
+    div_kid = param_c["div_kid"] + 2 if param_c["div_kid"] < 1 else param_c["div_kid"] * 4
+    param_c["acqfreq"] = 5.0e8 / 2.0 ** 17 / div_kid
 
-    # Note: it was done later in the original code, bugged anyway
-    param_c["acqfreq"] = 5.0e8 / 2.0 ** 19 / div_kid
+    # Regroup keys per box
+    if flat is False:
+        box_delimiters = [".", "-", "_"]
+        box_keys = set([key[0] for key in param_c.keys() if key[1] in box_delimiters])
+        for box_key in box_keys:
+            items = {}
+            for key in [key for key in param_c.keys() if box_key == key[0]]:
+                items[key[2:]] = param_c[key]
+                del param_c[key]
+            param_c[box_key] = items
 
     # Retrieve the param detector
     idx += header.nb_param_c
@@ -332,6 +348,7 @@ def read_all(
 
     """
     assert Path(filename).exists(), "{} does not exist".format(filename)
+    assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
 
     if list_data in ["all", "raw"]:
         str_data = list_data
