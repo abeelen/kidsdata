@@ -260,7 +260,7 @@ class KidsRawData(object):
             self.__dataUc.update(dataUc)
             self.__dataUd.update(dataUd)
 
-            if "list_detector" in kwargs:
+            if "list_detector" in kwargs and kwargs["list_detector"] is not None:
                 self.list_detector = np.asarray(kwargs["list_detector"])
             else:
                 self.list_detector = np.asarray(self.names.RawDataDetector)
