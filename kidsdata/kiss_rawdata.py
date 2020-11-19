@@ -78,6 +78,17 @@ class KissRawData(KidsRawData):
         self.pointing_model = pointing_model
         self.__calib = {}
 
+        # Find all potential telescope position keys
+        keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
+        pos_keys = [key.split("_")[1] for key in keys if "Az" in key]
+        self.__position_keys = {
+            key.split("_")[1]: ("{}_Az".format(key), "{}_El".format(key))
+            for key in pos_keys
+            if "{}_Az".format(key) in keys and "{}_El".format(key) in keys
+        }
+        # Add special keys :
+        self.__position_keys["pdiff"] = ("_pdiff_Az", "_pdiff_El")
+
     def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
 
@@ -174,7 +185,7 @@ class KissRawData(KidsRawData):
 
     @property
     @lru_cache(maxsize=1)
-    def F_pdiff_Az(self):
+    def _pdiff_Az(self):
         """Return corrected diff Azimuths."""
         self.__check_attributes(["F_sky_Az", "F_sky_El"])
 
@@ -185,7 +196,7 @@ class KissRawData(KidsRawData):
 
     @property
     @lru_cache(maxsize=1)
-    def F_pdiff_El(self):
+    def _pdiff_El(self):
         """Return corrected diff Elevation."""
         self.__check_attributes(["F_sky_El"])
 

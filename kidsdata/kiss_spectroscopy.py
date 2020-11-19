@@ -704,8 +704,7 @@ class KissSpectroscopy(KissRawData):
         ~astropy.wcs.WCS, array, array, array, tuple
             the projection wcs, projected coordinates x, y, z and shape of the resulting cube
         """
-        az_coord = "F_{}_Az".format(coord)
-        el_coord = "F_{}_El".format(coord)
+        az_coord, el_coord = self._KissRawData__position_keys.get(coord)
 
         self._KissRawData__check_attributes([az_coord, el_coord])
 

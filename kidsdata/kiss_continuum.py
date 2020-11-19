@@ -123,8 +123,7 @@ class KissContinuum(KissRawData):
         ~astropy.wcs.WCS, array, array, tuple
             the projection wcs, projected coordinates x, y and shape of the resulting map
         """
-        az_coord = "F_{}_Az".format(coord)
-        el_coord = "F_{}_El".format(coord)
+        az_coord, el_coord = self._KissRawData__position_keys.get(coord)
 
         self._KissRawData__check_attributes([az_coord, el_coord])
 
@@ -274,8 +273,7 @@ class KissContinuum(KissRawData):
         """Project individual detectors into square map in AltAz coordinates."""
         assert "diff" in coord, "beammaps should be done of `diff` coordinates"
 
-        az_coord = "F_{}_Az".format(coord)
-        el_coord = "F_{}_El".format(coord)
+        az_coord, el_coord = self._KissRawData__position_keys.get(coord)
 
         self._KissRawData__check_attributes([az_coord, el_coord])
 
