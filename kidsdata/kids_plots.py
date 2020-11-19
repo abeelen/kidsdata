@@ -1,9 +1,11 @@
+from itertools import product
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.signal import medfilt
 from scipy.ndimage.filters import uniform_filter1d as smooth
 
+import astropy.units as u
 from astropy.stats import mad_std
 from astropy.wcs import WCS
 
@@ -161,7 +163,7 @@ def show_maps(self, ikid=0):
     return fig
 
 
-def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0)):
+def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0), show_fit=True):
     # Plot all det
     n_kid = len(datas)
     nx = np.ceil(np.sqrt(n_kid)).astype(np.int)
@@ -180,19 +182,20 @@ def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0)):
     x, y = wcs.all_world2pix(pointing_offsets[0] - kidpar["x0"], pointing_offsets[1] - kidpar["y0"], 0)
     fwhm_x, fwhm_y = kidpar["fwhm_x"] / wcs.wcs.cdelt[0], kidpar["fwhm_y"] / wcs.wcs.cdelt[1]
 
-    for pos_x, pos_y, fwhm_x, fwhm_y, theta, ax in zip(x, y, fwhm_x, fwhm_y, kidpar["theta"], axes.flatten()):
-        if pos_x is not np.nan:
-            ax.add_patch(
-                Ellipse(
-                    xy=[pos_x, pos_y],
-                    width=fwhm_x,
-                    height=fwhm_y,
-                    angle=np.degrees(theta),
-                    edgecolor="r",
-                    fc="None",
-                    lw=2,
+    if show_fit:
+        for pos_x, pos_y, fwhm_x, fwhm_y, theta, ax in zip(x, y, fwhm_x, fwhm_y, kidpar["theta"], axes.flatten()):
+            if pos_x is not np.nan:
+                ax.add_patch(
+                    Ellipse(
+                        xy=[pos_x, pos_y],
+                        width=fwhm_x,
+                        height=fwhm_y,
+                        angle=np.degrees(theta),
+                        edgecolor="r",
+                        fc="None",
+                        lw=2,
+                    )
                 )
-            )
 
     for ax in axes.ravel():
         if ax.images == []:
@@ -215,6 +218,65 @@ def show_beammaps(self, datas, wcs, kidpar, pointing_offsets=(0, 0)):
 
     for ax in axes[-1, 1:].ravel():
         ax.coords[1].set_ticklabel_visible(False)
+
+    fig_beammap.suptitle(self.filename)
+
+    return fig_beammap
+
+
+def quickshow_beammaps(self, ikids, datas, wcs, kidpar, pointing_offsets=(0, 0), show_fit=True):
+    """WIP..."""
+
+    marging = 1
+    npix_y, npix_x = datas[0].shape
+    n_pages = 1
+
+    _data, (ncols, nrows) = multi_im(datas, aspect_ratio=16 / 9, marging=marging, n_pages=n_pages, norm=None)
+
+    i_page = 0
+
+    # Plot all det
+    # n_kid = len(datas)
+    fig_beammap, ax = plt.subplots()
+    ax.imshow(_data)
+    ax.set_aspect("equal")
+
+    # Overplot fit results in pixels coordinates
+    x, y = wcs.all_world2pix(pointing_offsets[0] - kidpar["x0"], pointing_offsets[1] - kidpar["y0"], 0)
+    fwhm_x, fwhm_y = kidpar["fwhm_x"] / wcs.wcs.cdelt[0], kidpar["fwhm_y"] / wcs.wcs.cdelt[1]
+
+    page_slice = slice(i_page * (nrows * ncols), (i_page + 1) * (nrows * ncols))
+
+    for i, label in enumerate(self.list_detector[ikids][page_slice]):
+        offset_x = i % ncols
+        offset_y = i // ncols
+        ax.annotate(
+            label, (offset_x * (npix_x + marging) + npix_x / 4, offset_y * (npix_y + marging) + npix_y / 4), c="r"
+        )
+
+    if show_fit:
+        for i, (pos_x, pos_y, fwhm_x, fwhm_y, theta) in enumerate(
+            zip(x[page_slice], y[page_slice], fwhm_x[page_slice], fwhm_y[page_slice], kidpar["theta"][page_slice])
+        ):
+            offset_x = i % ncols
+            offset_y = i // ncols
+            if pos_x is not np.nan:
+                ax.add_patch(
+                    Ellipse(
+                        xy=[pos_x + offset_x * (npix_x + marging), pos_y + offset_y * (npix_y + marging)],
+                        width=fwhm_x,
+                        height=fwhm_y,
+                        angle=np.degrees(theta),
+                        edgecolor="r",
+                        fc="None",
+                        lw=2,
+                    )
+                )
+
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_xticks(np.arange(ncols) * (npix_x + marging))
+    ax.set_yticks(np.arange(nrows) * (npix_y + marging))
 
     fig_beammap.suptitle(self.filename)
 
@@ -299,7 +361,7 @@ def show_contmap(self, data, label=None, snr=False):
 
 
 def plot_geometry(self, ikid, ax, value=None, **kwargs):
-    x0, y0 = self.kidpar.loc[self.list_detector[ikid]]["x0"], self.kidpar.loc[self.list_detector[ikid]]["y0"]
+    x0, y0 = [self.kidpar.loc[self.list_detector[ikid]][item].to(u.arcmin).value for item in ["x0", "y0"]]
     scatter = ax.scatter(x0, y0, c=value, **kwargs)
     ax.set_aspect("equal")
     ax.set_xlabel("lon offset [arcmin]")
@@ -308,53 +370,130 @@ def plot_geometry(self, ikid, ax, value=None, **kwargs):
     return scatter
 
 
-def show_kidpar(self, ikid=None, show_beam=True, ranges=[None, None, None], bins=[30, 30, 30], **kwargs):
-    # Geometry
+def default_range(value, threshold_limits=[-3, 3]):
+    mean_value = np.nanmedian(value)
+    std_value = mad_std(value, ignore_nan=True)
+    return np.array(threshold_limits) * std_value + mean_value  # Default to [-3 3] sigma
 
+
+def show_kidpar(
+    self,
+    ikid=None,
+    to_plot=["fwhms", "ellipticities", "amplitudes"],
+    ranges=None,
+    bins=None,
+    limits=[-0.62, 0.62],
+    group_key="acqbox",
+    group_list=None,
+    namedet=False,
+    **kwargs
+):
+    """Display a kidpar geometry.
+
+    Parameters
+    ----------
+
+    self : ~kidsdata
+        a kidsdata object to retrieve the `kidpar` and `list_detector` properties
+    ikid : array_like, optionnal
+        to plot a subsample of the `list_detector` list
+    to_plot : list of str
+        list of item to plot within 'fwhms', 'ellipticities', 'amplitudes', None
+    ranges : dict, optionnal
+        display ranges for the histograms as {item: [min, max]} with item within the to_plot list
+    bins : dict, optionnal
+        bins of the histogram as {item: bins} with item within the to_plot list
+    limits : array_like
+        limits in x & y in arcmin for the geometry,
+    group_key : str
+        the kidpar key to use to identify arrays, default 'acqbox',
+    group_list : dict, optionnal
+        to regroup the group_key as {label: [group_key_values]}, by default each group_key will be plotted separately
+    namedet : bool
+        to overplot the name of the kids
+
+    Returns
+    -------
+    figs : list of :matplotlib.Figure:
+        the resulting figures
+    """
     if ikid is None:
         ikid = np.arange(len(self.list_detector))
     else:
         ikid = np.asarray(ikid)
 
+    if ranges is None:
+        ranges = {}
+    if bins is None:
+        bins = {}
+
     popt = self.kidpar.loc[self.list_detector[ikid]]
 
-    acqboxes = np.unique(popt["acqbox"])
+    if group_list is None:
+        group_list = {"{} {}".format(group_key, group): [group] for group in np.unique(popt[group_key])}
+
+    fwhms = np.abs([popt["fwhm_x"], popt["fwhm_y"]]).T * 60  # fwhm in arcmin
+
+    plotting_values = {
+        "fwhms": {"value": np.nanmax(fwhms, axis=1), "label": "fwhms [arcmin]"},  # fwhm in arcmin
+        "ellipticities": {
+            "value": (np.max(fwhms, axis=1) - np.min(fwhms, axis=1)) / np.max(fwhms, axis=1),
+            "label": "ellipticities",
+        },
+        "amplitudes": {"value": np.array(popt["amplitude"]), "label": "amplitudes [rel.abu]"},
+        None: {"value": np.ones(len(popt)), "label": ""},
+    }
+
+    for key in plotting_values:
+        if key is None:
+            plotting_values[key]["range"] = [1, 1]
+            plotting_values[key]["bins"] = 1
+            continue
+        plotting_values[key]["range"] = ranges.get(key) or default_range(plotting_values[key]["value"])
+        plotting_values[key]["bins"] = bins.get(key) or 30
+
     figs = []
 
-    # Loop over acquisition box
-    for acqbox in acqboxes:
-        mask_box = popt["acqbox"] == acqbox
+    # Loop over grouping
+    for group_label, group in group_list.items():
+        mask_box = [popt[group_key] == item for item in group]
+        mask_box = np.bitwise_or.reduce(mask_box, axis=0)
 
         _ikid = ikid[mask_box]
-        _sizes = np.array([popt["fwhm_x"][mask_box], popt["fwhm_y"][mask_box]]).T * 60
-        _amplitudes = np.array(popt["amplitude"][mask_box])
 
-        values = {
-            "fwhms [arcmin]": np.max(np.abs(_sizes), axis=1),  # Largest fwhms
-            "ellipticities": (np.max(np.abs(_sizes), axis=1) - np.min(np.abs(_sizes), axis=1))
-            / np.max(np.abs(_sizes), axis=1),
-            "amplitudes [rel. abu]": _amplitudes,
-        }
+        fig, axes = plt.subplots(2, len(to_plot), squeeze=False, **kwargs)
 
-        fig, axes = plt.subplots(2, 3, **kwargs)
+        # Share x&y for the top row:
+        target = axes[0, 0]
+        for ax in axes[0, 1:]:
+            ax._shared_x_axes.join(target, ax)
+            ax._shared_y_axes.join(target, ax)
 
-        for (item, value), ax_top, ax_bottom, range_value, bins_value in zip(
-            values.items(), axes[0], axes[1], ranges, bins
-        ):
+        for key_plot, ax_top, ax_bottom in zip(to_plot, axes[0], axes[1]):
+            values = plotting_values[key_plot]["value"][mask_box]
+            range_value = plotting_values[key_plot]["range"]
+            bins_value = plotting_values[key_plot]["bins"]
+            label = plotting_values[key_plot]["label"]
 
-            if range_value is None:
-                mean_value = np.nanmedian(value)
-                std_value = mad_std(value, ignore_nan=True)
-                range_value = np.array([-3, 3]) * std_value + mean_value
-
-            ax_bottom.hist(value[~np.isnan(value)], range=range_value, bins=bins_value)
             norm = Normalize(vmin=np.min(range_value), vmax=np.max(range_value))
-            scatter = plot_geometry(self, _ikid, ax_top, value=value, norm=norm)
-            cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
-            cbar.set_label(item)
-            ax_top.set_xlim(-0.62 * 60, 0.62 * 60)
-            ax_top.set_ylim(-0.62 * 60, 0.62 * 60)
-        fig.suptitle("{} / aqbox: {}".format(self.filename, acqbox))
+            scatter = plot_geometry(self, _ikid, ax_top, value=values, norm=norm)
+
+            if namedet:
+                x0, y0 = [self.kidpar.loc[self.list_detector[_ikid]][item].to(u.arcmin).value for item in ["x0", "y0"]]
+                names = self.kidpar.loc[self.list_detector[_ikid]]["namedet"]
+                for x, y, name, value in zip(x0, y0, names, values):
+                    ax_top.text(x, y, name, clip_on=True, fontsize="xx-small", c=scatter.cmap(norm(value)))
+
+            if key_plot is None:
+                ax_bottom.remove()
+            else:
+                ax_bottom.hist(values[~np.isnan(values)], range=range_value, bins=bins_value)
+                cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
+                cbar.set_label(label)
+
+            ax_top.set_xlim(np.array(limits) * 60)
+            ax_top.set_ylim(np.array(limits) * 60)
+        fig.suptitle("{} / {}".format(self.filename.name, group_label))
         fig.tight_layout()
 
         figs.append(fig)
@@ -364,13 +503,68 @@ def show_kidpar(self, ikid=None, show_beam=True, ranges=[None, None, None], bins
 
 def show_kidpar_fwhm(self):
 
-    sizes = (
-        np.array([self.kidpar.loc[self.list_detector]["fwhm_x"], self.kidpar.loc[self.list_detector]["fwhm_y"]]).T * 60
-    )  # arcmin
+    sizes = np.array([self.kidpar.loc[self.list_detector][item].to(u.arcmin) for item in ["fwhm_x", "fwhm_y"]])
     fig, ax = plt.subplots()
-    for _sizes, label in zip(sizes.T, ["major", "minor"]):
+    for _sizes, label in zip(sizes, ["major", "minor"]):
         ax.hist(np.abs(_sizes[~np.isnan(_sizes)]), label=label, alpha=0.5, range=(0, 40), bins=50)
     ax.legend()
     ax.set_xlabel("FWHM [arcmin]")
     fig.suptitle(self.filename)
     return fig
+
+
+def multi_im(xs, aspect_ratio=1, marging=1, n_pages=1, norm=None):
+    """Display list of images as an combined image.
+
+    Parameters
+    ----------
+    X : list of 2D array_like or 3D array-like
+        The images data :
+
+        - list of (M,N) images
+        - (n, M, N): 3D images
+    aspect_ratio : float
+        the overall image aspect ratio, by default 1.
+    marging: int
+        number of pixel to left blank between images, by default 1.
+    n_pages: int
+        number of page to produce, by default 1.
+    norm : `~matplotlib.colors.Normalize`, optional
+        The `.Normalize` instance used to scale scalar data to the [0, 1]
+        range before mapping to colors using *cmap*. By default, a linear
+        scaling mapping the lowest value to 0 and the highest to 1 is used.
+        This parameter is ignored for RGB(A) data.
+
+    Returns
+    -------
+    images : 2D or 3D array_like
+        bigger mosaic of images, first index is the page number
+    (ncols, rows) : ints
+        the number of columns and rows per page
+
+    Notes
+    -----
+    if the norm keyword is set, if will be used globally, by default, each images is normed individually
+    """
+
+    xs = np.asarray(xs)
+    n, M, N = xs.shape
+
+    ncols = np.ceil(np.sqrt(n / n_pages * aspect_ratio)).astype(int)
+    nrows = np.ceil(n / n_pages / ncols).astype(int)
+
+    image_width = ncols * N + (ncols - 1) * marging
+    image_height = nrows * M + (nrows - 1) * marging
+
+    pixels = np.full((n_pages, image_height, image_width), np.nan)
+    for page in range(n_pages):
+        for _sub, (j, i) in zip(
+            xs[page * ncols * nrows : (page + 1) * ncols * nrows], product(range(nrows), range(ncols))
+        ):
+            if norm is None:
+                _sub = Normalize(vmin=np.nanmin(_sub), vmax=np.nanmax(_sub))(_sub)
+            else:
+                _sub = norm(_sub)
+            pixels[page, j * (M + marging) : j * (M + marging) + M, i * (N + marging) : i * (N + marging) + N] = _sub
+
+    return np.squeeze(pixels), (ncols, nrows)
