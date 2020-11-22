@@ -63,7 +63,7 @@ else:
 import warnings
 from autologging import logged, TRACE
 from astropy.utils.exceptions import AstropyWarning
-from astropy.table import Table, Column
+from astropy.table import Table, Column, vstack
 
 from kidsdata import KissData, get_scan, list_scan, list_extra
 from kidsdata.utils import interferograms_regrid
@@ -85,18 +85,25 @@ def _pool_interferograms_regrid(i_kid, bins=None):
 
     interferograms, laser = _pool_global
 
-    return interferograms_regrid(interferograms[i_kid], laser, bins=bins, flatten=True)
+    return interferograms_regrid(interferograms[i_kid], laser, bins=bins, flatten=True)[0]
 
 
 @logged
-def process_scan(filename, output_dir=Path("."), **kwargs):
+def process_scan(filename, output_dir=Path("."), laser_shift=None, **kwargs):
 
     try:
         label = Path(filename).name
         process_scan._log.info("Reading Data")
         kd = KissData(filename)
         kd.read_data(
-            list_data=["C_motor1_pos", "C_laser1_pos", "C_laser2_pos", "I", "Q", "A_masq",]
+            list_data=[
+                "C_motor1_pos",
+                "C_laser1_pos",
+                "C_laser2_pos",
+                "I",
+                "Q",
+                "A_masq",
+            ]
         )
         process_scan._log.info("Calibrating Data")
 
@@ -108,23 +115,34 @@ def process_scan(filename, output_dir=Path("."), **kwargs):
         kd.calib_raw(**calib_kwargs)
 
         process_scan._log.info("Find laser shift")
-        laser_shift = kd.find_lasershifts_brute(min_roll=-2, max_roll=2, n_roll=5, mode="single")
-        laser_shifts = kd.find_lasershifts_brute(
-            min_roll=laser_shift - 1,
-            max_roll=laser_shift + 1,
-            n_roll=201,
-            roll_func="kidsdata.utils.roll_fft",
-            mode="per_det",
-        )
+        if laser_shift is None:
+            laser_shift = kd.find_lasershifts_brute(start=-2, stop=2, num=5, mode="single")
+            laser_shifts = kd.find_lasershifts_brute(
+                start=laser_shift - 1,
+                stop=laser_shift + 1,
+                num=201,
+                roll_func="kidsdata.utils.roll_fft",
+                mode="per_det",
+            )
+            laser_shift = np.median(laser_shifts)
 
-        kd.laser_shift = np.median(laser_shifts)
+            out_filename = output_dir / "{}_laser_shift.fits".format(label)
+            process_scan._log.info("Saving laser shifts")
 
-        out_filename = output_dir / "{}_laser_shift.txt".format(label)
-        process_scan._log.info("Save laser shift in {}".format(out_filename))
+            meta = {"filename": kd.filename, "scan": kd.scan, "laser_shift": kd.laser_shift}
+            result = Table(
+                [
+                    Column(kd.list_detector, name="namedet"),
+                    Column(laser_shifts, name="laser_shift"),
+                ],
+                meta=meta,
+            )
 
-        # output as txt file
-        with open(out_filename, "w") as f:
-            f.write("{} {}".format(kd.filename, kd.laser_shift))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", AstropyWarning)
+                result.write(out_filename, overwrite=True)
+
+        kd.laser_shift = laser_shift
 
         # Check for sign of the interferograms :
         # - flat kidfreq to remove modulation signal
@@ -156,6 +174,11 @@ def process_scan(filename, output_dir=Path("."), **kwargs):
         interferograms = np.ma.array(
             kd.kidfreq, mask=np.tile(A_masq, kd.ndet).reshape(kd.kidfreq.shape), fill_value=0, copy=True
         )
+
+        # Interferogram have nans sometimes.... CAN NOT proceed with that !!!
+        nan_itg = np.isnan(interferograms)
+        if np.any(nan_itg):
+            interferograms.mask = interferograms.mask | nan_itg
 
         interferograms = interferograms.reshape(kd.ndet, -1).filled(0)
         laser = kd.laser
@@ -199,6 +222,7 @@ def process_scan(filename, output_dir=Path("."), **kwargs):
 
         min_chi2_idx = np.argmin(chi2s, axis=0) + len_idx
 
+        # NO NORMALIZATION !!!
         flat_field_zld = [common_mode_itg[i, idx] for i, idx in enumerate(min_chi2_idx)]
 
         out_filename = output_dir / "{}_flatfield_sign.fits".format(label)
@@ -219,18 +243,24 @@ def process_scan(filename, output_dir=Path("."), **kwargs):
             warnings.simplefilter("ignore", AstropyWarning)
             result.write(out_filename, overwrite=True)
 
-        return 0
+            return 0
     except (TypeError, ValueError, IndexError, MemoryError, AssertionError) as e:
-        print(e)
+        process_scan._log.error("An exception occured : {}".format(e))
         return 1
 
 
-def process_output(indir=Path("."), pattern=None, sign_threshold=0.9):
-    pattern = "X2*.fits"
+def med_mad(data):
+    med = np.median(data)
+    mad = np.median(np.abs(data - med))
+    return med, mad
+
+
+def process_output(indir=Path("shift_flip"), pattern="*flatfield_sign.fits", sign_threshold=0.9):
     filenames = list(indir.glob(pattern))
 
     sign_fractions = []
     correct_filenames = []
+    bad_filenames = []
     for filename in filenames:
         tab = Table.read(filename)
         tab.convert_bytestring_to_unicode()
@@ -240,14 +270,157 @@ def process_output(indir=Path("."), pattern=None, sign_threshold=0.9):
         sign_fractions.append(sign_fraction)
         if sign_fraction > sign_threshold:
             correct_filenames.append(filename)
+        else:
+            bad_filenames.append(filename)
 
-    filenames = correct_filenames
-    laser_shifts = []
-    for filename in filenames:
+    fig, ax = plt.subplots()
+    ax.hist(sign_fractions, bins=100)
+    ax.axvline(sign_threshold, linestyle="--", c="r")
+    ax.set_xlabel("KA+KB mean interferogram peak sign fraction")
+    ax.set_ylabel("# of scan")
+    fig.savefig("Itg_signs_hist.png")
+
+    # Fake kidpar for latter plots
+    e_kidpar = "e_kidpar_median_all_leastsq.fits"
+    e_kidpar = "e_kidpar_median_all_leastsq_2020-10-19T16.fits"
+    e_kidpar = Table.read(CALIB_PATH / e_kidpar)
+    e_kidpar.convert_bytestring_to_unicode()
+    e_kidpar.add_index("namedet")
+    from dataclasses import make_dataclass
+
+    fake_kd = make_dataclass("fake_kd", ["kidpar", "list_detector"])
+    kd = fake_kd(e_kidpar, e_kidpar["namedet"])
+    from kidsdata.kids_plots import plot_geometry
+
+    # Check laser shift PER KIDS
+    tabs = []
+    for filename in correct_filenames:
+        filename = filename.parent / filename.name.replace("flatfield_sign", "laser_shift")
+        if filename.exists():
+            tab = Table.read(filename)
+            tab.convert_bytestring_to_unicode()
+            tabs.append(tab)
+
+    if len(tabs) > 0:
+        tab_shift = vstack(tabs)
+        tab_shift = tab_shift.group_by("namedet")
+
+        laser_shifts = []
+        for group, key in zip(tab_shift.groups, tab_shift.groups.keys):
+            laser_shifts.append((key[0], *med_mad(group["laser_shift"])))
+        laser_shifts = Table(list(zip(*laser_shifts)), names=["namedet", "median_laser_shift", "mad_laser_shift"])
+
+        range_value = np.mean(laser_shifts["median_laser_shift"]) + np.array([-1, 1]) * 2 * np.mean(
+            laser_shifts["mad_laser_shift"]
+        )
+
+        fig, axes = plt.subplots(ncols=2)
+        from matplotlib.colors import Normalize
+
+        norm = Normalize(vmin=np.min(range_value), vmax=np.max(range_value))
+
+        for array, ax in zip(["KA", "KB"], axes):
+            mask = np.chararray.startswith(kd.list_detector, array)
+            ikid = np.arange(kd.list_detector.shape[0])
+            scatter = plot_geometry(kd, ikid[mask], value=laser_shifts["median_laser_shift"][mask], ax=ax, norm=norm)
+            ax.set_title(array)
+            cbar = fig.colorbar(scatter, ax=ax, orientation="horizontal")
+            cbar.set_label("median laser_shift of all scans")
+
+        fig.savefig("kidpar_lasershift.png")
+
+        laser_shift, mad_laser_shift = med_mad(laser_shifts["median_laser_shift"])
+        print(laser_shift, mad_laser_shift)
+
+        fig, ax = plt.subplots()
+        ax.hist(laser_shifts["median_laser_shift"], bins=20)
+        ax.set_xlabel("laser_shift per kid median over all scans")
+        ax.set_ylabel("# of kid")
+        ax.axvline(laser_shift, linestyle="--", c="r")
+        ax.axvline(laser_shift + mad_laser_shift, linestyle="dotted", c="r")
+        ax.axvline(laser_shift - mad_laser_shift, linestyle="dotted", c="r")
+        fig.savefig("laser_shifts_per_kid_hist.png")
+
+    # Check ZPDs
+    tabs = []
+    for filename in correct_filenames:
         tab = Table.read(filename)
         tab.convert_bytestring_to_unicode()
+        # Normalize the spectral flat field for each scan
+        tab["specFF"] /= np.nanmedian(tab["specFF"])
+        tabs.append(tab)
 
-        laser_shifts.append(tab.meta["laser_shift"])
+    laser_shifts = [tab.meta["laser_shift"] for tab in tabs]
+
+    if len(np.unique(laser_shifts)) > 1:
+
+        laser_shift, mad_laser_shift = med_mad(laser_shifts)
+        print(laser_shift, mad_laser_shift)
+
+        fig, ax = plt.subplots()
+        ax.hist(laser_shifts, bins=30)
+        ax.set_xlabel("laser_shift per scan median over all kids ")
+        ax.set_ylabel("# of scans")
+        ax.axvline(laser_shift, linestyle="--", c="r")
+        ax.axvline(laser_shift + mad_laser_shift, linestyle="dotted", c="r")
+        ax.axvline(laser_shift - mad_laser_shift, linestyle="dotted", c="r")
+        fig.savefig("laser_shifts_hist.png")
+
+    # This could have been done with different laser_shift... dangerous !
+    assert len(np.unique(laser_shifts)) == 1
+
+    stack_tabs = vstack(tabs)
+    stack_tabs = stack_tabs.group_by("namedet")
+
+    zlps = []
+    for group, key in zip(stack_tabs.groups, stack_tabs.groups.keys):
+        zlps.append((key[0], *med_mad(group["zlp"])))
+    zlps = Table(list(zip(*zlps)), names=["namedet", "median_zlp", "mad_zlp"])
+
+    range_value = np.mean(zlps["median_zlp"]) + np.array([-1, 1]) * 2 * np.mean(zlps["mad_zlp"])
+
+    fig, axes = plt.subplots(ncols=2)
+    from matplotlib.colors import Normalize
+
+    norm = Normalize(vmin=np.min(range_value), vmax=np.max(range_value))
+
+    for array, ax in zip(["KA", "KB"], axes):
+        mask = np.chararray.startswith(kd.list_detector, array)
+        ikid = np.arange(kd.list_detector.shape[0])
+        scatter = plot_geometry(kd, ikid[mask], value=zlps["median_zlp"][mask], ax=ax, norm=norm)
+        ax.set_title(array)
+        cbar = fig.colorbar(scatter, ax=ax, orientation="horizontal")
+    cbar.set_label("median ZPD over all scans")
+
+    fig.savefig("kidpar_zpds.png")
+
+    specFFs = []
+    for group, key in zip(stack_tabs.groups, stack_tabs.groups.keys):
+        specFFs.append((key[0], *med_mad(group["specFF"])))
+    specFFs = Table(list(zip(*specFFs)), names=["namedet", "median_specFF", "mad_specFF"])
+
+    range_value = np.mean(specFFs["median_specFF"]) + np.array([-1, 1]) * 5 * np.mean(specFFs["mad_specFF"])
+
+    fig, axes = plt.subplots(ncols=2)
+    from matplotlib.colors import Normalize
+
+    norm = Normalize(vmin=np.min(range_value), vmax=np.max(range_value))
+
+    for array, ax in zip(["KA", "KB"], axes):
+        mask = np.chararray.startswith(kd.list_detector, array)
+        ikid = np.arange(kd.list_detector.shape[0])
+        scatter = plot_geometry(kd, ikid[mask], value=specFFs["median_specFF"][mask], ax=ax, norm=norm)
+        ax.set_title(array)
+        cbar = fig.colorbar(scatter, ax=ax, orientation="horizontal")
+    cbar.set_label("median spectral flatfield over all scans")
+
+    fig.savefig("kidpar_specFF.png")
+
+
+def check_outfilename(filename, output_dir, template=None):
+    label = Path(filename).name
+    out_filename = output_dir / template.format(label)
+    return out_filename.exists()
 
 
 def main(args):
@@ -262,9 +435,21 @@ def main(args):
 
     kwargs = {}
 
-    dbs = [list_scan(output=True, obsmode="ITERATIVERASTER"), list_extra(output=True)]
+    dbs = [list_scan(output=True, obsmode="ITERATIVERASTER", size__gt=100), list_extra(output=True, size__gt=100)]
     filenames = [_["filename"] for db in dbs for _ in db]
 
+    # Remove filename that exists already
+    filenames = [
+        filename
+        for filename in filenames
+        if not check_outfilename(filename, args.output_dir, template="{}_flatfield_sign.fits")
+    ]
+
+    # Randomize filenames order
+    np.random.seed(int(os.getenv("SLURM_JOBID", "42")))
+    np.random.shuffle(filenames)
+
+    # Split the work
     _filenames = np.array_split(filenames, n)[i]
 
     logging.info("{} will do {}".format(i, _filenames))
@@ -274,7 +459,7 @@ def main(args):
 
     for filename in _filenames:
         logging.info("{} : {}".format(i, filename))
-        process_scan(filename, output_dir=args.output_dir, **kwargs)
+        process_scan(filename, output_dir=args.output_dir, laser_shift=args.laser_shift, **kwargs)
 
 
 if __name__ == "__main__":
@@ -283,8 +468,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Process all scans.")
     parser.add_argument("--output_dir", type=str, action="store", help="output directory (default: `source`)")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--laser_shift", type=float, action="store", help="given laser shift (default: `None`)", default=None
+    )
 
+    args = parser.parse_args()
     args.output_dir = Path(args.output_dir if args.output_dir else "shift_flip")
 
     main(args)

@@ -14,6 +14,9 @@ from scipy.special import erfcinv
 from scipy.ndimage.morphology import binary_dilation, binary_opening
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks, fftconvolve
+from multiprocessing import Pool, cpu_count
+from os import sched_getaffinity
+from autologging import logged
 
 import astropy.units as u
 import astropy.constants as cst
@@ -30,10 +33,6 @@ from .kids_calib import ModulationValue, A_masq_to_flag
 from .db import RE_SCAN
 
 from .ftsdata import FTSData
-
-from multiprocessing import Pool, cpu_count
-from os import sched_getaffinity
-from autologging import logged
 
 
 class LaserDirection(Enum):
@@ -324,7 +323,7 @@ class KissSpectroscopy(KissRawData):
 
         self.__log.info("Computing mean laser position from {} with {} shift".format(laser_keys, self.laser_shift))
 
-        laser = [getattr(self, key) for key in laser_keys]
+        laser = [getattr(self, key).flatten() for key in laser_keys]
 
         # Check laser consistancy:
         if len(laser) > 1:
@@ -374,7 +373,7 @@ class KissSpectroscopy(KissRawData):
 
         # Find the forward and backward phases
         # rough cut on the the mean mirror position : find the large peaks of the derivatives
-        turnovers, _ = find_peaks(-np.abs(np.diff(laser.mean(axis=0))), width=[100])
+        turnovers, _ = find_peaks(-np.abs(np.diff(laser.mean(axis=0))), prominence=1e-2)
 
         # Mainly for cosine simulations which actually start on a turnover
         if len(turnovers) == 1:
@@ -389,7 +388,7 @@ class KissSpectroscopy(KissRawData):
         return laser_directions
 
     def find_lasershifts_brute(
-        self, ikid=None, min_roll=-10, max_roll=10, n_roll=21, roll_func="numpy.roll", plot=False, mode="single"
+        self, ikid=None, start=-10, stop=10, num=21, roll_func="numpy.roll", plot=False, mode="single"
     ):
         """Find potential shift between mirror position and interferograms timeline.
 
@@ -399,9 +398,9 @@ class KissSpectroscopy(KissRawData):
         ----------
         ikid : tuple (optional)
             The list of kid index in self.list_detector to use (default: all)
-        min_roll, max_roll : float or int
+        start, stop : float or int
             the minimum and maximum shift to consider
-        n_roll : int
+        num : int
             the number of rolls between those two values
         roll_func : str ('numpy.roll'|'kidsdata.utils.roll_fft')
             the rolling function to be used 'numpy.roll' for integer rolls and 'kidsdata.utils.roll_fft' for floating values
@@ -434,11 +433,11 @@ class KissSpectroscopy(KissRawData):
         #     _interferogram -= baseline
 
         if roll_func == "numpy.roll":
-            rolls = np.linspace(min_roll, max_roll, n_roll, dtype=int)
+            rolls = np.linspace(start, stop, num, dtype=int)
         elif roll_func == "kidsdata.utils.roll_fft":
-            rolls = np.linspace(min_roll, max_roll, n_roll)
+            rolls = np.linspace(start, stop, num)
 
-        self.__log.info("Brute force rolling of laser position from {} to {} ({})".format(min_roll, max_roll, n_roll))
+        self.__log.info("Brute force rolling of laser position from {} to {} ({})".format(start, stop, num))
         # laser_rolls = []
         # for roll in rolls:
         #     laser_rolls.append(find_shift__roll_chi2(interferograms, laser, laser_mask, roll))
@@ -495,7 +494,7 @@ class KissSpectroscopy(KissRawData):
             fig = plt.figure()
             gs = GridSpec(3, 2, height_ratios=[0.05, 1, 0.2], width_ratios=[1, 0.2], hspace=0, wspace=0)
             ax = plt.subplot(gs[1, 0])
-            im = ax.imshow(shifts, aspect="auto", origin="bottom")
+            im = ax.imshow(shifts, aspect="auto", origin="lower")
             ax.set_ylabel("kid index")
             ax.set_xticklabels([])
             cbax = plt.subplot(gs[0, 0])
@@ -515,7 +514,7 @@ class KissSpectroscopy(KissRawData):
         return lasershifts
 
     @lru_cache(maxsize=1)
-    def opds(self, ikid=None, mode="per_det", bins="sqrt"):
+    def opds(self, ikid=None, mode="per_det", bins="sqrt", **kwargs):
         """Retrieve the optical path differences for each detector.
 
         Parameters
@@ -557,7 +556,7 @@ class KissSpectroscopy(KissRawData):
         laser = self.laser
 
         # Regrid all interferograms to the same laser grid
-        _, bins = np.histogram(laser.flatten(), bins="sqrt")
+        _, bins = np.histogram(laser.flatten(), bins=bins)
         c_bins = np.mean([bins[1:], bins[:-1]], axis=0)
 
         self.__log.info("Regriding iterferograms")
@@ -716,9 +715,9 @@ class KissSpectroscopy(KissRawData):
         mask_tel = self.mask_tel
 
         # Retrieve data
-        az = getattr(self, az_coord)[mask_tel]
-        el = getattr(self, el_coord)[mask_tel]
-        opds = self.opds(ikid=tuple(ikid), mode=opd_mode)[0][:, mask_tel, :]
+        az = getattr(self, az_coord)[~mask_tel]
+        el = getattr(self, el_coord)[~mask_tel]
+        opds = self.opds(ikid=tuple(ikid), mode=opd_mode, **kwargs)[0][:, ~mask_tel, :]
 
         _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
@@ -729,7 +728,12 @@ class KissSpectroscopy(KissRawData):
         if wcs is None:
             # Project only the telescope position
             wcs, _, _ = build_celestial_wcs(
-                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0], cunit=cunit[0],
+                az,
+                el,
+                crval=(0, 0),
+                ctype=("OLON-SFL", "OLAT-SFL"),
+                cdelt=cdelt[0],
+                cunit=cunit[0],
             )
 
             # Add marging from the kidpar offsets

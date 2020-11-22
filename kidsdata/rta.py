@@ -89,7 +89,7 @@ def kd_or_scan(func=None, array=None, extra_data=None):
 
 
 @kd_or_scan(array=None, extra_data=["I", "Q"])
-def beammap(kd):
+def beammap(kd: KissData):
     """Display a beammap.
 
     Parameters
@@ -264,8 +264,8 @@ def check_pointing(kd):
 
     fig_pointing, ax = plt.subplots()
     mask = kd.mask_tel
-    ax.plot(kd.F_sky_Az[mask], kd.F_sky_El[mask], label="F_sky")
-    ax.plot(kd.F_tl_Az[mask], kd.F_tl_El[mask], label="F_tl")
+    ax.plot(kd.F_sky_Az[~mask], kd.F_sky_El[~mask], label="F_sky")
+    ax.plot(kd.F_tl_Az[~mask], kd.F_tl_El[~mask], label="F_tl")
     # ax.plot(*KISSPmodel().telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky computed")
     # ax.plot(*KISSPmodel(model="Q1").telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky Q1 computed")
 

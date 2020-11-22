@@ -132,8 +132,8 @@ class KissContinuum(KissRawData):
 
         mask_tel = self.mask_tel
 
-        az = getattr(self, az_coord)[mask_tel]
-        el = getattr(self, el_coord)[mask_tel]
+        az = getattr(self, az_coord)[~mask_tel]
+        el = getattr(self, el_coord)[~mask_tel]
 
         _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
@@ -210,7 +210,7 @@ class KissContinuum(KissRawData):
         mask_tel = self.mask_tel
 
         # Pipeline is here
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, ~mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -282,12 +282,12 @@ class KissContinuum(KissRawData):
 
         mask_tel = self.mask_tel
 
-        az = getattr(self, az_coord)[mask_tel]
-        el = getattr(self, el_coord)[mask_tel]
+        az = getattr(self, az_coord)[~mask_tel]
+        el = getattr(self, el_coord)[~mask_tel]
 
         # Pipeline is here : simple baseline for now
         kwargs["flatfield"] = None
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, ~mask_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -316,6 +316,7 @@ class KissContinuum(KissRawData):
         # Convert to proper kidpar in astropy.Table
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
         kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
+        kidpar.meta["median_amplitude"] = np.nanmedian(kidpar["amplitude"])
 
         # Save relative amplitude
         kidpar["amplitude"] /= np.nanmedian(kidpar["amplitude"])

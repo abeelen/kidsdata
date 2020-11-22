@@ -165,15 +165,15 @@ def process_scan(scan, e_kidpar="e_kidpar_median_all_leastsq.fits", calib_kwargs
         # Laser shift....
 
         logging.info("Find laser shift")
-        laser_shift = kd.find_lasershifts_brute(min_roll=-2, max_roll=2, n_roll=5, mode="single")
+        laser_shift = kd.find_lasershifts_brute(start=-2, stop=2, num=5, mode="single")
         # Finer grid
         logging.info("Find laser shift with finer grid")
         from kidsdata.utils import roll_fft
 
         laser_shifts = kd.find_lasershifts_brute(
-            min_roll=laser_shift - 1,
-            max_roll=laser_shift + 1,
-            n_roll=201,
+            start=laser_shift - 1,
+            stop=laser_shift + 1,
+            num=201,
             roll_func="kidsdata.utils.roll_fft",
             mode="per_det_int",
         )
@@ -323,7 +323,10 @@ def display_hdu(hdul, plot_data=True, plot_snr=True):
     fig, axes = plt.subplots(
         nrows=1, ncols=ncols, squeeze=False, subplot_kw={"projection": WCS(header)}, sharex=True, sharey=True
     )
-    for ax, (title, to_plot), in zip(axes[0], to_plots):
+    for (
+        ax,
+        (title, to_plot),
+    ) in zip(axes[0], to_plots):
         lon = ax.coords[0]
         lon.set_ticks(spacing=1 * u.deg)
         lon.set_ticklabel(exclude_overlapping=True)
@@ -404,7 +407,8 @@ def main(source, cdelt, output_dir):
         #            process_scan(scan, e_kidpar=e_kidpar, calib_kwargs=calib_kwargs, output_dir=output_dir, **kwargs)
         process_scan(
             scan,
-            e_kidpar="e_kidpar_median_all_leastsq.fits",
+            # e_kidpar="e_kidpar_median_all_leastsq.fits",
+            e_kidpar="e_kidpar_median_all_leastsq_2020-10-19T16.fits",
             calib_kwargs=calib_kwargs,
             output_dir=output_dir,
             **kwargs,

@@ -75,8 +75,8 @@ def process_scan(scan, output_dir=Path("."), **kwargs):
         kd.read_data(list_data=["F_tl_El", "F_tl_Az", "A_hours", "A_time_pps"])
 
         pdiff = {
-            "F_pdiff_Az": kd.F_pdiff_Az[kd.mask_tel],
-            "F_pdiff_El": kd.F_pdiff_El[kd.mask_tel],
+            "F_pdiff_Az": kd.F_pdiff_Az[~kd.mask_tel],
+            "F_pdiff_El": kd.F_pdiff_El[~kd.mask_tel],
         }
 
         filename = output_dir / kd.filename.with_suffix(".hdf5").name

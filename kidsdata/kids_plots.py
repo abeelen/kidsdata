@@ -14,8 +14,8 @@ from astropy.nddata import InverseVariance, StdDevUncertainty, VarianceUncertain
 
 
 def calibPlot(self, ikid=0):
-    """ Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
-        show median calfact for all detectors in the last panel.
+    """Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
+    show median calfact for all detectors in the last panel.
     """
     fig = plt.figure(figsize=(5 * 3, 4 * 2))
 
@@ -65,12 +65,12 @@ def calibPlot(self, ikid=0):
 
 
 def checkPointing(self):
-    """ Plot:
-        1. Azimuth distribution of samples.
-        2. Elevation distribuiton of samples.
-        3. 2D distribution of (Elevation, Azimuth) for samples.
-        4. Medians of poitnings for each interferogram,
-        compared with pointing models.
+    """Plot:
+    1. Azimuth distribution of samples.
+    2. Elevation distribuiton of samples.
+    3. 2D distribution of (Elevation, Azimuth) for samples.
+    4. Medians of poitnings for each interferogram,
+    compared with pointing models.
     """
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2))
     fig.suptitle(self.filename)
@@ -101,8 +101,8 @@ def checkPointing(self):
         ax.grid()
 
     ax = plt.subplot(2, 2, 4)
-    plt.plot(az_tel[mask_tel], el_tel[mask_tel], "+", ms=12, label="Telescope")
-    ax.plot(az_sky[mask_tel], el_sky[mask_tel], "+", ms=12, label="Sky")
+    plt.plot(az_tel[~mask_tel], el_tel[~mask_tel], "+", ms=12, label="Telescope")
+    ax.plot(az_sky[~mask_tel], el_sky[~mask_tel], "+", ms=12, label="Sky")
     ax.set_xlabel("Azimuth [deg]")
     ax.set_ylabel("Elevation [deg]")
     ax.grid()

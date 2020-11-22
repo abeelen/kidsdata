@@ -88,6 +88,7 @@ class KissRawData(KidsRawData):
         }
         # Add special keys :
         self.__position_keys["pdiff"] = ("_pdiff_Az", "_pdiff_El")
+        self.mask_tel = slice(None, None, None)
 
     def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
@@ -158,7 +159,6 @@ class KissRawData(KidsRawData):
             (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq", "continuum"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
-            (["mask_tel"], ["F_tl_Az", "F_tl_El"]),
         ]
 
         _dependancies = self._KidsRawData__check_attributes(attr_list, dependancies=dependancies, **kwargs)
@@ -284,7 +284,7 @@ class KissRawData(KidsRawData):
         self.nint = self.nsamples // self.nptint
 
         # Default telescope mask : keep all/undersampled position per block
-        self.mask_tel = np.ones(self.nint, dtype=np.bool)
+        self.mask_tel = np.zeros(self.nint, dtype=np.bool)
 
         if "indice" in self._KidsRawData__dataSc.keys():
             indice = self._KidsRawData__dataSc["indice"]
@@ -315,4 +315,4 @@ class KissRawData(KidsRawData):
             )
 
         if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
-            self.mask_tel = (self.F_tl_Az != 0) & (self.F_tl_El != 0)
+            self.mask_tel = (self.F_tl_Az == 0) | (self.F_tl_El == 0)

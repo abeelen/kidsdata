@@ -146,12 +146,12 @@ if plot:
 
 # Large brute force approach
 logging.info("Find laser shift")
-laser_shift = kd.find_lasershifts_brute(min_roll=-2, max_roll=2, n_roll=5, mode="single")
+laser_shift = kd.find_lasershifts_brute(start=-2, stop=2, num=5, mode="single")
 # Finer grid
 logging.debug("Find laser shift with finer grid")
 
 laser_shifts = kd.find_lasershifts_brute(
-    min_roll=laser_shift - 1, max_roll=laser_shift + 1, n_roll=201, roll_func=roll_fft, mode="per_det_int"
+    start=laser_shift - 1, stop=laser_shift + 1, num=201, roll_func=roll_fft, mode="per_det_int"
 )
 
 
