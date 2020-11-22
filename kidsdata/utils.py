@@ -1,3 +1,4 @@
+import os
 import warnings
 import numpy as np
 from scipy import optimize
@@ -6,10 +7,20 @@ import importlib
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
 
+import multiprocessing
 from multiprocessing import Pool
-from os import sched_getaffinity
-
 from itertools import zip_longest
+
+
+def cpu_count():
+    """Proper cpu count on a SLURM cluster."""
+    try:
+        ncpus = int(os.environ["SLURM_JOB_CPUS_PER_NODE"])
+    except KeyError:
+        ncpus = multiprocessing.cpu_count()
+        # ncpus = len(os.sched_getaffinity(0))
+
+    return ncpus
 
 
 # From https://docs.python.org/fr/3/library/itertools.html#itertools-recipes
@@ -112,6 +123,7 @@ def project(x, y, data, shape, weights=None):
         weights = weights * ~data.mask
 
     kwargs = {"bins": shape, "range": ((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5))}
+    # TODO: Use a worker function to split y & x over n_CPUs
     _hits, _, _ = np.histogram2d(y, x, **kwargs)
 
     _weights, _, _ = np.histogram2d(y, x, weights=weights, **kwargs)
@@ -641,7 +653,7 @@ def fit_circle_leastsq(xs, ys):
     In xs and ys, different circles do not need to have the same number of points
     """
 
-    with Pool(len(sched_getaffinity(0))) as pool:
+    with Pool(cpu_count()) as pool:
         center_2d = pool.starmap(_pool_f2b, zip(xs, ys))
 
     return np.array(center_2d).T
@@ -783,3 +795,48 @@ def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
         with np.errstate(divide="ignore", invalid="ignore"):
             output.append(histo / hits)
     return np.squeeze(output), binning
+
+
+# From
+# https://stackoverflow.com/questions/45526700/easy-parallelization-of-numpy-apply-along-axis
+# TODO: Add multiprocessing globals
+def parallel_apply_along_axis(func1d, axis, arr, *args, **kwargs):
+    """
+    Like numpy.apply_along_axis(), but takes advantage of multiple
+    cores.
+    """
+    # Effective axis where apply_along_axis() will be applied by each
+    # worker (any non-zero axis number would work, so as to allow the use
+    # of `np.array_split()`, which is only done on axis 0):
+    effective_axis = 1 if axis == 0 else axis
+    if effective_axis != axis:
+        arr = arr.swapaxes(axis, effective_axis)
+
+    # TODO: Pass the arr as global and indexes in the call function
+    # Chunks for the mapping (only a few chunks):
+    chunks = [
+        (func1d, effective_axis, sub_arr, args, kwargs) for sub_arr in np.array_split(arr, multiprocessing.cpu_count())
+    ]
+
+    pool = multiprocessing.Pool()
+    individual_results = pool.map(unpacking_apply_along_axis, chunks)
+    # Freeing the workers:
+    pool.close()
+    pool.join()
+
+    return np.concatenate(individual_results)
+
+
+def unpacking_apply_along_axis(all_args):
+    """
+    Like numpy.apply_along_axis(), but with arguments in a tuple
+    instead.
+
+    This function is useful with multiprocessing.Pool().map(): (1)
+    map() only handles functions that take a single argument, and (2)
+    this function can generally be imported from a module, as required
+    by map().
+    """
+    # TODO: Retrieve the global and apply indexes
+    (func1d, axis, arr, args, kwargs) = all_args
+    return np.apply_along_axis(func1d, axis, arr, *args, **kwargs)

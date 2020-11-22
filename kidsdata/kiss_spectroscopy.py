@@ -14,8 +14,7 @@ from scipy.special import erfcinv
 from scipy.ndimage.morphology import binary_dilation, binary_opening
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks, fftconvolve
-from multiprocessing import Pool, cpu_count
-from os import sched_getaffinity
+from multiprocessing import Pool
 from autologging import logged
 
 import astropy.units as u
@@ -26,6 +25,7 @@ from astropy.nddata import NDDataArray, StdDevUncertainty, VarianceUncertainty, 
 from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_cls_to_name
 
 from .kiss_data import KissRawData
+from .utils import cpu_count
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
 from .utils import _import_from
 from .utils import interferograms_regrid
@@ -39,6 +39,8 @@ class LaserDirection(Enum):
     FORWARD = 1
     BACKWARD = 2
 
+
+N_CPU = cpu_count()
 
 # Helper functions to pass large arrays in multiprocessing.Pool
 _pool_global = None
@@ -443,7 +445,7 @@ class KissSpectroscopy(KissRawData):
         #     laser_rolls.append(find_shift__roll_chi2(interferograms, laser, laser_mask, roll))
         _this = partial(_pool_find_lasershifts_brute, _roll_func=roll_func)
         with Pool(
-            len(sched_getaffinity(0)),
+            N_CPU,
             initializer=_pool_initializer,
             initargs=(
                 interferograms,
@@ -452,7 +454,7 @@ class KissSpectroscopy(KissRawData):
                 laser_mask == LaserDirection.BACKWARD.value,
             ),
         ) as pool:
-            laser_rolls = pool.map(_this, np.array_split(rolls, len(sched_getaffinity(0))))
+            laser_rolls = pool.map(_this, np.array_split(rolls, N_CPU))
 
         # At this stages (n_roll, nint, ndet) -> (ndet, nint, n_roll)
         laser_rolls = np.concatenate([_this for _this in laser_rolls if _this is not None]).transpose(2, 1, 0)
@@ -561,7 +563,7 @@ class KissSpectroscopy(KissRawData):
 
         self.__log.info("Regriding iterferograms")
         worker = partial(_pool_interferograms_regrid, bins=bins)
-        with Pool(cpu_count(), initializer=_pool_initializer, initargs=(interferograms.filled(0), laser)) as p:
+        with Pool(N_CPU, initializer=_pool_initializer, initargs=(interferograms.filled(0), laser)) as p:
             output = p.map(worker, range(len(ikid)))
 
         output = np.array(output).reshape(interferograms.shape[0], interferograms.shape[1], -1)
@@ -728,12 +730,7 @@ class KissSpectroscopy(KissRawData):
         if wcs is None:
             # Project only the telescope position
             wcs, _, _ = build_celestial_wcs(
-                az,
-                el,
-                crval=(0, 0),
-                ctype=("OLON-SFL", "OLAT-SFL"),
-                cdelt=cdelt[0],
-                cunit=cunit[0],
+                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0], cunit=cunit[0],
             )
 
             # Add marging from the kidpar offsets
@@ -957,10 +954,8 @@ class KissSpectroscopy(KissRawData):
         self.__log.info("Computing histograms")
 
         _this = partial(_pool_project_xyz, **histdd_kwargs)
-        with Pool(
-            len(sched_getaffinity(0)), initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)
-        ) as pool:
-            results = pool.map(_this, np.array_split(range(sample.shape[0]), len(sched_getaffinity(0))))
+        with Pool(N_CPU, initializer=_pool_initializer, initargs=(sample, sample_weights, x, y, z)) as pool:
+            results = pool.map(_this, np.array_split(range(sample.shape[0]), N_CPU))
         hits = [result[0] for result in results if result is not None]
         data = [result[1] for result in results if result is not None]
         weight = [result[2] for result in results if result is not None]

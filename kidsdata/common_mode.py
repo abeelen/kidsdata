@@ -1,7 +1,7 @@
 import numpy as np
 
 from functools import partial
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 
 from scipy import ndimage
 from scipy.signal import medfilt
@@ -9,9 +9,12 @@ from scipy.interpolate import interp1d
 
 from .utils import correlated_median_removal, pca
 from .utils import interferograms_regrid
+from .utils import cpu_count
 
 # Helper functions to pass large arrays in multiprocessing.Pool
 _pool_global = None
+
+N_CPU = cpu_count()
 
 
 def _pool_initializer(*args):
@@ -85,7 +88,7 @@ def common_itg(bgrd, laser=None, deg=None, bins="sqrt", flat=True, ncomp=None, *
     c_bins = np.mean([bins[1:], bins[:-1]], axis=0)
 
     worker = partial(_pool_interferograms_regrid, bins=bins)
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(bgrd, laser.flatten())) as p:
+    with Pool(N_CPU, initializer=_pool_initializer, initargs=(bgrd, laser.flatten())) as p:
         common_mode_itg = p.map(worker, range(bgrd.shape[0]))
 
     common_mode_itg = np.array(common_mode_itg)
