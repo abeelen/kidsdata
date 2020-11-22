@@ -64,6 +64,10 @@ def extend_database():
     ## WIP
     global DB_SCAN, DB_PARAM
 
+    global DBs, DB_PARAM
+    for db in DBs:
+        db.update()
+
     from .kids_rawdata import KidsRawData  # To avoid import loop
 
     data_rows = []
@@ -73,14 +77,17 @@ def extend_database():
             # Skip if present
             continue
         filename = item["filename"]
-        kd = KidsRawData(filename)
-        hash_param = hash(str(kd.param_c))
-        data_row = {"filename": filename, "param_id": hash_param}
-        param_row = {"param_id": hash_param}
-        param_row.update(kd.param_c)
-        data_rows.append(data_row)
-        param_rows[hash_param] = param_row
-        del kd
+        try:
+            kd = KidsRawData(filename)
+            hash_param = hash(str(kd.param_c))
+            data_row = {"filename": filename, "param_id": hash_param}
+            param_row = {"param_id": hash_param}
+            param_row.update(kd.param_c)
+            data_rows.append(data_row)
+            param_rows[hash_param] = param_row
+            del kd
+        except AssertionError:
+            logging.warning("{} failed".format(filename))
 
     if len(param_rows) > 0:
         # We found new scans and/or new parameters
@@ -240,18 +247,46 @@ def list_data(database=None, pprint_columns=None, output=False, **kwargs):
 
 
 class KidsDB(Table):
-    def __init__(self, *args, filename=None, dirs=None, re_pattern=None, extract_func=None, **kwargs):
+    def __init__(
+        self, *args, filename=None, dirs=None, re_pattern=None, extract_func=None, pprint_columns=None, **kwargs
+    ):
         super().__init__(*args, **kwargs)
+
         self.filename = filename
         self.dirs = dirs
         self.re_pattern = re_pattern
         self.extract_func = extract_func
+        self.pprint_columns = pprint_columns
 
         if self.filename is not None and self.filename.exists():
             table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
             this = Table.read(self.filename, **table_read_kwd)
             self.add_columns(this.columns)
             self._correct_time()
+
+    def list(self, output=False, **kwargs):
+        self.update()
+
+        if self.__len__() == 0:
+            raise ValueError("No scans found, check the DATA_DIR variable")
+
+        _database = self
+        # Filtering on all possible key from table
+        for key in kwargs.keys():
+            if key.split("__")[0] in self.keys():
+                if "__gt" in key:
+                    _database = self[self[key.split("__")[0]] > kwargs[key]]
+                elif "__lt" in key:
+                    _database = self[self[key.split("__")[0]] < kwargs[key]]
+                else:
+                    _database = self[self[key] == kwargs[key]]
+
+        if output:
+            return _database
+        elif self.pprint_columns is not None:
+            _database[self.pprint_columns].pprint(max_lines=-1, max_width=-1)
+        else:
+            _database.pprint(max_lines=-1, max_width=-1)
 
     def _correct_time(self):
         logging.debug("Converting time in DB table")
@@ -263,9 +298,12 @@ class KidsDB(Table):
 
         # Astropy 4.0.3 introduces a regression on this (#10824)
         try:
-            self.sort("ctime")
+            key = "date" if "date" in self.colnames else "ctime"
+            logging.debug("Sorting on {} in DB table".format(key))
+            self.sort(key)
         except AttributeError:
-            indexes = np.argsort(self["ctime"])
+            logging.error("Astropy 4.0.3 bug , table not sorted, update !")
+            indexes = np.argsort(self[key])
             with self.index_mode("freeze"):
                 for name, col in self.columns.items():
                     new_col = col.take(indexes, axis=0)
@@ -320,17 +358,21 @@ class KidsDB(Table):
                 ]
 
                 self.add_columns(columns)
-                self._correct_time()
 
-                # Put size in MB for all scans
-                self["size"].info.format = "7.3f"
+            self._correct_time()
 
-                self.write(self.filename, overwrite=True)
+            # Put size in MB for all scans
+            self["size"].info.format = "7.3f"
+
+            self.write(self.filename, overwrite=True)
 
 
 DB_SCAN = KidsDB(filename=DB_SCAN_FILE, re_pattern=RE_SCAN, extract_func=scan_columns, dirs=BASE_DIRS)
 DB_EXTRA = KidsDB(filename=DB_EXTRA_FILE, re_pattern=RE_EXTRA, extract_func=extra_columns, dirs=BASE_DIRS)
 DB_TABLE = KidsDB(filename=DB_TABLE_FILE, re_pattern=RE_TABLE, extract_func=table_columns, dirs=BASE_DIRS)
+
+table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
+DB_PARAM = Table.read(DB_PARAM_FILE, **table_read_kwd) if DB_PARAM_FILE.exists() else None
 
 DBs = [DB_SCAN, DB_EXTRA, DB_TABLE]
 
