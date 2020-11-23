@@ -54,19 +54,26 @@ class FTSData(NDDataArray):
         super().__init__(*args, **kwargs)
         self.hits = hits
 
+        opd_idx = np.argwhere("opd" == np.char.lower(self.wcs.wcs.ctype)).squeeze()
+        self._opd_idx = opd_idx.item() if opd_idx.size == 1 else None
+
     @property
     def _is_opd(self):
-        return self.wcs.sub([3]).wcs.ctype[0].lower() == "opd"
+        return self._opd_idx is not None
 
     @property
     def _is_doublesided(self):
         """Test if the cube is doublesided, enforce positive increments."""
-        return (np.sum(self.wcs.sub([3]).all_pix2world([0, self.shape[0] - 1], 0)) == 0) & (self.wcs.wcs.cdelt[2] > 0)
+        return (np.sum(self.wcs.sub([self._opd_idx + 1]).all_pix2world([0, self.shape[0] - 1], 0)) == 0) & (
+            self.wcs.wcs.cdelt[self._opd_idx] > 0
+        )
 
     @property
     def _is_onesided(self):
         """Test if the cube is onesided, enforce positive increments."""
-        return (np.sum(self.wcs.sub([3]).all_pix2world(0, 0)) == 0) & (self.wcs.wcs.cdelt[2] > 0)
+        return (np.sum(self.wcs.sub([self._opd_idx + 1]).all_pix2world(0, 0)) == 0) & (
+            self.wcs.wcs.cdelt[self._opd_idx] > 0
+        )
 
     # from CCDData
     def _slice_wcs(self, item):
@@ -93,7 +100,7 @@ class FTSData(NDDataArray):
 
         assert self._is_opd, "Intput should be OPD cube"
 
-        opd_wcs = self.wcs.sub([3])
+        opd_wcs = self.wcs.sub([self._opd_idx + 1])
         opds = opd_wcs.all_pix2world(np.arange(self.data.shape[0]), 0)[0]
 
         _maxopd = np.min([-opds.min(), opds.max()])
@@ -104,7 +111,7 @@ class FTSData(NDDataArray):
         _slice = slice(*slice_idx)
 
         wcs = deepcopy(self.wcs)
-        wcs.wcs.crpix[2] -= _slice.start
+        wcs.wcs.crpix[self._opd_idx] -= _slice.start
 
         meta = deepcopy(self.meta)
         meta["HISTORY"] = "extract_doublesided"
@@ -123,9 +130,9 @@ class FTSData(NDDataArray):
         output : FTSData
             A onesided interferograms cube
         """
-        zpd_idx = self.wcs.sub([3]).world_to_pixel(0 * self.wcs.wcs.cunit[2]).astype(int)
+        zpd_idx = self.wcs.sub([self._opd_idx + 1]).world_to_pixel(0 * self.wcs.wcs.cunit[self._opd_idx]).astype(int)
 
-        extrema_opd = np.abs(self.wcs.sub([3]).pixel_to_world([0, self.shape[0] - 1]))
+        extrema_opd = np.abs(self.wcs.sub([self._opd_idx + 1]).pixel_to_world([0, self.shape[0] - 1]))
 
         if extrema_opd[1] >= extrema_opd[0]:
             # Positive single sided : longer right hand side...
@@ -152,7 +159,7 @@ class FTSData(NDDataArray):
         onesided_hits[os_slice] /= 2
 
         wcs = deepcopy(self.wcs)
-        wcs.wcs.crpix[2] = 1
+        wcs.wcs.crpix[self._opd_idx] = 1
 
         output = FTSData(onesided_itg, wcs=wcs, meta=self.meta, hits=onesided_hits)
         return output
@@ -183,34 +190,33 @@ class FTSData(NDDataArray):
         assert self._is_opd, "Intput should be OPD cube"
         assert self._is_doublesided, "Not a doublesided interferogram cube"
 
-        cdelt_opd = self.wcs.wcs.cdelt[2]
-        cunit_opd = u.Unit(self.wcs.wcs.cunit[2])
+        cdelt_opd = self.wcs.wcs.cdelt[self._opd_idx]
+        cunit_opd = u.Unit(self.wcs.wcs.cunit[self._opd_idx])
         naxis_opd = self.shape[0]
         # freq = np.fft.fftfreq(naxis_opd, d=cdelt_opd * cunit_opd) * cst.c
 
         if apodization_function is None:
             apodization_function = np.ones
 
-        _cube = (
-            np.ma.array(self.data, mask=self.mask).filled(0)
-            * apodization_function(naxis_opd)[:, np.newaxis, np.newaxis]
+        _cube = np.ma.array(self.data, mask=self.mask).filled(0) * np.expand_dims(
+            apodization_function(naxis_opd), tuple(np.arange(1, self.ndim))
         )
 
         # Spencer 2005 Eq 2.29, direct fft
         spectra = np.fft.fft(np.fft.ifftshift(_cube, axes=0), axis=0)
         # Factor of 2 because we used the fourier transform
-        spectra *= 2
+        spectra *= (4 * cdelt_opd * cunit_opd).decompose().value
         spectra = np.fft.fftshift(spectra, axes=0)
         # freq = np.fft.fftshift(freq)
 
         # Build new wcs
         wcs = deepcopy(self.wcs)
-        wcs.wcs.ctype[2] = "FREQ"
-        wcs.wcs.cunit[2] = "Hz"
+        wcs.wcs.ctype[self._opd_idx] = "FREQ"
+        wcs.wcs.cunit[self._opd_idx] = "Hz"
         # TODO: (cst.c / (cdelt_opd * cunit_opd) / (naxis_opd-1)).to(u.Hz).value give the 1/2L resolution, but fails in the tests
-        wcs.wcs.cdelt[2] = (cst.c / (cdelt_opd * cunit_opd) / naxis_opd).to(u.Hz).value
-        wcs.wcs.crpix[2] = (naxis_opd - 1) / 2 + 1
-        wcs.wcs.crval[2] = 0
+        wcs.wcs.cdelt[self._opd_idx] = (cst.c / (cdelt_opd * cunit_opd) / naxis_opd).to(u.Hz).value
+        wcs.wcs.crpix[self._opd_idx] = (naxis_opd - 1) / 2 + 1
+        wcs.wcs.crval[self._opd_idx] = 0
 
         # TODO: Estimate uncertainty/hits
         output = FTSData(spectra, meta=self.meta, wcs=wcs)
@@ -240,16 +246,15 @@ class FTSData(NDDataArray):
         assert self._is_opd, "Intput should be OPD cube"
         assert self._is_onesided, "Not a one sided interferogram cube"
 
-        cdelt_opd = self.wcs.wcs.cdelt[2]
-        cunit_opd = u.Unit(self.wcs.wcs.cunit[2])
+        cdelt_opd = self.wcs.wcs.cdelt[self._opd_idx]
+        cunit_opd = u.Unit(self.wcs.wcs.cunit[self._opd_idx])
         naxis_opd = self.shape[0]
 
         if apodization_function is None:
             apodization_function = np.ones
 
-        _cube = (
-            np.ma.array(self.data, mask=self.mask).filled(0)
-            * apodization_function(2 * naxis_opd)[naxis_opd:, np.newaxis, np.newaxis]
+        _cube = np.ma.array(self.data, mask=self.mask).filled(0) * np.expand_dims(
+            apodization_function(2 * naxis_opd)[naxis_opd:], tuple(np.arange(1, self.ndim))
         )
 
         # Spencer 2005 Eq 2.29, direct fft
@@ -257,17 +262,17 @@ class FTSData(NDDataArray):
         output_shape = 2 * naxis_opd - 1
         spectra = np.fft.irfft(_cube, n=output_shape, axis=0) * output_shape
         # Factor of 2 because we used the fourier transform
-        spectra *= 2
+        spectra *= (4 * cdelt_opd * cunit_opd).decompose().value
         spectra = np.fft.fftshift(spectra, axes=0)
 
         # Build new wcs
         wcs = deepcopy(self.wcs)
-        wcs.wcs.ctype[2] = "FREQ"
-        wcs.wcs.cunit[2] = "Hz"
+        wcs.wcs.ctype[self._opd_idx] = "FREQ"
+        wcs.wcs.cunit[self._opd_idx] = "Hz"
         # (cst.c / (cdelt_opd * cunit_opd) / (output_shape-1)).to(u.Hz).value give the 1/2L resolution, but fails in the tests
-        wcs.wcs.cdelt[2] = (cst.c / (cdelt_opd * cunit_opd) / output_shape).to(u.Hz).value
-        wcs.wcs.crpix[2] = naxis_opd
-        wcs.wcs.crval[2] = 0
+        wcs.wcs.cdelt[self._opd_idx] = (cst.c / (cdelt_opd * cunit_opd) / output_shape).to(u.Hz).value
+        wcs.wcs.crpix[self._opd_idx] = naxis_opd
+        wcs.wcs.crval[self._opd_idx] = 0
 
         # TODO: Estimate uncertainty/hits
         output = FTSData(spectra, meta=self.meta, wcs=wcs)
@@ -350,7 +355,7 @@ class FTSData(NDDataArray):
                 import matplotlib.pyplot as plt
 
                 fig, axes = plt.subplots(ncols=4)
-                (freq,) = cube.wcs.sub([3]).all_pix2world(np.arange(cube.shape[0]), 0)
+                (freq,) = cube.wcs.sub([self._opd_idx + 1]).all_pix2world(np.arange(cube.shape[0]), 0)
                 axes[1].plot(freq, cube.data[:, :, 0])
                 axes[2].plot(freq, _phase[:, :, 0])
 
