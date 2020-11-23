@@ -130,14 +130,15 @@ class KissRawData(KidsRawData):
                 self.__log.debug("Saving calibrated data")
                 _to_hdf5(f, "calib", self.__calib, **kwargs)
 
-    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", *args, **kwargs):
+    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", **kwargs):
         """Calibrate the KIDS timeline."""
 
         if getattr(self, "__calib", None) is None:
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)
-            self.__calib = calib_func(self, *args, **kwargs)
+            fmod = self.param_c.get("1-modulFreq") or self.param_c.get('1').get('modulFreq')
+            self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
             self.__log.warning("calibrated data already present")
 

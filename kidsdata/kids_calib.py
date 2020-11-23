@@ -37,7 +37,7 @@ def angle0(phi):
     return np.mod((phi + np.pi), (2 * np.pi)) - np.pi
 
 
-def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
+def get_calfact( dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docalib=True):
     """
     Compute calibration to convert into frequency shift in Hz
     We fit a circle to the available data (2 modulation points + data)
@@ -45,46 +45,32 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
 
     Parameters:
     -----------
-    - data : (object KID data)
-      data object from KID data class containing I, Q and A_masq at least
-
-    - Modfact: double (optional)
-      Factor to account for the difference between the registered modulation and
-      the true one
+    dataI, dataQ : array_like, shape (ndet, nint, nptint)
+        the raw KIDS I & Q data
+    A_masq : array_like, shape (nint, nptint)
+        the corresponding modulation flags 
+    fmod : float
+        the modulation frequency in Hz
+    mod_factor : float
+        factor to account for the difference between the registered modulation and the true one
 
     Ouput:
     -----
-    - calfact: (np.array)
-       calibration factor for all detectors
-
-    - Icc, Qcc:  (np.array, np.array)
-      center of the cirle for all detectors
-
-    - P0: (np.array)
-      Angle with respect to (0,0)
 
     """
-
-    ndet = kids.ndet
-    nint = kids.nint
-    fmod = kids.param_c["1-modulFreq"]  # value [Hz] for the calibration
+    ndet, nint, nptint = dataI.shape
 
     calfact = np.zeros((ndet, nint), np.float32)
     Icc, Qcc = np.zeros((ndet, nint), np.float32), np.zeros((ndet, nint), np.float32)
     P0 = np.zeros((ndet, nint), np.float32)
     R0 = np.zeros((ndet, nint), np.float32)
-
-    amask = kids.A_masq
-    dataI = kids.I
-    dataQ = kids.Q
-
     kidfreq = np.zeros_like(dataI)
 
     for iint in range(nint):  # single interferogram
 
         Icurrent = dataI[:, iint, :]
         Qcurrent = dataQ[:, iint, :]
-        A_masqcurrent = amask[iint, :]
+        A_masqcurrent = A_masq[iint, :]
 
         l1 = A_masqcurrent == 3  # A_masq is the flag for calibration, values:-> 3: lower data
         l2 = A_masqcurrent == 1  # 1: higher data
@@ -163,7 +149,7 @@ def get_calfact(kids, Modfactor=0.5, wsample=[], docalib=True):
             diffangle[np.abs(diffangle) < 0.001] = 1.0
 
         calcoeff = 2 / diffangle
-        calfact[:, iint] = calcoeff * fmod * Modfactor
+        calfact[:, iint] = calcoeff * fmod * mod_factor
 
         #        r = np.arctan2(Icc[:,iint]-Icurrent,np.transpose(Qcc[:,iint])-Qcurrent)
         r = np.arctan2(Icc[:, iint][:, np.newaxis] - Icurrent, Qcc[:, iint][:, np.newaxis] - Qcurrent)
@@ -258,7 +244,7 @@ def A_masq_to_flag(A_masq, modulation):
 
 
 def get_calfact_3pts(
-    kids, do_calib=True, mod_factor=0.5, method=("per", "3tps"), nfilt=9, sigma=None, _reduc=np.median
+    dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, method=("per", "3tps"), nfilt=9, sigma=None, _reduc=np.median, do_calib=True
 ):
     """Compute calibration to converto into frequency shift in Hz.
 
@@ -266,10 +252,12 @@ def get_calfact_3pts(
 
     Parameters
     ----------
-    kids : (object)
-        data object with some arguments present (see Notes)
-    do_calib : bool
-        apply calibration to the kids frequency (default: True)
+    dataI, dataQ : array_like, shape (ndet, nint, nptint)
+        the raw KIDS I & Q data
+    A_masq : array_like, shape (nint, nptint)
+        the corresponding modulation flags 
+    fmod : float
+        the modulation frequency in Hz
     mod_factor : float
         factor to account for the difference between the registered modulation and the true one
     method : (data_method, fit_method) tuple
@@ -280,26 +268,23 @@ def get_calfact_3pts(
         The number of standard deviations to use for clipping limit to flag the data (default: None, do not flag)
     _reduc : numpy ufunc
         the dimensionnality reduction function to be used on the 3 modulations (default : `numpyp.median`)
+    do_calib : bool
+        apply calibration to the kids frequency (default: True)
 
     Returns
     -------
-    calfact, Icc, Qcc, P0, R0, kidfreq
+    calib : dict
+        calibrated data with keys 
+            * 'calfact'
+            * 'Icc', 'Qcc' : array_like, shape (ndet, nint) or (ndet, )
+            * 'R0', 'P0' : array_like, shape (ndet, nint) or (ndet, )
+            * 'kidfreq' : array_like, shape (ndet, nint, nptint)
+                the calibrated interferograms
+            * 'continuum' : array_like, shape(ndet, nint)
+                the calibrated continuum
 
     Notes
     -----
-    The input kids data object must have
-        * ndet : int
-            the number of detectors
-        * nint : int
-            the number of interferograms
-        * nptint : int
-            the number of points per interferograms
-        * param_c : dict_like
-            a dictionnary like object with the "1-modulFreq" key
-        * dataI, dataQ : array_like
-            the I & Q to be reshaped as {ndet, nint, nptint}
-        * A_masq : array_like
-            the I & Q mask to be reshaped {nint, nptint}
     if sigma is set, then a last element is returned
         * flag : boolean array_like
             the flag from the circle distances {ndet, nint, nptint}
@@ -312,13 +297,7 @@ def get_calfact_3pts(
         * the combination ('all'|'3pts') can not be used
 
     """
-    ndet = kids.ndet
-    nptint, nint = kids.nptint, kids.nint
-    fmod = kids.param_c["1-modulFreq"]  # value [Hz] for the calibration
-
-    A_masq = kids.A_masq
-    dataI = kids.I
-    dataQ = kids.Q
+    ndet, nint, nptint = dataI.shape
 
     # shape = dataI.shape
     # ndet, nint, nptint = shape
