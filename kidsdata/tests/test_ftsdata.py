@@ -31,6 +31,42 @@ def empty_ds_fixture():
     return empty_ds(n_itg=1024, n_pix=1)
 
 
+def empty_ds_2d(n_itg=1024, n_pix=1):
+    """Double sided"""
+    data = np.zeros((n_itg + 1, n_pix))
+    hits = np.ones_like(data)
+
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["PIX", "OPD"]
+    wcs.wcs.crpix[1] = n_itg // 2 + 1
+    wcs.wcs.cunit[1] = "mm"
+
+    return FTSData(data, wcs=wcs, hits=hits)
+
+
+@pytest.fixture(name="empty_ds_2d")
+def empty_ds_2d_ficture():
+    return empty_ds_2d(n_itg=1024, n_pix=1)
+
+
+def empty_ds_1d(n_itg=1024):
+    """Double sided"""
+    data = np.zeros((n_itg + 1))
+    hits = np.ones_like(data)
+
+    wcs = WCS(naxis=1)
+    wcs.wcs.ctype = ["OPD"]
+    wcs.wcs.crpix[0] = n_itg // 2 + 1
+    wcs.wcs.cunit[0] = "mm"
+
+    return FTSData(data, wcs=wcs, hits=hits)
+
+
+@pytest.fixture(name="empty_ds_1d")
+def empty_ds_1d_ficture():
+    return empty_ds_1d(n_itg=1024)
+
+
 def empty_os(n_itg=1024, n_pix=1):
     """One sided"""
     data = np.zeros((n_itg, n_pix, 1))
@@ -149,6 +185,10 @@ def fixture_itg(
 
     if sided == "double":
         data = empty_ds(n_itg=n_itg, n_pix=n_pix)
+    elif sided == "double_2d":
+        data = empty_ds_2d(n_itg=n_itg, n_pix=n_pix)
+    elif sided == "double_1d":
+        data = empty_ds_1d(n_itg=n_itg)
     elif sided == "one":
         data = empty_os(n_itg=n_itg, n_pix=n_pix)
     elif sided == "single":
@@ -156,12 +196,12 @@ def fixture_itg(
     elif sided == "single_low":
         data = empty_ss_low(n_itg=n_itg, n_pix=n_pix)
 
-    data.wcs.wcs.cdelt[2] = cdelt_opd.to(data.wcs.wcs.cunit[2]).value
+    data.wcs.wcs.cdelt[data._opd_idx] = cdelt_opd.to(data.wcs.wcs.cunit[data._opd_idx]).value
 
     # temporary fix :
     # data.wcs.wcs.ctype[2] = "opd"
 
-    opd_wcs = data.wcs.sub([3])
+    opd_wcs = data.wcs.sub([data._opd_idx + 1])
     cdelt_opd = opd_wcs.wcs.cdelt[0]
     cunit_opd = u.Unit(opd_wcs.wcs.cunit[0])
     naxis_opd = data.shape[0]
@@ -180,8 +220,9 @@ def fixture_itg(
     central_x = (central_freq / cst.c).decompose()
     sigma_x = (sigma_freq / cst.c).decompose()
 
-    norm = (2 * cdelt_opd * cunit_opd).decompose()
-    itg = func_itg(x, central_x, sigma_x) * norm
+    # Should actually be in the fft part
+    # norm = (2 * cdelt_opd * cunit_opd).decompose()
+    itg = func_itg(x, central_x, sigma_x)  # * norm
 
     data.data[:] = itg
 
@@ -215,6 +256,9 @@ def fixture_itg(
 
 # Define all tests as functions to all easy debugging
 gaussian_ds = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="double")
+gaussian_ds_2d = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="double_2d")
+gaussian_ds_1d = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="double_1d")
+
 rect_ds = partial(fixture_itg, func_itg=rect_itg, func=rect, sided="double")
 gaussian_os = partial(fixture_itg, func_itg=gaussian_itg, func=gaussian, sided="one")
 rect_os = partial(fixture_itg, func_itg=rect_itg, func=rect, sided="one")
@@ -266,6 +310,16 @@ rect_ss_shift = partial(
 @pytest.fixture(name="gaussian_ds")
 def fixture_gaussian_ds():
     return gaussian_ds()
+
+
+@pytest.fixture(name="gaussian_ds_2d")
+def fixture_gaussian_ds_2d():
+    return gaussian_ds_2d()
+
+
+@pytest.fixture(name="gaussian_ds_1d")
+def fixture_gaussian_ds_1d():
+    return gaussian_ds_1d()
 
 
 @pytest.fixture(name="rect_ds")
@@ -401,16 +455,17 @@ def test_singlesided_low_to_onesided(gaussian_ss):
     assert data_os.shape[0] == np.abs(np.array([-1, data.shape[0]]) - zpd_idx).max().astype(int)
 
 
-def test_invert_doublesided(gaussian_ds):
-    data = gaussian_ds
+@pytest.mark.parametrize("fixture", [gaussian_ds, gaussian_ds_2d, gaussian_ds_1d])
+def test_invert_doublesided(fixture):
+    data = fixture()
     central_freq = data.meta["central_freq"]
     sigma_freq = data.meta["sigma_freq"]
 
     spec = data._FTSData__invert_doublesided()
-    _spec = spec.data[:, 0, 0]
+    _spec = spec.data.reshape(spec.data.shape[0], -1)[:, 0]
     npt.assert_almost_equal(_spec.imag, 0)
 
-    (freq,) = spec.wcs.sub([3]).all_pix2world(np.arange(spec.shape[0]), 0) * u.Hz
+    (freq,) = spec.wcs.sub([data._opd_idx + 1]).all_pix2world(np.arange(spec.shape[0]), 0) * u.Hz
     _should = gaussian(freq, central_freq, sigma_freq) + gaussian(-freq, central_freq, sigma_freq)
 
     npt.assert_almost_equal(_spec.real, _should)
