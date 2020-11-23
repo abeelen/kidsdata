@@ -23,6 +23,7 @@ from .db import RE_SCAN
 from .continuumdata import ContinuumData
 from astropy.nddata import InverseVariance
 
+
 # pylint: disable=no-member
 @logged
 class KissContinuum(KissRawData):
@@ -130,10 +131,10 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        mask_tel = self.mask_tel
+        good_tel = ~self.mask_tel
 
-        az = getattr(self, az_coord)[~mask_tel]
-        el = getattr(self, el_coord)[~mask_tel]
+        az = getattr(self, az_coord)[good_tel]
+        el = getattr(self, el_coord)[good_tel]
 
         _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
@@ -207,10 +208,10 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        mask_tel = self.mask_tel
+        good_tel = ~self.mask_tel
 
         # Pipeline is here
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, ~mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -280,14 +281,14 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        mask_tel = self.mask_tel
+        good_tel = ~self.mask_tel
 
-        az = getattr(self, az_coord)[~mask_tel]
-        el = getattr(self, el_coord)[~mask_tel]
+        az = getattr(self, az_coord)[good_tel]
+        el = getattr(self, el_coord)[good_tel]
 
         # Pipeline is here : simple baseline for now
         kwargs["flatfield"] = None
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, ~mask_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:

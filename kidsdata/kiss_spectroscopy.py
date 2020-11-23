@@ -516,7 +516,7 @@ class KissSpectroscopy(KissRawData):
         return lasershifts
 
     @lru_cache(maxsize=1)
-    def opds(self, ikid=None, mode="per_det", bins="sqrt", **kwargs):
+    def opds(self, ikid=None, mode="per_det", laser_bins="sqrt", **kwargs):
         """Retrieve the optical path differences for each detector.
 
         Parameters
@@ -525,7 +525,7 @@ class KissSpectroscopy(KissRawData):
             the list of kid index in self.list_detector to use (default: all)
         mode : str ('common' | 'per_det' )
             See notes
-        bins : int or sequence of scalars or str, optional
+        laser_bins : int or sequence of scalars or str, optional
             the binning for the common laser position, by default 'sqrt'
 
         Returns
@@ -558,7 +558,7 @@ class KissSpectroscopy(KissRawData):
         laser = self.laser
 
         # Regrid all interferograms to the same laser grid
-        _, bins = np.histogram(laser.flatten(), bins=bins)
+        _, bins = np.histogram(laser.flatten(), bins=laser_bins)
         c_bins = np.mean([bins[1:], bins[:-1]], axis=0)
 
         self.__log.info("Regriding iterferograms")
@@ -681,8 +681,8 @@ class KissSpectroscopy(KissRawData):
         wcs=None,
         coord="diff",
         ctype3="opd",
-        cdelt=(0.1, 0.2),
-        cunit=("deg", "mm"),
+        cdelt=(0.1, 0.1, 0.2),
+        cunit=("deg", "deg", "mm"),
         **kwargs,
     ):
         """Compute wcs and project the telescope position and optical path differences.
@@ -695,10 +695,10 @@ class KissSpectroscopy(KissRawData):
             the projection wcs if provided, by default None
         coord : str, optional
             coordinate type, by default "diff"
-        cdelt : tuple of 2 float
-            the size of the pixels in degree and delta opd width
+        cdelt : tuple of 3 float
+            the size of the pixels and delta opd width in ...
         cunit : tupe of 2 str
-            the units of the above cdelt
+            ... the units of the above cdelt
 
         Returns
         -------
@@ -714,12 +714,12 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
-        mask_tel = self.mask_tel
+        good_tel = ~self.mask_tel
 
         # Retrieve data
-        az = getattr(self, az_coord)[~mask_tel]
-        el = getattr(self, el_coord)[~mask_tel]
-        opds = self.opds(ikid=tuple(ikid), mode=opd_mode, **kwargs)[0][:, ~mask_tel, :]
+        az = getattr(self, az_coord)[good_tel]
+        el = getattr(self, el_coord)[good_tel]
+        opds = self.opds(ikid=tuple(ikid), mode=opd_mode, **kwargs)[0][:, good_tel, :]
 
         _kidpar = self.kidpar.loc[self.list_detector[ikid]]
 
@@ -730,7 +730,7 @@ class KissSpectroscopy(KissRawData):
         if wcs is None:
             # Project only the telescope position
             wcs, _, _ = build_celestial_wcs(
-                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0], cunit=cunit[0],
+                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0:2], cunit=cunit[0:2],
             )
 
             # Add marging from the kidpar offsets
@@ -739,14 +739,14 @@ class KissSpectroscopy(KissRawData):
         if wcs.is_celestial:
             # extend the wcs for a third axis :
             if ctype3.lower() == "opd":
-                wcs, z = extend_wcs(wcs, opds.flatten(), crval=0, ctype=ctype3, cdelt=cdelt[1], cunit=cunit[1])
+                wcs, z = extend_wcs(wcs, opds.flatten(), crval=0, ctype=ctype3, cdelt=cdelt[2], cunit=cunit[1])
                 # Round the crpix3
                 crpix3 = wcs.wcs.crpix[2]
                 crpix3_offset = np.round(crpix3) - crpix3
                 wcs.wcs.crpix[2] = np.round(crpix3)
                 z = z + crpix3_offset
             else:
-                wcs, z = extend_wcs(wcs, opds.flatten(), ctype=ctype3, cdelt=cdelt[1], cunit=cunit[1])
+                wcs, z = extend_wcs(wcs, opds.flatten(), ctype=ctype3, cdelt=cdelt[2], cunit=cunit[2])
         else:
             # Full WCS given....
             z = wcs.sub([3]).all_world2pix(opds.flatten(), 0)[0]
@@ -842,11 +842,11 @@ class KissSpectroscopy(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        mask_tel = self.mask_tel
+        good_tel = ~self.mask_tel
 
         # opds and #interferograms should be part of the object
         self.__log.info("Interferograms pipeline")
-        sample = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, mask_tel, :]
+        sample = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, good_tel, :]
 
         ## We do not have the telescope position at 4kHz, but we NEED it !
         # TODO: Shall we make interpolation or leave it like that ? This would require changes in _pool_project_xyz
@@ -869,11 +869,11 @@ class KissSpectroscopy(KissRawData):
                 sample_weights = 1 / sample.std(axis=(1, 2)) ** 2
         elif weights == "continuum_std":
             with np.errstate(divide="ignore"):
-                sample_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs)[:, mask_tel].std(axis=1) ** 2
+                sample_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel].std(axis=1) ** 2
         elif weights == "modulation_std":
             with np.errstate(divide="ignore"):
                 sample_weights = (
-                    1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None))[:, mask_tel] ** 2
+                    1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None))[:, good_tel] ** 2
                 )
         elif weights in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
