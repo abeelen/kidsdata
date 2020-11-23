@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.special import erfcinv
 from scipy.ndimage.morphology import binary_dilation, binary_opening
 from scipy.interpolate import interp1d
-from scipy.signal import find_peaks, fftconvolve
+from scipy.signal import find_peaks, fftconvolve, savgol_filter
 from multiprocessing import Pool
 from autologging import logged
 
@@ -375,7 +375,11 @@ class KissSpectroscopy(KissRawData):
 
         # Find the forward and backward phases
         # rough cut on the the mean mirror position : find the large peaks of the derivatives
-        turnovers, _ = find_peaks(-np.abs(np.diff(laser.mean(axis=0))), prominence=1e-2)
+        diff_laser = -np.abs(savgol_filter(laser.mean(axis=0), 15, 2, deriv=1))
+        turnovers, _ = find_peaks(diff_laser, prominence=1e-4, height=np.min(diff_laser) / 2)
+
+        # Retains only the higest two
+        turnovers = turnovers[np.argsort(_["prominences"])[-2:]]
 
         # Mainly for cosine simulations which actually start on a turnover
         if len(turnovers) == 1:
