@@ -137,7 +137,7 @@ class KissRawData(KidsRawData):
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)
-            fmod = self.param_c.get("1-modulFreq") or self.param_c.get('1').get('modulFreq')
+            fmod = self.param_c.get("1-modulFreq") or self.param_c.get("1").get("modulFreq")
             self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
             self.__log.warning("calibrated data already present")

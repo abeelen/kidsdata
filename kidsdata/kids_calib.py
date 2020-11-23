@@ -37,7 +37,7 @@ def angle0(phi):
     return np.mod((phi + np.pi), (2 * np.pi)) - np.pi
 
 
-def get_calfact( dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docalib=True):
+def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docalib=True):
     """
     Compute calibration to convert into frequency shift in Hz
     We fit a circle to the available data (2 modulation points + data)
@@ -48,7 +48,7 @@ def get_calfact( dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docal
     dataI, dataQ : array_like, shape (ndet, nint, nptint)
         the raw KIDS I & Q data
     A_masq : array_like, shape (nint, nptint)
-        the corresponding modulation flags 
+        the corresponding modulation flags
     fmod : float
         the modulation frequency in Hz
     mod_factor : float
@@ -244,7 +244,16 @@ def A_masq_to_flag(A_masq, modulation):
 
 
 def get_calfact_3pts(
-    dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, method=("per", "3tps"), nfilt=9, sigma=None, _reduc=np.median, do_calib=True
+    dataI,
+    dataQ,
+    A_masq,
+    fmod=1,
+    mod_factor=0.5,
+    method=("per", "3tps"),
+    nfilt=9,
+    sigma=None,
+    _reduc=np.median,
+    do_calib=True,
 ):
     """Compute calibration to converto into frequency shift in Hz.
 
@@ -255,7 +264,7 @@ def get_calfact_3pts(
     dataI, dataQ : array_like, shape (ndet, nint, nptint)
         the raw KIDS I & Q data
     A_masq : array_like, shape (nint, nptint)
-        the corresponding modulation flags 
+        the corresponding modulation flags
     fmod : float
         the modulation frequency in Hz
     mod_factor : float
@@ -274,7 +283,7 @@ def get_calfact_3pts(
     Returns
     -------
     calib : dict
-        calibrated data with keys 
+        calibrated data with keys
             * 'calfact'
             * 'Icc', 'Qcc' : array_like, shape (ndet, nint) or (ndet, )
             * 'R0', 'P0' : array_like, shape (ndet, nint) or (ndet, )
