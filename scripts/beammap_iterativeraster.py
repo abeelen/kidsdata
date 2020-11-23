@@ -1,20 +1,15 @@
-import matplotlib as mpl
-
-mpl.use("Agg")
-
+#!/bin/env python
+# SBATCH -J beammap_iterativeraster
+# SBATCH -N 1
+# SBATCH -c 8
+# SBATCH --mem=60GB
+# SBATCH -o slurm-%A_%a.out
+# SBATCH -e slurm-%A_%a.err
 """
 Process all moon iterativeraster scan to derive beammaps
 
 """
-# To avoid download concurrency,
-# but need to be sure that the cache is update
-from astropy.utils.data import conf
 
-conf.remote_timeout = 120
-conf.download_cache_lock_attempts = 120
-# from astropy.utils import iers
-# iers.conf.auto_download = False
-# iers.conf.auto_max_age = None
 
 import os
 import sys
@@ -22,19 +17,52 @@ import warnings
 import datetime
 import functools
 import logging
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+# We should be in non interactive mode...
+if int(os.getenv("SLURM_ARRAY_TASK_COUNT", 0)) > 0:
+    logging.info("Within sbatch...")
+    mpl.use("Agg")
+    # To avoid download concurrency,
+    # but need to be sure that the cache is updated
+    from astropy.utils.data import conf
+
+    conf.remote_timeout = 120
+    conf.download_cache_lock_attempts = 120
+
+    # from astropy.utils import iers
+    # iers.conf.auto_download = False
+    # iers.conf.auto_max_age = None
+
+    # Do not work
+    # from astropy.config import set_temp_cache
+    # set_temp_cache('/tmp')
+else:
+    plt.ion()
+
+# For some reason, this has to be done BEFORE importing anything from kidsdata, otherwise, it does not work...
+logging.basicConfig(
+    level=logging.DEBUG,  # " stream=sys.stdout,
+    # format="%(levelname)s:%(name)s:%(funcName)s:%(message)s",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+# Prevent verbose output from matplotlib
+mpl_logger = logging.getLogger("matplotlib")
+mpl_logger.setLevel(logging.WARNING)
+
 import numpy as np
 from pathlib import Path
 from multiprocessing import Pool
 from itertools import zip_longest, islice
 
 from kidsdata import *
+from kidsdata.kiss_continuum import KissContinuum
 
 from astropy.table import Table, join, vstack
 
 import matplotlib.pyplot as plt
 
-mpl_logger = logging.getLogger("matplotlib")
-mpl_logger.setLevel(logging.WARNING)
 
 plt.ion()
 
@@ -78,10 +106,10 @@ from autologging import logged
 
 
 @logged
-def process_scan_new_calib(scan):
+def process_scan_new_calib(scan, outdir=None):
     try:
         process_scan_new_calib._log.info("Reading")
-        kd = KissRawData(get_scan(scan))
+        kd = KissData(get_scan(scan))
         kd.read_data(
             list_data=[
                 "indice",
@@ -133,45 +161,47 @@ def process_scan_new_calib(scan):
         # e_kidpar.write(f"e_kidpar_{kd.scan}_{suffix}.fits", overwrite=True)
 
         # AFTER
-        process_scan_new_calib._log.info("after")
+        # process_scan_new_calib._log.info("after")
+
         suffix = "all_leastsq"
         process_scan_new_calib._log.info("get_calfact_3pts")
         kd.calib_raw(calib_func="kidsdata.kids_calib.get_calfact_3pts", method=("all", "leastsq"), nfilt=None)
-        KissRawData.continuum.fget.cache_clear()
-        KissRawData.continuum_pipeline.cache_clear()
+        # KissRawData.continuum.fget.cache_clear()
+        KissContinuum.continuum_pipeline.cache_clear()
 
         process_scan_new_calib._log.info("beammap")
         kd, (fig_beammap, figs_geometries, fig_coadd) = beammap(kd)
 
         process_scan_new_calib._log.info("save_figs")
-        fig_beammap.savefig(f"beammap_{kd.scan}_{suffix}.png")
+        fig_beammap.savefig(outdir / f"beammap_{kd.scan}_{suffix}.png")
         plt.close(fig_beammap)
 
         for i, fig in enumerate(figs_geometries):
             fig.set_size_inches(15, 10)
-            fig.savefig(f"geometry_{kd.scan}_{i}_{suffix}.png")
+            fig.savefig(outdir / f"geometry_{kd.scan}_{i}_{suffix}.png")
             plt.close(fig)
 
         if fig_coadd is not None:
-            fig_coadd.savefig(f"coadd_{kd.scan}_{suffix}.png")
+            fig_coadd.savefig(outdir / f"coadd_{kd.scan}_{suffix}.png")
             plt.close(fig_coadd)
 
         e_kidpar = kd._extended_kidpar
-        e_kidpar.write(f"e_kidpar_{kd.scan}_{suffix}.fits", overwrite=True)
+        e_kidpar.write(outdir / f"e_kidpar_{kd.scan}_{suffix}.fits", overwrite=True)
 
         return True
     except (TypeError, ValueError, IndexError) as e:
         return False
 
 
-def combine_kidpars(suffix="", inside_threshold=0.9):
+def combine_kidpars(indir=Path("."), suffix="", kid_threshold=0.9, inside_threshold=0.9):
     filenames = [
-        filename for filename in Path(".").glob("e_kidpar_*{}.fits".format(suffix)) if "median" not in filename.name
+        filename for filename in indir.glob("e_kidpar_*{}.fits".format(suffix)) if "median" not in filename.name
     ]
     logging.info("Starting with : {} kidpar".format(len(filenames)))
 
     kidpars = []
-
+    frac_kids = []
+    frac_insides = []
     # Selection of "godd" kidpar
     for filename in filenames:
         _kidpar = Table.read(filename)
@@ -180,7 +210,9 @@ def combine_kidpars(suffix="", inside_threshold=0.9):
         frac_kid = np.mean(~nofit_kid)
         # Fraction within 1 degree
         frac_inside = np.mean(np.sqrt(_kidpar["x0"][~nofit_kid] ** 2 + _kidpar["y0"][~nofit_kid] ** 2) < 1)
-        if frac_kid > 0.66 and frac_inside > inside_threshold:
+        frac_kids.append(frac_kid)
+        frac_insides.append(frac_inside)
+        if frac_kid > kid_threshold and frac_inside > inside_threshold:
             kidpars.append(_kidpar)
 
     logging.info("Selecting {} kidpars".format(len(kidpars)))
@@ -194,12 +226,17 @@ def combine_kidpars(suffix="", inside_threshold=0.9):
     mostpresent = all_kidpar.groups.keys[idx_mostpresent]["namedet"]
     logging.info("Most present kid {}".format(mostpresent))
 
-    # Normalize amplitude and position to the most present KID
+    freq_mostpresent = [np.mean(~np.isnan(_kidpar["amplitude"])) for _kidpar in all_kidpar.groups]
+    mask_mostpresent = np.array(freq_mostpresent) == np.max(freq_mostpresent)
+    mostpresent = all_kidpar.groups.keys[mask_mostpresent]["namedet"]
+    logging.info("Most present kids {}".format(mostpresent))
+
+    # Normalize amplitude and position to the most presents KID
     for kidpar in kidpars:
         kidpar.add_index(["namedet"])
-        kidpar["amplitude"] /= kidpar.loc[mostpresent]["amplitude"]
-        kidpar["x0"] -= kidpar.loc[mostpresent]["x0"]
-        kidpar["y0"] -= kidpar.loc[mostpresent]["y0"]
+        kidpar["amplitude"] /= np.nanmedian(kidpar.loc[mostpresent]["amplitude"])
+        kidpar["x0"] -= np.nanmedian(kidpar.loc[mostpresent]["x0"])
+        kidpar["y0"] -= np.nanmedian(kidpar.loc[mostpresent]["y0"])
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -234,7 +271,7 @@ def combine_kidpars(suffix="", inside_threshold=0.9):
     # Normalize amplitude
     median_kidpar["amplitude"] /= np.nanmedian(median_kidpar["amplitude"])
 
-    filename = "e_kidpar_median_{}.fits".format(suffix)
+    filename = "e_kidpar_median_{}_{}.fits".format(suffix, datetime.datetime.now().isoformat(timespec="hours"))
 
     median_kidpar.meta["scan"] = "median of {} scans".format(len(kidpars))
     median_kidpar.meta["filename"] = filename
@@ -292,6 +329,7 @@ def main():
     # All Moon scans
     db = list_scan(output=True, source="Moon", obsmode="ITERATIVERASTER")
     scans = [_["scan"] for _ in db]
+    kwargs["outdir"] = Path("Moon")
 
     # Test on new calibration
     process_scan = process_scan_new_calib
@@ -310,11 +348,11 @@ def main():
     n = int(os.getenv("SLURM_ARRAY_TASK_COUNT", "1"))
     _scans = nth(zip(*grouper(scans, n)), i)
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s:%(name)s:%(funcName)s:%(message)s",
-        handlers=[logging.FileHandler(f"beammap_iterativeraster_{i}.log"), logging.StreamHandler()],
-    )
+    # logging.basicConfig(
+    #     level=logging.DEBUG,
+    #     format="%(asctime)s %(levelname)s:%(name)s:%(funcName)s:%(message)s",
+    #     handlers=[logging.FileHandler(f"beammap_iterativeraster_{i}.log"), logging.StreamHandler()],
+    # )
 
     logging.info("{} will do {}".format(i, _scans))
 

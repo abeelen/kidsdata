@@ -1,11 +1,11 @@
 #!/bin/env python
-#SBATCH --job-name=process_iterativeraster
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=3
-#SBATCH --mem=50GB
-#SBATCH --output=slurm-%A_%a.out
-#SBATCH --error=slurm-%A_%a.err
-#SBATCH --array=0
+# SBATCH --job-name=process_iterativeraster
+# SBATCH --nodes=1
+# SBATCH --cpus-per-task=3
+# SBATCH --mem=50GB
+# SBATCH --output=slurm-%A_%a.out
+# SBATCH --error=slurm-%A_%a.err
+# SBATCH --array=0
 
 # Launch with :
 # > sbatch template.py *args

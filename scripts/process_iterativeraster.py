@@ -1,11 +1,11 @@
 #!/bin/env python
-#SBATCH --job-name=process_iterativeraster
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=3
-#SBATCH --mem=63GB
-#SBATCH --output=slurm-%A_%a.out
-#SBATCH --error=slurm-%A_%a.err
-#SBATCH --array=0
+# SBATCH --job-name=process_iterativeraster
+# SBATCH --nodes=1
+# SBATCH --cpus-per-task=3
+# SBATCH --mem=63GB
+# SBATCH --output=slurm-%A_%a.out
+# SBATCH --error=slurm-%A_%a.err
+# SBATCH --array=0
 
 # Launch with :
 # > sbatch process_iterativeraster.py source_name
@@ -323,10 +323,7 @@ def display_hdu(hdul, plot_data=True, plot_snr=True):
     fig, axes = plt.subplots(
         nrows=1, ncols=ncols, squeeze=False, subplot_kw={"projection": WCS(header)}, sharex=True, sharey=True
     )
-    for (
-        ax,
-        (title, to_plot),
-    ) in zip(axes[0], to_plots):
+    for (ax, (title, to_plot),) in zip(axes[0], to_plots):
         lon = ax.coords[0]
         lon.set_ticks(spacing=1 * u.deg)
         lon.set_ticklabel(exclude_overlapping=True)

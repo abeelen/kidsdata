@@ -1,11 +1,11 @@
 #!/bin/env python
-#SBATCH --job-name=shift_flip
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=3
-#SBATCH --mem=100GB
-#SBATCH --output=slurm-%A_%a.out
-#SBATCH --error=slurm-%A_%a.err
-#SBATCH --array=0
+# SBATCH --job-name=shift_flip
+# SBATCH --nodes=1
+# SBATCH --cpus-per-task=3
+# SBATCH --mem=100GB
+# SBATCH --output=slurm-%A_%a.out
+# SBATCH --error=slurm-%A_%a.err
+# SBATCH --array=0
 
 # Launch with :
 # > sbatch template.py *args
@@ -96,14 +96,7 @@ def process_scan(filename, output_dir=Path("."), laser_shift=None, **kwargs):
         process_scan._log.info("Reading Data")
         kd = KissData(filename)
         kd.read_data(
-            list_data=[
-                "C_motor1_pos",
-                "C_laser1_pos",
-                "C_laser2_pos",
-                "I",
-                "Q",
-                "A_masq",
-            ]
+            list_data=["C_motor1_pos", "C_laser1_pos", "C_laser2_pos", "I", "Q", "A_masq",]
         )
         process_scan._log.info("Calibrating Data")
 
@@ -131,11 +124,7 @@ def process_scan(filename, output_dir=Path("."), laser_shift=None, **kwargs):
 
             meta = {"filename": kd.filename, "scan": kd.scan, "laser_shift": kd.laser_shift}
             result = Table(
-                [
-                    Column(kd.list_detector, name="namedet"),
-                    Column(laser_shifts, name="laser_shift"),
-                ],
-                meta=meta,
+                [Column(kd.list_detector, name="namedet"), Column(laser_shifts, name="laser_shift"),], meta=meta,
             )
 
             with warnings.catch_warnings():
