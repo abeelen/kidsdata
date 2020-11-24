@@ -62,6 +62,11 @@ class FTSData(NDDataArray):
         return self._opd_idx is not None
 
     @property
+    def opd_axis(self):
+        if self._is_opd:
+            return self.wcs.sub([self._opd_idx + 1]).pixel_to_world(np.arange(self.shape[0]))
+
+    @property
     def _is_doublesided(self):
         """Test if the cube is doublesided, enforce positive increments."""
         return (np.sum(self.wcs.sub([self._opd_idx + 1]).all_pix2world([0, self.shape[0] - 1], 0)) == 0) & (
