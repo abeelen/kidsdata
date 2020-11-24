@@ -153,7 +153,7 @@ def build_celestial_wcs(
         the type of projection (default: Az/El telescope in TAN projection)
     cdelt: float (or tuple of 2 floats)
         the size of the pixels in cunit, see below, by default 0.1
-    cunit: str
+    cunit: str (or tuple of 2 str)
         the unit of cdelt, by default "deg"
 
     Returns
@@ -169,12 +169,18 @@ def build_celestial_wcs(
     if ctype == ("TLON-TAN", "TLAT-TAN"):
         wcs.wcs.name = "Terrestrial coordinates"
 
-    wcs.wcs.cdelt[0:2] = (-cdelt, cdelt)
-    wcs.wcs.cunit[0] = wcs.wcs.cunit[1] = cunit
+    if isinstance(cdelt, (int, np.int, float, np.float, np.float32, np.float64)):
+        cdelt = (-cdelt, cdelt)
+
+    if isinstance(cunit, str):
+        cunit = (cunit, cunit)
+
+    wcs.wcs.cdelt = cdelt
+    wcs.wcs.cunit = cunit
 
     # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
     if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
-        wcs.wcs.cdelt[0] = cdelt
+        wcs.wcs.cdelt[0] = -cdelt[0]
 
     if crval is None:
         # find the center of the projection
@@ -191,7 +197,7 @@ def build_celestial_wcs(
         y -= y_min
     else:
         wcs.wcs.crpix = crpix
-        x, y = wcs.all_word2pix(lon, lat, 0)
+        x, y = wcs.all_world2pix(lon, lat, 0)
 
     return wcs, x, y
 

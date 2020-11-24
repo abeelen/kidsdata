@@ -695,9 +695,9 @@ class KissSpectroscopy(KissRawData):
             the projection wcs if provided, by default None
         coord : str, optional
             coordinate type, by default "diff"
-        cdelt : tuple of 3 float
+        cdelt : tuple of 2 or 3 float
             the size of the pixels and delta opd width in ...
-        cunit : tupe of 2 str
+        cunit : tupe of 2 or 3 str
             ... the units of the above cdelt
 
         Returns
@@ -716,6 +716,11 @@ class KissSpectroscopy(KissRawData):
 
         good_tel = ~self.mask_tel
 
+        if len(cdelt) == 2:
+            cdelt = (cdelt[0], cdelt[0], cdelt[1])
+        if len(cunit) == 2:
+            cunit = (cunit[0], cunit[0], cunit[1])
+
         # Retrieve data
         az = getattr(self, az_coord)[good_tel]
         el = getattr(self, el_coord)[good_tel]
@@ -725,7 +730,7 @@ class KissSpectroscopy(KissRawData):
 
         # Need to include the extreme kidspar offsets
         kidspar_margin_x = (_kidpar["x0"].max() - _kidpar["x0"].min()) / cdelt[0]
-        kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt[0]
+        kidspar_margin_y = (_kidpar["y0"].max() - _kidpar["y0"].min()) / cdelt[1]
 
         if wcs is None:
             # Project only the telescope position
@@ -739,7 +744,7 @@ class KissSpectroscopy(KissRawData):
         if wcs.is_celestial:
             # extend the wcs for a third axis :
             if ctype3.lower() == "opd":
-                wcs, z = extend_wcs(wcs, opds.flatten(), crval=0, ctype=ctype3, cdelt=cdelt[2], cunit=cunit[1])
+                wcs, z = extend_wcs(wcs, opds.flatten(), crval=0, ctype=ctype3, cdelt=cdelt[2], cunit=cunit[2])
                 # Round the crpix3
                 crpix3 = wcs.wcs.crpix[2]
                 crpix3_offset = np.round(crpix3) - crpix3
