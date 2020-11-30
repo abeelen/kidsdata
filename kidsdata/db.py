@@ -62,78 +62,74 @@ def table_columns(filename, re_pattern=None):
 def extend_database():
     """Read the header of each file and construct the parameter database."""
     ## WIP
-    global DB_SCAN, DB_PARAM
-
     global DBs, DB_PARAM
     for db in DBs:
         db.update()
 
     from .kids_rawdata import KidsRawData  # To avoid import loop
 
-    data_rows = []
-    param_rows = {}
-    for item in ProgressBar(DB_SCAN):
-        if "param_id" in item.colnames and item["param_id"]:
-            # Skip if present
-            continue
-        filename = item["filename"]
-        try:
-            kd = KidsRawData(filename)
-            hash_param = hash(str(kd.param_c))
-            data_row = {"filename": filename, "param_id": hash_param}
-            param_row = {"param_id": hash_param}
-            param_row.update(kd.param_c)
-            data_rows.append(data_row)
-            param_rows[hash_param] = param_row
-            del kd
-        except AssertionError:
-            logging.warning("{} failed".format(filename))
+    for db in DBs:
+        data_rows = []
+        param_rows = {}
+        for item in ProgressBar(db):
+            if "param_id" in item.colnames and item["param_id"]:
+                # Skip if present
+                continue
+            filename = item["filename"]
+            try:
+                kd = KidsRawData(filename)
+                hash_param = hash(str(kd.param_c))
+                data_row = {"filename": filename, "param_id": hash_param}
+                param_row = {"param_id": hash_param}
+                param_row.update(kd.param_c)
+                data_rows.append(data_row)
+                param_rows[hash_param] = param_row
+                del kd
+            except AssertionError:
+                logging.warning("{} failed".format(filename))
 
-    if len(param_rows) > 0:
-        # We found new scans and/or new parameters
-        param_rows = [*param_rows.values()]
+        if len(param_rows) > 0:
+            # We found new scans and/or new parameters
+            param_rows = [*param_rows.values()]
 
-        # Get unique parameter list
-        param_set = set(chain(*[param.keys() for param in param_rows] + [DB_PARAM.colnames if DB_PARAM else []]))
+            # Get unique parameter list
+            param_set = set(chain(*[param.keys() for param in param_rows] + [DB_PARAM.colnames if DB_PARAM else []]))
 
-        # Fill missing value
-        missing = []
-        for param in param_rows:
-            for key in param_set:
-                if key not in param:
-                    param[key] = None
-                    missing.append(key)
-        missing = set(missing)
+            # Fill missing value
+            missing = []
+            for param in param_rows:
+                for key in param_set:
+                    if key not in param:
+                        param[key] = None
+                        missing.append(key)
+            missing = set(missing)
 
-        NEW_PARAM = Table(param_rows)
-        for key in missing:
-            mask = NEW_PARAM[key] == None  # noqa: E711
-            _dtype = type(NEW_PARAM[key][~mask][0])
-            NEW_PARAM[key][mask] = _dtype(0)
-            NEW_PARAM[key] = MaskedColumn(_dtype(NEW_PARAM[key].data), mask=mask)
+            NEW_PARAM = Table(param_rows)
+            for key in missing:
+                mask = NEW_PARAM[key] == None  # noqa: E711
+                _dtype = type(NEW_PARAM[key][~mask][0])
+                NEW_PARAM[key][mask] = _dtype(0)
+                NEW_PARAM[key] = MaskedColumn(NEW_PARAM[key].data.astype(_dtype), mask=mask)
 
-        if DB_PARAM is not None:
-            DB_PARAM = vstack([DB_PARAM, NEW_PARAM])
-            DB_PARAM = unique(DB_PARAM, "param_id")
-        else:
-            DB_PARAM = NEW_PARAM
+            if DB_PARAM is not None:
+                DB_PARAM = vstack([DB_PARAM, NEW_PARAM])
+                DB_PARAM = unique(DB_PARAM, "param_id")
+            else:
+                DB_PARAM = NEW_PARAM
 
-        DB_PARAM.write(DB_PARAM_FILE)
+            # Update db
+            NEW_PARAM = Table(data_rows)
+            if "param_id" not in db.colnames:
+                db.add_column(Column(0, name="param_id", dtype=np.int64))
 
-        # Update DB_SCAN
-        NEW_PARAM = Table(data_rows)
-        if "param_id" in DB_SCAN.colnames:
-            DB_SCAN.add_index("filename")
-            idx = DB_SCAN.loc_indices[NEW_PARAM["filename"]]
-            DB_SCAN["param_id"][idx] = NEW_PARAM["param_id"]
-        else:
-            # a simple join
-            DB_SCAN = join(DB_SCAN, NEW_PARAM, keys="filename", join_type="outer")
+            db.add_index("filename")
+            idx = db.loc_indices[NEW_PARAM["filename"]]
+            db["param_id"][idx] = NEW_PARAM["param_id"]
 
-        DB_SCAN.sort("ctime")
+            db._correct_time()
 
-        DB_PARAM.write(DB_PARAM_FILE, overwrite=True)
-        DB_SCAN.write(DB_SCAN_FILE, overwrite=True)
+            DB_PARAM.write(DB_PARAM_FILE, overwrite=True)
+            db.write(db.filename, overwrite=True)
 
 
 def get_scan(scan=None):
