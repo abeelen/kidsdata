@@ -202,10 +202,15 @@ def get_filename(filename=None):
 
     mask = merge_DB["name"] == filename
 
-    if not np.any(mask):
+    n_found = np.sum(mask)
+
+    if n_found == 0:
         raise IndexError("Scan {} not found".format(filename))
 
-    return merge_DB[mask]["filename"].data[0]
+    if n_found > 1:
+        logging.warning("{} scans found".format(n_found))
+
+    return merge_DB[mask]["filename"].data.squeeze()
 
 
 def list_data(database=None, pprint_columns=None, output=False, **kwargs):
