@@ -235,13 +235,13 @@ def list_data(database=None, pprint_columns=None, output=False, **kwargs):
 
     # Filtering on all possible key from table
     for key in kwargs.keys():
-        if key.split("__")[0] in database.keys():
+        if key.split("__")[0] in _database.keys():
             if "__gt" in key:
-                _database = database[database[key.split("__")[0]] > kwargs[key]]
+                _database = _database[_database[key.split("__")[0]] > kwargs[key]]
             elif "__lt" in key:
-                _database = database[database[key.split("__")[0]] < kwargs[key]]
+                _database = _database[_database[key.split("__")[0]] < kwargs[key]]
             else:
-                _database = database[database[key] == kwargs[key]]
+                _database = _database[_database[key] == kwargs[key]]
 
     if output:
         return _database
