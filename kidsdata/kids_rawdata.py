@@ -9,6 +9,7 @@ from copy import deepcopy
 from functools import lru_cache
 from itertools import chain
 
+import datetime
 from dateutil.parser import parse
 from astropy.time import Time
 from astropy.table import Table, join
@@ -80,16 +81,15 @@ class KidsRawData(object):
 
         self.header, self.version_header, self.param_c, _kidpar, self.names, self.nsamples = info
 
-        # insure that kidpar is a masked table for kidpar and as an index
+        # kidpar must be a masked table and have an index
         if "index" not in _kidpar.keys():
             _kidpar["index"] = np.arange(len(_kidpar))
-
         if not _kidpar.has_masked_values:
             _kidpar = Table(_kidpar, masked=True, copy=False)
-
         _kidpar.add_index("namedet")
         self._kidpar = _kidpar
 
+        # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
 
         self._extended_kidpar = None
@@ -193,6 +193,28 @@ class KidsRawData(object):
         print("------------------")
         print("No. of KIDS detectors:\t", self.ndet)
         print("No. of time samples:\t", self.nsamples)
+
+    @property
+    def meta(self):
+        """ Default meta data for products."""
+        meta = {}
+
+        meta["OBJECT"] = self.source
+        meta["OBS-ID"] = self.scan
+        meta["FILENAME"] = str(self.filename)
+        if RE_SCAN.match(self.filename.name):
+            meta["EXPTIME"] = self.exptime.value
+            meta["DATE"] = datetime.datetime.now().isoformat()
+            meta["DATE-OBS"] = self.obstime[0].isot
+            meta["DATE-END"] = self.obstime[-1].isot
+            meta["INSTRUME"] = self.param_c["nomexp"]
+        meta["AUTHOR"] = "KidsData"
+        meta["ORIGIN"] = os.environ.get("HOSTNAME")
+
+        # Add extra keyword
+        meta["SCAN"] = self.scan
+
+        return meta
 
     def read_data(self, *args, cache=False, array=np.array, list_data=["indice", "A_masq", "I", "Q"], **kwargs):
         """Read raw data.
@@ -412,7 +434,7 @@ class KidsRawData(object):
         Attributes
         ----------
         namedet: str
-            any string pattern a KID name should match in a `in` operation
+            any regular expression pattern a KID name should match
         flag: int
             select only KIDs with the given flag
         typedet: int or list of int
@@ -422,12 +444,21 @@ class KidsRawData(object):
         -------
         list_detector: list
             the list which should be used for the `.read_data()` method
+
+        Note
+        ----
+        namedet='KA' will match all KA detectors
+        namedet='K(A|B)' will match both KA and KB detectors
+
+        One can combine selection :
+        namedet='KA', flag=0 : will match all KA detectors with flag=0
         """
+
         mask = ~self._kidpar["index"].mask
         if namedet is not None:
-            mask = mask & [namedet in name for name in self._kidpar["namedet"]]
+            mask = mask & [re.match(namedet, name) is not None for name in self._kidpar["namedet"]]
         if flag is not None:
-            mask = mask & self._kidpar["flag"] == flag
+            mask = mask & (self._kidpar["flag"] == flag)
         if typedet is not None:
             if not isinstance(typedet, list):
                 typedet = [typedet]
