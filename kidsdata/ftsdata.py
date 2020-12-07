@@ -53,9 +53,11 @@ class FTSData(NDDataArray):
         # Initialize with the parent...
         super().__init__(*args, **kwargs)
         self.hits = hits
+        self._opd_idx = None
 
-        opd_idx = np.argwhere("opd" == np.char.lower(self.wcs.wcs.ctype)).squeeze()
-        self._opd_idx = opd_idx.item() if opd_idx.size == 1 else None
+        if self.wcs is not None:
+            opd_idx = np.argwhere("opd" == np.char.lower(self.wcs.wcs.ctype)).squeeze()
+            self._opd_idx = opd_idx.item() if opd_idx.size == 1 else None
 
     @property
     def _is_opd(self):
