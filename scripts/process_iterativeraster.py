@@ -1,17 +1,18 @@
 #!/bin/env python
-# SBATCH --job-name=process_iterativeraster
-# SBATCH --nodes=1
-# SBATCH --cpus-per-task=3
-# SBATCH --mem=63GB
-# SBATCH --output=slurm-%A_%a.out
-# SBATCH --error=slurm-%A_%a.err
-# SBATCH --array=0
+#SBATCH --job-name=iterativeraster
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=3
+#SBATCH --mem=63GB
+#SBATCH --output=slurm-%A_%a.out
+#SBATCH --error=slurm-%A_%a.err
+#SBATCH --array=0
 
 # Launch with :
 # > sbatch process_iterativeraster.py source_name
 # Or
-# > sbatch --array=0-19 process_iterativeraster.py source_name
-# To parallelize on 20 task (with 3 CPUs and 50 GB each)
+# > sbatch --array=0-xxx process_iterativeraster.py source_name
+# Ideally xxx is the number of scan or higher,
+# such that each batch process only one scan, and give better control
 # See help for more options
 """
 Process interativeraster scans, produce fits maps of photometry
@@ -30,7 +31,6 @@ if int(os.getenv("SLURM_ARRAY_TASK_COUNT", 0)) > 0:
     conf.remote_timeout = 120
     conf.download_cache_lock_attempts = 120
 
-
 # from multiprocessing import Pool
 
 # from astropy.utils import iers
@@ -42,7 +42,9 @@ if int(os.getenv("SLURM_ARRAY_TASK_COUNT", 0)) > 0:
 # set_temp_cache('/tmp')
 
 import os
-from itertools import zip_longest, islice, chain
+
+# from itertools import zip_longest, islice
+from itertools import chain
 from pathlib import Path
 import argparse
 import functools
@@ -79,21 +81,20 @@ CALIB_PATH = Path("/data/KISS/Calib")
 
 plt.ion()
 
+# Switched to numpy.array_split
 # https://docs.python.org/fr/3/library/itertools.html#itertools-recipes
-def grouper(iterable, n, fillvalue=None):
-    "Collect data into fixed-length chunks or blocks"
-    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
-    args = [iter(iterable)] * n
-    return zip_longest(*args, fillvalue=fillvalue)
-
-
-def nth(iterable, n, default=None):
-    "Returns the nth item or a default value"
-    return next(islice(iterable, n, None), default)
+# def grouper(iterable, n, fillvalue=None):
+#     "Collect data into fixed-length chunks or blocks"
+#     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
+#     args = [iter(iterable)] * n
+#     return zip_longest(*args, fillvalue=fillvalue)
+# def nth(iterable, n, default=None):
+#     "Returns the nth item or a default value"
+#     return next(islice(iterable, n, None), default)
 
 
 @logged
-def process_scan(scan, e_kidpar="e_kidpar_median_all_leastsq.fits", calib_kwargs={}, output_dir=Path("."), **kwargs):
+def process_scan(scan, calib_kwargs={}, pipeline_kwargs={}, projection_kwargs={}, output_dir=Path(".")):
 
     try:
         kd = KissData(get_scan(scan))
@@ -122,7 +123,7 @@ def process_scan(scan, e_kidpar="e_kidpar_median_all_leastsq.fits", calib_kwargs
             array=np.array,
         )
         kd.calib_raw(**calib_kwargs)
-        kd._extended_kidpar = Table.read(CALIB_PATH / e_kidpar)
+        # kd._extended_kidpar = Table.read(CALIB_PATH / e_kidpar)
 
         # Write the file to cache for further use
         # if not kd._cache_filename.exists():
@@ -139,11 +140,13 @@ def process_scan(scan, e_kidpar="e_kidpar_median_all_leastsq.fits", calib_kwargs
         labels = ["KA", "KB", "KAB"]
 
         # Combined maps
-        fig_pca, results = kd.plot_contmap(ikid=ikids, label=labels, **kwargs)
+        fig_pca, results = kd.plot_contmap(ikid=ikids, label=labels, **pipeline_kwargs, **projection_kwargs)
 
-        ncomp = kwargs.get("ncomp", None)
+        ncomp = pipeline_kwargs.get("ncomp", None)
         calib_method = calib_kwargs.get("calib_func", "kidsdata.kids_calib.get_calfact").split(".")[-1]
-        kidpar_id = "_".join(Path(e_kidpar).with_suffix("").name.split("_")[2:])
+        # kidpar_id = "_".join(Path(e_kidpar).with_suffix("").name.split("_")[2:])
+        kidpar_id = "_".join(Path(kd._extended_kidpar.meta["FILENAME"]).with_suffix("").name.split("_")[2:])
+
         file_id = f"coadd_PCA{ncomp}_{kd.source}_{kd.scan}_{calib_method}_{kidpar_id}"
 
         fig_pca.savefig(output_dir / f"{file_id}.png")
@@ -323,7 +326,10 @@ def display_hdu(hdul, plot_data=True, plot_snr=True):
     fig, axes = plt.subplots(
         nrows=1, ncols=ncols, squeeze=False, subplot_kw={"projection": WCS(header)}, sharex=True, sharey=True
     )
-    for (ax, (title, to_plot),) in zip(axes[0], to_plots):
+    for (
+        ax,
+        (title, to_plot),
+    ) in zip(axes[0], to_plots):
         lon = ax.coords[0]
         lon.set_ticks(spacing=1 * u.deg)
         lon.set_ticklabel(exclude_overlapping=True)
@@ -358,9 +364,11 @@ def main(source, cdelt, output_dir):
         logging.info(f"Output directory {output_dir} created")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    kwargs = {
+    pipeline_kwargs = {
         "cm_func": "kidsdata.common_mode.pca_filtering",
         "ncomp": 5,
+    }
+    projection_kwargs = {
         "wcs": None,
         "shape": None,
         "coord": "pdiff",
@@ -370,8 +378,10 @@ def main(source, cdelt, output_dir):
 
     calib_kwargs = {"calib_func": "kidsdata.kids_calib.get_calfact_3pts", "method": ("all", "leastsq"), "nfilt": None}
 
-    # Produce maps on the same large enough grid
-    cdelt = kwargs.get("cdelt")
+    # Fix the wcs for all observation to
+    # Produce maps on the same, large enough, grid
+    cdelt = projection_kwargs.get("cdelt")
+
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ("OLON-SFL", "OLAT-SFL")
     wcs.wcs.cdelt = (cdelt, cdelt)
@@ -379,8 +389,8 @@ def main(source, cdelt, output_dir):
     wcs.wcs.crpix = (100, 100)
     shape = (200, 200)
 
-    kwargs["wcs"] = wcs
-    kwargs["shape"] = shape
+    projection_kwargs["wcs"] = wcs
+    projection_kwargs["shape"] = shape
 
     db = list_scan(output=True, source=source, obsmode="ITERATIVERASTER")
     scans = [_["scan"] for _ in db]
@@ -389,11 +399,12 @@ def main(source, cdelt, output_dir):
     # with Pool(10) as p:
     #     print(p.map(process, scans))
 
-    _scans = nth(zip(*grouper(scans, n)), i)
+    # _scans = nth(zip(*grouper(scans, n)), i)
+    _scans = np.array_split(scans, n)[i]
 
     logging.info("{} will do {}".format(i, _scans))
 
-    if _scans is None:
+    if _scans is None or _scans.size == 0:
         return None
 
     for scan in _scans:
@@ -405,10 +416,11 @@ def main(source, cdelt, output_dir):
         process_scan(
             scan,
             # e_kidpar="e_kidpar_median_all_leastsq.fits",
-            e_kidpar="e_kidpar_median_all_leastsq_2020-10-19T16.fits",
+            # e_kidpar="e_kidpar_median_all_leastsq_2020-10-19T16.fits",
             calib_kwargs=calib_kwargs,
+            pipeline_kwargs=pipeline_kwargs,
+            projection_kwargs=projection_kwargs,
             output_dir=output_dir,
-            **kwargs,
         )
 
 

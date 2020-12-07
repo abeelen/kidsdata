@@ -43,7 +43,8 @@ You must have the `libreadnika` compiled and setup a environement variable `NIKA
 
 ```bash
 export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
-export KISS_DATA=/data/KISS/Raw/nika2c-data3/KISS
+export DATA_DIR=/data/KISS/Raw/nika2c-data3/KISS
+export CALIB_DIR=/data/KISS/Calib
 ```
 
 ## Developer note

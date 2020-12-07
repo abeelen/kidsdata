@@ -4,28 +4,32 @@ import numpy as np
 import logging
 from pathlib import Path
 from itertools import chain
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps, partial, update_wrapper
 
 import astropy.units as u
+from astropy.io import fits
 from astropy.time import Time
 from astropy.table import Table, join, vstack, unique, MaskedColumn, Column
 from astropy.utils.console import ProgressBar
 
 
 BASE_DIRS = [Path(directory) for directory in os.getenv("DATA_DIR", "/data/KISS/Raw/nika2c-data3/KISS").split(";")]
-DB_DIR = Path(os.getenv("DB_DIR", "."))
+CALIB_DIR = Path(os.getenv("CALIB_DIR", "/data/KISS/Calib/"))
 
+
+DB_DIR = Path(os.getenv("DB_DIR", "."))
 DB_SCAN_FILE = DB_DIR / ".kidsdb_scans.fits"
 DB_EXTRA_FILE = DB_DIR / ".kidsdb_extra.fits"
 DB_PARAM_FILE = DB_DIR / ".kidsdb_param.fits"
 DB_TABLE_FILE = DB_DIR / ".kidsdb_table.fits"
+DB_KIDPAR_FILE = CALIB_DIR / "kidpardb.fits"
 
-__all__ = ["list_scan", "get_scan", "list_extra", "get_extra", "list_table", "get_filename"]
+__all__ = ["list_scan", "get_scan", "list_extra", "get_extra", "list_table", "get_filename", "get_kidpar"]
 
 RE_DIR = re.compile(r"X(\d*)_(\d{4,4})_(\d{2,2})_(\d{2,2})$")
 
-# Regular scans :
+# Regular scans : X20201110_0208_S1192_Crab_ITERATIVERASTER
 RE_SCAN = re.compile(r"^X(\d{8,8})_(\d{4,4})_S(\d{4,4})_([\w|\+]*)_(\w*)$")
 
 # Extra files : X_2020_10_22_12h53m20_AA_man :
@@ -33,6 +37,9 @@ RE_EXTRA = re.compile(r"^X_(\d{4,4})_(\d{2,2})_(\d{2,2})_(\d{2,2})h(\d{2,2})m(\d
 
 # CONCERTO InLab test : X14_04_Tablebt_scanStarted_10 :
 RE_TABLE = re.compile(r"X(\d{2,2})_(\d{2,2})_Tablebt_scanStarted_(\d*)$")
+
+# for kidpar files
+RE_KIDPAR = re.compile(r"^e_kidpar")
 
 
 def scan_columns(filename, re_pattern=None):
@@ -372,9 +379,110 @@ class KidsDB(Table):
             self.write(self.filename, overwrite=True)
 
 
+class KidparDB(Table):
+    """ must contains start / end  / filename columns."""
+
+    def __init__(self, *args, filename=None, calib_dir=None, re_pattern=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.filename = filename
+        self.calib_dir = calib_dir
+        self.re_pattern = re_pattern
+
+        if self.filename is not None and self.filename.exists():
+            table_read_kwd = (
+                {"astropy_native": True, "character_as_bytes": False} if self.filename.suffix == ".fits" else {}
+            )
+            this = Table.read(self.filename, **table_read_kwd)
+            self.add_columns(this.columns)
+            self.meta.update(this.meta)
+            self._correct_time()
+
+        self.meta["filename"] = filename
+        self.meta["CALIB_DIR"] = calib_dir
+
+    def get_kidpar(self, date):
+        self.update()
+
+        # comparing with the date of the DB
+        select_kidpar = Time(self["start"].iso) <= date <= (Time(self["end"].iso) + timedelta(days=1))
+        if np.any(select_kidpar):
+            item = self["filename"][select_kidpar]
+            assert len(item) == 1, "Multiple kidpar, please check"
+            return item[0]
+        elif date > self["end"][-1]:
+            logging.warning("No kidpar for this date, using the latest one")
+            return self["filename"][-1]
+        elif date < self["start"][0]:
+            logging.warning("No kidpar for this date, using the earliest one")
+            return self["filename"][0]
+        else:
+            logging.error("Something is wrong, please report")
+            return None
+
+    def _correct_time(self):
+        logging.debug("Converting time in DB table")
+        # Ugly hack for Time columns
+        for key in ["start", "end"]:
+            if key in self.columns:
+                self[key] = Time(self[key])
+                self[key].format = "iso"
+                self[key].out_subfmt = "date"
+
+    def update(self):
+        filenames = [file for file in Path(self.calib_dir).glob("**/*") if self.re_pattern.match(file.name)]
+
+        data_rows = []
+        for filename in filenames:
+            # Removing already scanned files
+            if self.__len__() != 0 and str(filename) in self.columns["filename"]:
+                continue
+
+            header = fits.getheader(filename, 1)
+            if not header.get("DB-START") and not header.get("DB-END"):
+                continue
+
+            row = {
+                "filename": filename.as_posix(),
+                "name": filename.name,
+                "start": header.get("DB-START"),
+                "end": header.get("DB-END"),
+            }
+
+            data_rows.append(row)
+
+        if len(data_rows) > 0:
+            logging.info("Found {} new kidpar".format(len(data_rows)))
+
+            if self.__len__() != 0:
+                for row in data_rows:
+                    self.add_row(row)
+            else:
+                # Create the columns, taking quantity into account
+                columns = [
+                    Column(
+                        [
+                            _[key].to(data_rows[0][key].unit).value if isinstance(_[key], u.Quantity) else _[key]
+                            for _ in data_rows
+                        ],
+                        name=key,
+                        unit=getattr(data_rows[0][key], "unit", None),
+                    )
+                    for key in data_rows[0].keys()
+                ]
+
+                self.add_columns(columns)
+
+            self._correct_time()
+
+            self.write(self.filename, overwrite=True)
+
+
 DB_SCAN = KidsDB(filename=DB_SCAN_FILE, re_pattern=RE_SCAN, extract_func=scan_columns, dirs=BASE_DIRS)
 DB_EXTRA = KidsDB(filename=DB_EXTRA_FILE, re_pattern=RE_EXTRA, extract_func=extra_columns, dirs=BASE_DIRS)
 DB_TABLE = KidsDB(filename=DB_TABLE_FILE, re_pattern=RE_TABLE, extract_func=table_columns, dirs=BASE_DIRS)
+
+DB_KIDPAR = KidparDB(filename=DB_KIDPAR_FILE, re_pattern=RE_KIDPAR, calib_dir=CALIB_DIR)
 
 table_read_kwd = {"astropy_native": True, "character_as_bytes": False}
 DB_PARAM = Table.read(DB_PARAM_FILE, **table_read_kwd) if DB_PARAM_FILE.exists() else None
@@ -384,3 +492,4 @@ DBs = [DB_SCAN, DB_EXTRA, DB_TABLE]
 list_scan = partial(list_data, database=DB_SCAN, pprint_columns=["date", "scan", "source", "obsmode", "size"])
 list_extra = partial(list_data, database=DB_EXTRA, pprint_columns=["name", "date", "size"])
 list_table = partial(list_data, database=DB_TABLE, pprint_columns=["name", "date", "scan", "size"])
+get_kidpar = DB_KIDPAR.get_kidpar

@@ -1,10 +1,20 @@
 #!/bin/env python
-# SBATCH -J beammap_iterativeraster
-# SBATCH -N 1
-# SBATCH -c 8
-# SBATCH --mem=60GB
-# SBATCH -o slurm-%A_%a.out
-# SBATCH -e slurm-%A_%a.err
+# SBATCH --job-name=beammap
+# SBATCH --nodes=1
+# SBATCH --cpus-per-task=8
+# SBATCH --mem=63GB
+# SBATCH --output=slurm-%A_%a.out
+# SBATCH --error=slurm-%A_%a.err
+# SBATCH --array=0
+
+# Launch with :
+# > sbatch beammap_iterativeraster.py [output_dir]
+# Or
+# > sbatch --array=0-19 beammap_iterativeraster.py [output_dir]
+# To parallelize on 20 task (with 3 CPUs and 50 GB each)
+# See help for more options
+
+
 """
 Process all moon iterativeraster scan to derive beammaps
 
@@ -12,22 +22,16 @@ Process all moon iterativeraster scan to derive beammaps
 
 
 import os
-import sys
-import warnings
-import datetime
-import functools
-import logging
 import matplotlib as mpl
+from astropy.utils.data import conf
 import matplotlib.pyplot as plt
 
 # We should be in non interactive mode...
 if int(os.getenv("SLURM_ARRAY_TASK_COUNT", 0)) > 0:
-    logging.info("Within sbatch...")
+    print("SBATCH ARRAY MODE !!!")
     mpl.use("Agg")
     # To avoid download concurrency,
     # but need to be sure that the cache is updated
-    from astropy.utils.data import conf
-
     conf.remote_timeout = 120
     conf.download_cache_lock_attempts = 120
 
@@ -40,6 +44,13 @@ if int(os.getenv("SLURM_ARRAY_TASK_COUNT", 0)) > 0:
     # set_temp_cache('/tmp')
 else:
     plt.ion()
+
+import sys
+import warnings
+import datetime
+import functools
+import logging
+import argparse
 
 # For some reason, this has to be done BEFORE importing anything from kidsdata, otherwise, it does not work...
 logging.basicConfig(
@@ -61,11 +72,6 @@ from kidsdata.kiss_continuum import KissContinuum
 
 from astropy.table import Table, join, vstack
 
-import matplotlib.pyplot as plt
-
-
-plt.ion()
-
 
 # https://docs.python.org/fr/3/library/itertools.html#itertools-recipes
 def grouper(iterable, n, fillvalue=None):
@@ -81,6 +87,7 @@ def nth(iterable, n, default=None):
 
 
 def process_scan(scan):
+    ## DISCARDED !!!!!!!!!!!!!!!!!!!
     try:
         kd, (fig_beammap, figs_geometries, fig_coadd) = beammap(scan)
 
@@ -165,9 +172,13 @@ def process_scan_new_calib(scan, outdir=None):
 
         suffix = "all_leastsq"
         process_scan_new_calib._log.info("get_calfact_3pts")
-        kd.calib_raw(calib_func="kidsdata.kids_calib.get_calfact_3pts", method=("all", "leastsq"), nfilt=None)
+        kd.calib_raw(
+            calib_func="kidsdata.kids_calib.get_calfact_3pts",
+            method=("all", "leastsq"),
+            nfilt=None,
+        )
         # KissRawData.continuum.fget.cache_clear()
-        KissContinuum.continuum_pipeline.cache_clear()
+        # KissContinuum.continuum_pipeline.cache_clear()
 
         process_scan_new_calib._log.info("beammap")
         kd, (fig_beammap, figs_geometries, fig_coadd) = beammap(kd)
@@ -322,14 +333,22 @@ def compare_kidpars(filenames=["kidpos_median.fits"]):
     return fig
 
 
-def main():
+def main(output_dir="."):
+
+    # Slurm magyc...
+    i = int(os.getenv("SLURM_ARRAY_TASK_ID", "0"))
+    n = int(os.getenv("SLURM_ARRAY_TASK_COUNT", "1"))
+
+    if int(i) == 0:
+        logging.info(f"Output directory {output_dir} created")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     kwargs = {}
 
     # All Moon scans
     db = list_scan(output=True, source="Moon", obsmode="ITERATIVERASTER")
     scans = [_["scan"] for _ in db]
-    kwargs["outdir"] = Path("Moon")
+    kwargs["outdir"] = Path(output_dir)
 
     # Test on new calibration
     process_scan = process_scan_new_calib
@@ -344,8 +363,6 @@ def main():
     #     print(p.map(process, scans))
 
     # Slurm...
-    i = int(os.getenv("SLURM_ARRAY_TASK_ID", "0"))
-    n = int(os.getenv("SLURM_ARRAY_TASK_COUNT", "1"))
     _scans = nth(zip(*grouper(scans, n)), i)
 
     # logging.basicConfig(
@@ -353,7 +370,7 @@ def main():
     #     format="%(asctime)s %(levelname)s:%(name)s:%(funcName)s:%(message)s",
     #     handlers=[logging.FileHandler(f"beammap_iterativeraster_{i}.log"), logging.StreamHandler()],
     # )
-
+    logging.info("{} save in {}".format(i, output_dir))
     logging.info("{} will do {}".format(i, _scans))
 
     if _scans is None:
@@ -367,4 +384,18 @@ def main():
 
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description="Process moon iterative raster for beammaps.")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        action="store",
+        help="output directory (default: `Moon`)",
+    )
+    args = parser.parse_args()
+
+    args.output_dir = Path(args.output_dir if args.output_dir else "Moon")
+
+    main(args.output_dir)
+
     main()

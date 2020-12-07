@@ -22,7 +22,7 @@ from .read_kidsdata import read_info, read_all
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
-from .db import RE_SCAN, RE_EXTRA
+from .db import RE_SCAN, RE_EXTRA, get_kidpar
 
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
 
@@ -68,8 +68,21 @@ class KidsRawData(object):
     All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, e_kidpar="auto"):
+        """Initialize a KidsRawData object....
 
+        Parameters
+        ----------
+        filename: str or Path
+            the path to the raw or hdf5 filename
+        e_kidpar: str of Path or 'auto'
+            the path to the extended kidpar
+
+        Returns
+        -------
+        kd : KidsRawData
+            the object initialized with the header informations
+        """
         if isinstance(filename, (int, np.int)):
             from .db import get_scan  # To avoid circular import
 
@@ -81,6 +94,10 @@ class KidsRawData(object):
 
         self.header, self.version_header, self.param_c, _kidpar, self.names, self.nsamples = info
 
+        # Required here for self.obstime
+        self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
+        self.nint = self.nsamples // self.nptint  # Number of interferograms
+
         # kidpar must be a masked table and have an index
         if "index" not in _kidpar.keys():
             _kidpar["index"] = np.arange(len(_kidpar))
@@ -89,10 +106,23 @@ class KidsRawData(object):
         _kidpar.add_index("namedet")
         self._kidpar = _kidpar
 
+        self._extended_kidpar = None
+        if e_kidpar == "auto":
+            # Beware self.obsdate is based on the filename.....
+            e_kidpar = get_kidpar(self.obsdate)
+        if e_kidpar is not None:
+            e_kidpar_name = Path(e_kidpar).name
+            self.__log.info("Using extended kidpar {}".format(e_kidpar_name))
+
+            self._extended_kidpar = Table.read(e_kidpar)
+            # Check if filename is set properly in the extended kidpar (for later use)
+            if self._extended_kidpar.meta["FILENAME"] != e_kidpar_name:
+                self.__log.warning("Updating filename in extended kidpar")
+                self._extended_kidpar.meta["FILENAME"] = e_kidpar_name
+
         # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
 
-        self._extended_kidpar = None
         self.__dataSc = {}
         self.__dataSd = {}
         self.__dataUc = {}
@@ -196,23 +226,38 @@ class KidsRawData(object):
 
     @property
     def meta(self):
-        """ Default meta data for products."""
+        """Default meta data for products.
+        Notes
+        -----
+        Follow fits convention http://archive.stsci.edu/fits/fits_standard/node40.html
+        Should look at IVOA Provenance models
+        """
         meta = {}
 
         meta["OBJECT"] = self.source
         meta["OBS-ID"] = self.scan
         meta["FILENAME"] = str(self.filename)
+        meta["DATE"] = datetime.datetime.now().isoformat()
+
         if RE_SCAN.match(self.filename.name):
             meta["EXPTIME"] = self.exptime.value
-            meta["DATE"] = datetime.datetime.now().isoformat()
             meta["DATE-OBS"] = self.obstime[0].isot
             meta["DATE-END"] = self.obstime[-1].isot
             meta["INSTRUME"] = self.param_c["nomexp"]
         meta["AUTHOR"] = "KidsData"
         meta["ORIGIN"] = os.environ.get("HOSTNAME")
+        meta["TELESCOP"] = ""
+        meta["INSTRUME"] = ""
+        meta["OBSERVER"] = os.environ["USER"]
 
         # Add extra keyword
         meta["SCAN"] = self.scan
+        meta["OBSTYPE"] = self.obstype
+        meta["NKIDS"] = self.ndet
+        meta["NINT"] = self.nint
+        meta["NPTINT"] = self.nptint
+        meta["NSAMPLES"] = self.nsamples
+        meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else None
 
         return meta
 
