@@ -249,22 +249,9 @@ class KissContinuum(KissRawData):
         output, weight, hits = project(x.flatten(), y.flatten(), bgrds.flatten(), shape, weights=bgrd_weights.flatten())
 
         # Add standard keyword to header
-        meta = {}
-
-        meta["OBJECT"] = self.source
-        meta["OBS-ID"] = self.scan
-        meta["FILENAME"] = str(self.filename)
-        if RE_SCAN.match(self.filename.name):
-            meta["EXPTIME"] = self.exptime.value
-            meta["DATE"] = datetime.datetime.now().isoformat()
-            meta["DATE-OBS"] = self.obstime[0].isot
-            meta["DATE-END"] = self.obstime[-1].isot
-            meta["INSTRUME"] = self.param_c["nomexp"]
-        meta["AUTHOR"] = "KidsData"
-        meta["ORIGIN"] = os.environ.get("HOSTNAME")
+        meta = self.meta
 
         # Add extra keyword
-        meta["SCAN"] = self.scan
         meta["LABEL"] = label
         meta["N_KIDS"] = len(ikid)
 
@@ -317,9 +304,16 @@ class KissContinuum(KissRawData):
         # Convert to proper kidpar in astropy.Table
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
         kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
-        kidpar.meta["median_amplitude"] = np.nanmedian(kidpar["amplitude"])
+
+        meta = self.meta
+        kidpar.meta = meta
+
+        # Add additionnal keywords for database extraction
+        kidpar.meta["db-start"] = kidpar.meta["DATE-OBS"]
+        kidpar.meta["db-end"] = kidpar.meta["DATE-END"]
 
         # Save relative amplitude
+        kidpar.meta["median_amplitude"] = np.nanmedian(kidpar["amplitude"])
         kidpar["amplitude"] /= np.nanmedian(kidpar["amplitude"])
 
         # Positions (rather offets) are projected into the plane, backproject them to sky offsets...
@@ -346,10 +340,6 @@ class KissContinuum(KissRawData):
 
         kidpar["theta"].unit = "rad"
         kidpar.add_column(namedet, 0)
-
-        kidpar.meta["scan"] = self.scan
-        kidpar.meta["filename"] = str(self.filename)
-        kidpar.meta["created"] = datetime.datetime.now().isoformat()
 
         return outputs, wcs, kidpar, pointing_offset
 

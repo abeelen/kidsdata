@@ -70,10 +70,8 @@ class KissRawData(KidsRawData):
 
     """
 
-    def __init__(self, filename, pointing_model="KISSNov2019"):
-        super().__init__(filename)
-        self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
-        self.nint = self.nsamples // self.nptint  # Number of interferograms
+    def __init__(self, *args, pointing_model="KISSMateoNov2020", **kwargs):
+        super().__init__(*args, **kwargs)
 
         self.pointing_model = pointing_model
         self.__calib = {}
@@ -228,6 +226,17 @@ class KissRawData(KidsRawData):
         warnings.warn("Deprecated function needs update.", DeprecationWarning)
         self.__check_attributes(["F_{}_az".format(coord), " F_{}_el".format(coord)])
         return kids_plots.checkPointing(self, *args, **kwargs)
+
+    @property
+    def meta(self):
+        """Default meta data for products."""
+
+        meta = super().meta
+
+        # Specific cases
+        meta["POINTING"] = self.pointing_model
+
+        return meta
 
     def read_data(self, *args, cache=False, array=np.array, **kwargs):
         """Read raw data.
