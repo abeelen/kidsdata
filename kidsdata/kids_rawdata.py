@@ -176,7 +176,7 @@ class KidsRawData(object):
         obstime = self.obsdate
 
         # Getting only median time per interferograms here :
-        return obstime + np.median(time.data.reshape((self.nint, self.nptint)), axis=1) * u.s
+        return obstime + np.median(time.reshape((self.nint, self.nptint)), axis=1) * u.s
 
     @property
     def exptime(self):
@@ -257,7 +257,7 @@ class KidsRawData(object):
         meta["NINT"] = self.nint
         meta["NPTINT"] = self.nptint
         meta["NSAMPLES"] = self.nsamples
-        meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else None
+        meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else ""
 
         return meta
 
@@ -367,6 +367,9 @@ class KidsRawData(object):
         kwargs={'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
 
         """
+        if self._cache:
+            self._cache.close()
+
         if filename is None:
             filename = self._cache_filename
 
