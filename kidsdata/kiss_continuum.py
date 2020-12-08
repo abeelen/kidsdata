@@ -312,6 +312,8 @@ class KissContinuum(KissRawData):
 
         meta = self.meta
         kidpar.meta = meta
+        # By definition remove the kidpar key...
+        del kidpar.meta["kidpar"]
 
         # Add additionnal keywords for database extraction
         kidpar.meta["db-start"] = kidpar.meta["DATE-OBS"]
