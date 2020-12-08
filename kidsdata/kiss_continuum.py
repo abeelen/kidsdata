@@ -69,6 +69,7 @@ class KissContinuum(KissRawData):
 
         # KIDs selection
         bgrd = self.continuum[ikid]
+
         # FlatField normalization
         self.__log.info("Applying flatfield : {}".format(flatfield))
         if flatfield is None:
@@ -82,7 +83,8 @@ class KissContinuum(KissRawData):
         if isinstance(flatfield, (MaskedColumn, np.ma.MaskedArray)):
             flatfield = flatfield.filled(np.nan)
 
-        bgrd /= flatfield[:, np.newaxis]
+        # Force a copy of the data
+        bgrd = bgrd / flatfield[:, np.newaxis]
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
@@ -95,9 +97,11 @@ class KissContinuum(KissRawData):
             self.__log.info("Polynomial baseline per kid  of deg {}".format(baseline))
             baselines = []
             idx = np.arange(output.shape[1])
-            for _bgrd in output:
-                p = np.polynomial.polynomial.polyfit(idx, _bgrd, deg=baseline)
-                baselines.append(np.polynomial.polynomial.polyval(idx, p))
+            p = np.polynomial.polynomial.polyfit(idx, bgrd.T, deg=baseline)
+            baselines = np.polynomial.polynomial.polyval(idx, p)
+            # for _bgrd in output:
+            #    p = np.polynomial.polynomial.polyfit(idx, _bgrd, deg=baseline)
+            #    baselines.append(np.polynomial.polynomial.polyval(idx, p))
 
             output -= np.array(baselines)
 
@@ -217,6 +221,7 @@ class KissContinuum(KissRawData):
         if len(bgrds.shape) == 1:
             bgrds = [bgrds]
 
+        self.__log.info("Computing projected positions")
         wcs, x, y, _shape = self._project_xy(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
 
         if shape is None:
