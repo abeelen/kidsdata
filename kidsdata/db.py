@@ -410,6 +410,10 @@ class KidparDB(Table):
     def get_kidpar(self, time):
         self.update()
 
+        if self.__len__() == 0:
+            logging.error("No items in Kidpar DB")
+            return None
+
         after_start = self["start"] <= time
         before_end = time <= self["end"]
         within = after_start & before_end
