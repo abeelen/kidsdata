@@ -389,11 +389,17 @@ class KidparDB(Table):
         self.calib_dir = calib_dir
         self.re_pattern = re_pattern
 
-        if self.filename is not None and self.filename.exists():
+        if self.filename is not None and Path(self.filename).exists():
             table_read_kwd = (
                 {"astropy_native": True, "character_as_bytes": False} if self.filename.suffix == ".fits" else {}
             )
             this = Table.read(self.filename, **table_read_kwd)
+
+            # Replace data if present
+            for colname in this.colnames:
+                if colname in self.colnames:
+                    self.remove_column(colname)
+
             self.add_columns(this.columns)
             self.meta.update(this.meta)
             self._correct_time()
@@ -401,20 +407,36 @@ class KidparDB(Table):
         self.meta["filename"] = filename
         self.meta["CALIB_DIR"] = calib_dir
 
-    def get_kidpar(self, date):
+    def get_kidpar(self, time):
         self.update()
 
-        # comparing with the date of the DB
-        select_kidpar = Time(self["start"].iso) <= date <= (Time(self["end"].iso) + timedelta(days=1))
-        if np.any(select_kidpar):
-            item = self["filename"][select_kidpar]
-            assert len(item) == 1, "Multiple kidpar, please check"
+        after_start = self["start"] <= time
+        before_end = time <= self["end"]
+        within = after_start & before_end
+
+        if np.any(within):
+            # Within covered dates
+            item = self["filename"][within]
+            assert len(item) == 1, "Multiple kidpar found, please check Kidpar DB"
             return item[0]
-        elif date > self["end"][-1]:
-            logging.warning("No kidpar for this date, using the latest one")
+        elif np.any(after_start) & np.any(before_end):
+            # Within the dabatase, but outside covered dates
+            logging.warning("No kidpar for this date, using the closest one in Kidpar DB")
+            next_start = self["start"][~after_start][0]
+            previous_end = self["end"][~before_end][-1]
+            # Closest date :
+            if np.abs(next_start - time) < np.abs(previous_end - time):
+                item = self["filename"][self["start"] == next_start]
+            else:
+                item = self["filename"][self["end"] == previous_end]
+            return item[0]
+        elif time > self["end"][-1]:
+            # After the database
+            logging.warning("No kidpar for this late date, using the latest one in Kidpar DB")
             return self["filename"][-1]
-        elif date < self["start"][0]:
-            logging.warning("No kidpar for this date, using the earliest one")
+        elif time < self["start"][0]:
+            # Before the database
+            logging.warning("No kidpar for this early date, using the earliest one in Kidpar DB")
             return self["filename"][0]
         else:
             logging.error("Something is wrong, please report")
@@ -427,7 +449,7 @@ class KidparDB(Table):
             if key in self.columns:
                 self[key] = Time(self[key])
                 self[key].format = "iso"
-                self[key].out_subfmt = "date"
+        self.sort("start")
 
     def update(self):
         filenames = [file for file in Path(self.calib_dir).glob("**/*") if self.re_pattern.match(file.name)]
@@ -493,3 +515,19 @@ list_scan = partial(list_data, database=DB_SCAN, pprint_columns=["date", "scan",
 list_extra = partial(list_data, database=DB_EXTRA, pprint_columns=["name", "date", "size"])
 list_table = partial(list_data, database=DB_TABLE, pprint_columns=["name", "date", "scan", "size"])
 get_kidpar = DB_KIDPAR.get_kidpar
+
+
+# self = KidparDB(
+#     [
+#        {
+#            "filename": f"toto_{i}",
+#            "name": f"toto_{i}",
+#            "start": datetime.datetime(2019, i, 1, i, i, 0, 0),
+#            "end": datetime.datetime(2019, i, 18, i, 60 - i, 0, 0),
+#        }
+#        for i in range(1, 10)
+#    ],
+#    re_pattern=RE_KIDPAR,
+#    calib_dir="/data/KISS/Calib",
+#    filename=Path("toto.fits"),
+# )
