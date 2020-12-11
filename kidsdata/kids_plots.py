@@ -459,6 +459,10 @@ def show_kidpar(
         mask_box = [popt[group_key] == item for item in group]
         mask_box = np.bitwise_or.reduce(mask_box, axis=0)
 
+        if np.all(~mask_box):
+            # No kid in the group
+            continue
+
         _ikid = ikid[mask_box]
 
         fig, axes = plt.subplots(2, len(to_plot), squeeze=False, **kwargs)
