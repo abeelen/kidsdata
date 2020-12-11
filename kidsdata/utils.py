@@ -733,15 +733,6 @@ def roll_fft(a, shift, axis=None):
         return np.real(np.fft.ifft(shifted_fft_a, axis=axis)).reshape(shape).astype(a.dtype)
 
 
-# Helper functions to pass large arrays in multiprocessing.Pool
-_pool_global = None
-
-
-def _pool_initializer(*args):
-    global _pool_global
-    _pool_global = args
-
-
 # To help importing functions/class from names
 def _import_from(attribute, module=None):
     """import from a string
@@ -846,3 +837,10 @@ def unpacking_apply_along_axis(all_args):
     # TODO: Retrieve the global and apply indexes
     (func1d, axis, arr, args, kwargs) = all_args
     return np.apply_along_axis(func1d, axis, arr, *args, **kwargs)
+
+
+def mad_med(array):
+    """Return median and median absolute deviation."""
+    med = np.nanmedian(array)
+    mad = np.nanmedian(np.abs(array - med))
+    return med, mad

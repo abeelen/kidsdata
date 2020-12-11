@@ -22,6 +22,8 @@ from .read_kidsdata import read_info, read_all
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
+from .utils import roll_fft
+
 from .db import RE_SCAN, RE_EXTRA, RE_TABLE, RE_DIR
 from .db import get_kidpar
 
@@ -69,13 +71,15 @@ class KidsRawData(object):
     All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
     """
 
-    def __init__(self, filename, e_kidpar="auto"):
+    def __init__(self, filename, position_shift=None, e_kidpar="auto"):
         """Initialize a KidsRawData object....
 
         Parameters
         ----------
         filename: str or Path
             the path to the raw or hdf5 filename
+        position_shift : int of float, optional
+            shit of the telescope positions
         e_kidpar: str of Path or 'auto'
             the path to the extended kidpar
 
@@ -120,6 +124,20 @@ class KidsRawData(object):
             if self._extended_kidpar.meta["FILENAME"] != e_kidpar_name:
                 self.__log.warning("Updating filename in extended kidpar")
                 self._extended_kidpar.meta["FILENAME"] = e_kidpar_name
+
+        # Position related attributes
+        self.__position_shift = position_shift
+
+        # Find all potential telescope position keys
+        keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
+        pos_keys = [key.split("_")[1] for key in keys if "Az" in key]
+        self.__position_keys = {
+            key.split("_")[1]: ("{}_Az".format(key), "{}_El".format(key))
+            for key in pos_keys
+            if "{}_Az".format(key) in keys and "{}_El".format(key) in keys
+        }
+
+        self.mask_tel = slice(None, None, None)
 
         # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
@@ -172,6 +190,19 @@ class KidsRawData(object):
             self.__log.error("No time on filename")
             return Time.now()
 
+    # TODO: This could probably be done more elegantly
+    @property
+    def position_shift(self):
+        return self.__position_shift
+
+    @position_shift.setter
+    def position_shift(self, value):
+        if self.__position_shift is None:
+            self.__position_shift = value
+        else:
+            self.__position_shift += value
+        KidsRawData.get_telescope_position.cache_clear()
+
     @property
     @lru_cache(maxsize=1)
     def obstime(self):
@@ -193,9 +224,12 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def scan(self):
         """Return the scan number of the observation, based on filename."""
-        filename = self.filename.name
-        if RE_SCAN.match(filename):
-            return int(RE_SCAN.match(filename).groups()[2])
+        re_scan = RE_SCAN.match(self.filename.name)
+        re_table = RE_TABLE.match(self.filename.name)
+        if re_scan:
+            return int(re_scan.groups()[2])
+        elif re_table:
+            return int(re_table.groups[2])
         else:
             self.__log.warning("No scan from filename")
             return None
@@ -232,14 +266,15 @@ class KidsRawData(object):
         print("==================")
         print("File name:\t" + str(self.filename))
         print("------------------")
-        print("Source name:\t" + self.source)
+        print("Source name:\t" + (self.source or "Unknown"))
         print("Observed date:\t" + self.obsdate.iso)
         print("Description:\t" + self.obstype)
-        print("Scan number:\t" + str(self.scan))
+        print("Scan number:\t" + str(self.scan or "Unknown"))
 
         print("------------------")
         print("No. of KIDS detectors:\t", self.ndet)
         print("No. of time samples:\t", self.nsamples)
+        print("Typical size of fully sampled data (MiB):\t", self.nsamples * self.ndet * 32 / 8 / 1024 ** 3)
 
     @property
     def meta(self):
@@ -530,6 +565,46 @@ class KidsRawData(object):
             mask = mask & [_typedet in typedet for _typedet in self._kidpar["typedet"]]
 
         return np.array(self._kidpar[mask]["namedet"])
+
+    @lru_cache(maxsize=1)
+    def get_telescope_position(self, coord="pdiff"):
+        """Get the telescope position, with shifts applied.
+
+        Parameters
+        ----------
+        coord : str
+            the type of position to retrieve
+
+        Returns
+        ------
+        lon, lat : array_like
+            the corresponding longitude and latitude with shifts applied
+        """
+        if coord not in self.__position_keys:
+            raise ValueError("Position key {} not found".format(coord))
+
+        lon_coord, lat_coord = self.__position_keys.get(coord)
+
+        self.__check_attributes([lon_coord, lat_coord, "mask_tel"])
+
+        lon = getattr(self, lon_coord)
+        lat = getattr(self, lat_coord)
+        mask = getattr(self, "mask_tel")
+
+        if self.position_shift is None:
+            return lon, lat, mask
+
+        self.__log.info("Rolling telescope position by {}".format(self.position_shift))
+        if isinstance(self.position_shift, (int, np.int, np.int16, np.int32, np.int64)):
+            lon = np.roll(lon, self.position_shift)
+            lat = np.roll(lat, self.position_shift)
+            mask = np.roll(mask, self.position_shift)
+        elif isinstance(self.position_shift, (float, np.float, np.float32, np.float64)):
+            lon = roll_fft(lon, self.position_shift)
+            lat = roll_fft(lat, self.position_shift)
+            mask = roll_fft(mask, self.position_shift)
+
+        return lon, lat, mask
 
     @property
     def kidpar(self):

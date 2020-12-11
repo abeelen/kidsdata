@@ -80,7 +80,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.ph_IQ = np.vstack(ph_IQ)
 
     # Fix table positions
-    def _fix_table(self, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
+    def _fix_table(self, delta_pix=300000, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
         # Normalized to avoid projection effect between -0.5 & 0.5
         tab_keys = [
             key
@@ -119,7 +119,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.__log.info("Non moving planet")
             mask = np.zeros_like(tabx, dtype=bool)
             delta_pix = 1
-        else:
+        elif delta_pix is None:
             # Normalization of the tab position between -0.5, 0.5
             delta_x = tabx[~mask].max() - tabx[~mask].min()
             delta_y = taby[~mask].max() - taby[~mask].min()
@@ -130,7 +130,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
         self._tabdiff_Az = tabdiff_Az
         self._tabdiff_El = tabdiff_El
-        self._KissRawData__position_keys["tabdiff"] = ("_tabdiff_Az", "_tabdiff_El")
+        self._KidsRawData__position_keys["tabdiff"] = ("_tabdiff_Az", "_tabdiff_El")
 
         self.mask_tel = mask
 
