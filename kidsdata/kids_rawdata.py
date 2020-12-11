@@ -22,7 +22,8 @@ from .read_kidsdata import read_info, read_all
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
-from .db import RE_SCAN, RE_EXTRA, get_kidpar
+from .db import RE_SCAN, RE_EXTRA, RE_TABLE, RE_DIR
+from .db import get_kidpar
 
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
 
@@ -153,12 +154,18 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def obsdate(self):
         """Return the obsdate of the observation, based on filename."""
-        filename = self.filename.name
-        if RE_SCAN.match(filename):
-            date = RE_SCAN.match(filename).groups()[0]
+        re_scan = RE_SCAN.match(self.filename.name)
+        re_extra = RE_EXTRA.match(self.filename.name)
+        re_table = RE_TABLE.match(self.filename.name)
+        re_dir = RE_DIR.match(self.filename.parent.name)
+        if re_scan:
+            date = re_scan.groups()[0]
             return Time(parse(date), scale="utc")  # UTC ?
-        elif RE_EXTRA.match(filename):
-            date = "".join(RE_EXTRA.match(filename).groups()[0:3])
+        elif re_extra:
+            date = "".join(re_extra.groups()[0:3])
+            return Time(parse(date), scale="utc")  # UTC ?
+        elif (re_table is not None) & (re_dir is not None):
+            date = "".join(re_dir.groups()[1:])
             return Time(parse(date), scale="utc")  # UTC ?
         else:
             # Probably not a data scan
@@ -208,7 +215,17 @@ class KidsRawData(object):
     @lru_cache(maxsize=1)
     def obstype(self):
         """Return the observation type, based on filename."""
-        return self.filename.name[1:].split("_")[4]
+        re_scan = RE_SCAN.match(self.filename.name)
+        re_extra = RE_EXTRA.match(self.filename.name)
+        re_table = RE_TABLE.match(self.filename.name)
+        if re_scan:
+            return re_scan.groups()[4]
+        elif re_extra:
+            return "ManualScan"
+        elif re_table:
+            return "TableScan"
+        else:
+            return "Unknown"
 
     def info(self):
         print("RAW DATA")
@@ -239,11 +256,10 @@ class KidsRawData(object):
         meta["FILENAME"] = str(self.filename)
         meta["DATE"] = datetime.datetime.now().isoformat()
 
-        if RE_SCAN.match(self.filename.name):
-            meta["EXPTIME"] = self.exptime.value
-            meta["DATE-OBS"] = self.obstime[0].isot
-            meta["DATE-END"] = self.obstime[-1].isot
-            meta["INSTRUME"] = self.param_c["nomexp"]
+        meta["EXPTIME"] = self.exptime.value
+        meta["DATE-OBS"] = self.obstime[0].isot
+        meta["DATE-END"] = self.obstime[-1].isot
+        meta["INSTRUME"] = self.param_c.get("nomexp", "Unknown")
         meta["AUTHOR"] = "KidsData"
         meta["ORIGIN"] = os.environ.get("HOSTNAME")
         meta["TELESCOP"] = ""
@@ -258,6 +274,7 @@ class KidsRawData(object):
         meta["NPTINT"] = self.nptint
         meta["NSAMPLES"] = self.nsamples
         meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else ""
+        meta["OBSTYPE"] = self.obstype
 
         return meta
 
