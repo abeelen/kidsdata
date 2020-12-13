@@ -201,6 +201,7 @@ class KissRawData(KidsRawData):
         super().info()
         print("No. of interfergrams:\t", self.nint)
         print("No. of points per interfergram:\t", self.nptint)
+        print("Typical size of undersampled data (MiB):\t{:3.1f}".format(self.nint * self.ndet * 32 / 8 / 1024 ** 2))
 
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)
