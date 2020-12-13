@@ -122,12 +122,125 @@ def project(x, y, data, shape, weights=None):
         # Put weights as 0 for masked data
         weights = weights * ~data.mask
 
-    kwargs = {"bins": shape, "range": ((-0.5, shape[0] - 0.5), (-0.5, shape[1] - 0.5))}
+    kwargs = {"bins": shape, "range": tuple((-0.5, size - 0.5) for size in shape)}
     # TODO: Use a worker function to split y & x over n_CPUs
     _hits, _, _ = np.histogram2d(y, x, **kwargs)
 
     _weights, _, _ = np.histogram2d(y, x, weights=weights, **kwargs)
     _data, _, _ = np.histogram2d(y, x, weights=weights * np.asarray(data), **kwargs)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        output = _data / _weights
+
+    return output, _weights, _hits.astype(np.int)
+
+
+def project_3d(x, y, z, data, shape, weights=None):
+    """Project x,y, data TOIs on a 2D grid.
+
+    Parameters
+    ----------
+    x, y, z : array_like
+        input pixel indexes, 0 indexed convention
+    data : array_like
+        input data to project
+    shape : int or tuple of int
+        the shape of the output projected map
+    weights : array_like
+        weights to be use to sum the data (by default, ones)
+
+    Returns
+    -------
+    data, weight, hits : ndarray
+        the projected data set and corresponding weights and hits
+
+    Notes
+    -----
+    The pixel index must follow the 0 indexed convention, i.e. use `origin=0` in `*_worl2pix` methods from `~astropy.wcs.WCS`.
+
+    >>> data, weight, hits = project_3d([0], [0], [0], [1], 2)
+    >>> data
+    array([[[ 1., nan],
+            [nan, nan]],
+
+           [[nan, nan],
+            [nan, nan]]])
+    >>> weight
+    array([[[1., 0.],
+            [0., 0.]],
+
+           [[0., 0.],
+            [0., 0.]]])
+    >>> hits
+    array([[[1, 0],
+            [0, 0]],
+
+           [[0, 0],
+            [0, 0]]])
+
+    >>> data, _, _ = project_3d([-0.4], [0], [1], [1], 2)
+    >>> data
+    array([[[nan, nan],
+            [nan, nan]]])
+
+           [[ 1., nan],
+            [nan, nan]]])
+
+    There is no test for out of shape data
+
+    >>> data, _, _ = project_3d([-0.6, 1.6], [0, 0], [0, 0], [1, 1], 2)
+    >>> data
+    array([[[nan, nan],
+            [nan, nan]],
+
+           [[nan, nan],
+            [nan, nan]]])
+
+    Weighted means are also possible :
+
+    >>> data, weight, hits = project_3d([-0.4, 0.4], [0, 0], [0, 0], [0.5, 2], 2, weights=[2, 1])
+    >>> data
+    array([[[ 1., nan],
+            [nan, nan]],
+
+            [[nan, nan],
+            [nan, nan]]])
+    >>> weight
+    array([[[3., 0.],
+            [0., 0.]],
+
+           [[0., 0.],
+            [0., 0.]]])
+    >>> hits
+    array([[[2, 0],
+            [0, 0]],
+
+           [[0, 0],
+            [0, 0]]])
+    """
+    if isinstance(shape, (int, np.integer)):
+        shape = (shape, shape, shape)
+    if len(shape) == 2:
+        shape = (shape[0], shape[0], shape[1])
+
+    assert len(shape) == 3, "shape must be a int or have a length of 2 or 3"
+
+    if weights is None:
+        weights = np.ones_like(data)
+
+    if isinstance(data, np.ma.MaskedArray):
+        # Put weights as 0 for masked data
+        weights = weights * ~data.mask
+
+    kwargs = {"bins": shape, "range": tuple((-0.5, size - 0.5) for size in shape)}
+
+    # TODO: Use a worker function to split y & x over n_CPUs
+    sample = (z, y, x)
+    _hits, _ = np.histogramdd(sample, **kwargs)
+
+    _weights, _ = np.histogramdd(sample, weights=weights, **kwargs)
+    _data, _ = np.histogramdd(sample, weights=weights * np.asarray(data), **kwargs)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -226,8 +339,6 @@ def extend_wcs(wcs, data, crval=None, crpix=None, ctype="OPD", cdelt=0.1, cunit=
     -------
     wcs: `~astropy.wcs.WCS`
         the extended wcs
-    z : list of floats
-        the projected extended coordinate in pixel coordinates
     """
     # Tick is to go to header first to extend the wcs
     header = wcs.to_header()
@@ -239,22 +350,23 @@ def extend_wcs(wcs, data, crval=None, crpix=None, ctype="OPD", cdelt=0.1, cunit=
     wcs.wcs.cdelt[naxis] = cdelt
     wcs.wcs.cunit[naxis] = cunit
 
+    data_min = data.min()
+    data_max = data.max()
+
     if crval is None:
         # find the center of the projection
-        crval = (data.max() + data.min()) / 2
+        crval = (data_max + data_min) / 2
 
     wcs.wcs.crval[naxis] = crval
 
     if crpix is None:
-        (z,) = wcs.sub([naxis + 1]).all_world2pix(data, 0)
+        (z,) = wcs.sub([naxis + 1]).all_world2pix([data_min, data_max], 0)
         z_min = z.min()
         wcs.wcs.crpix[naxis] = -z_min
-        z -= z_min
     else:
         wcs.wcs.crpix[naxis] = crpix
-        (z,) = wcs.sub([naxis + 1]).all_world2pix(data, 0)
 
-    return wcs, z
+    return wcs
 
 
 def elliptical_gaussian(X, amplitude, xo, yo, fwhm_x, fwhm_y, theta, offset):

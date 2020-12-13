@@ -58,7 +58,7 @@ def remove_polynomial(bgrds, deg):
 def _sky_to_map(ikids):
 
     global _pool_global
-    data, offsets, az, el, wcs, shape = _pool_global
+    data, az, el, offsets, wcs, shape = _pool_global
 
     # TODO: Shall we provide weights within a kids ?
 
@@ -68,10 +68,7 @@ def _sky_to_map(ikids):
 
     for ikid in ikids:
         x, y = wcs.all_world2pix(az + offsets[ikid]["x0"], el + offsets[ikid]["y0"], 0)
-        if isinstance(data, np.ma.MaskedArray):
-            output, weight, hit = project(x, y, data[ikid].filled(0), shape, weights=~data[ikid].mask)
-        else:
-            output, weight, hit = project(x, y, data[ikid], shape)
+        output, weight, hit = project(x, y, data[ikid], shape)
 
         outputs.append(output)
         weights.append(weight)
@@ -80,14 +77,14 @@ def _sky_to_map(ikids):
     return np.array(outputs), np.array(weights), np.array(hits)
 
 
-def sky_to_map(data, offsets, az, el, wcs, shape):
+def sky_to_map(data, az, el, offsets, wcs, shape):
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, offsets, az, el, wcs, shape),) as pool:
+    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, az, el, offsets, wcs, shape),) as pool:
         items = pool.map(_sky_to_map, np.array_split(np.arange(data.shape[0]), cpu_count()))
 
-    outputs = np.vstack([item[0] for item in items])
-    weights = np.vstack([item[1] for item in items])
-    hits = np.vstack([item[2] for item in items])
+    outputs = np.vstack([item[0] for item in items if len(item[0]) != 0])
+    weights = np.vstack([item[1] for item in items if len(item[1]) != 0])
+    hits = np.vstack([item[2] for item in items if len(item[2]) != 0])
 
     return outputs, weights, hits
 
@@ -295,7 +292,7 @@ class KissContinuum(KissRawData):
 
         Notes
         -----
-        The weights are used to combine different kids together :
+        The kid weights are used to combine different kids together :
         - None : do not apply weights
         - std : standard deviation of each timeline (actually 1 / std**2)
         - mad : median absolute deviation of each timeline (actually 1 / mad**2)
@@ -316,24 +313,24 @@ class KissContinuum(KissRawData):
             shape = _shape
 
         # Pipeline is here
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
+        data = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
 
         # In case we project only one detector
-        if len(bgrds.shape) == 1:
-            bgrds = [bgrds]
+        if len(data.shape) == 1:
+            data = [data]
 
         self.__log.info("Projecting data")
         # At this stage we have maps per kids
         offsets = self.kidpar.loc[self.list_detector[ikid]]["x0", "y0"]
-        outputs, weights, hits = sky_to_map(bgrds, offsets, az, el, wcs, shape)
+        outputs, weights, hits = sky_to_map(data, az, el, offsets, wcs, shape)
 
         self.__log.info("Computing kids weights")
         if kid_weights is None:
-            kid_weights = np.ones(bgrds.shape[0])
+            kid_weights = np.ones(data.shape[0])
         elif kid_weights == "std":
-            kid_weights = 1 / bgrds.std(axis=1) ** 2
+            kid_weights = 1 / data.std(axis=1) ** 2
         elif kid_weights == "mad":
-            kid_weights = 1 / mad_std(bgrds, axis=1) ** 2
+            kid_weights = 1 / mad_std(data, axis=1) ** 2
         elif kid_weights in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             kid_weights = _kidpar[weights].data
@@ -391,9 +388,9 @@ class KissContinuum(KissRawData):
         self.__log.info("Projecting data")
         # Null offsets for the beammap
         offsets = Table([Column(np.zeros_like(ikid), name="x0"), Column(np.zeros_like(ikid), name="y0")])
-        outputs = sky_to_map(bgrds, offsets, az, el, wcs, shape)
+        outputs = sky_to_map(bgrds, az, el, offsets, wcs, shape)
 
-        self.__log.info("Fitting maps")
+        self.__log.info("Fitting kidpar")
         # Fit each of the maps
         popts = []
         with warnings.catch_warnings():
