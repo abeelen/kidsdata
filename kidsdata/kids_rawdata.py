@@ -137,7 +137,7 @@ class KidsRawData(object):
             if "{}_Az".format(key) in keys and "{}_El".format(key) in keys
         }
 
-        self.mask_tel = slice(None, None, None)
+        self.mask_tel = False
 
         # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
@@ -229,7 +229,7 @@ class KidsRawData(object):
         if re_scan:
             return int(re_scan.groups()[2])
         elif re_table:
-            return int(re_table.groups[2])
+            return int(re_table.groups()[2])
         else:
             self.__log.warning("No scan from filename")
             return None
@@ -274,7 +274,9 @@ class KidsRawData(object):
         print("------------------")
         print("No. of KIDS detectors:\t", self.ndet)
         print("No. of time samples:\t", self.nsamples)
-        print("Typical size of fully sampled data (MiB):\t", self.nsamples * self.ndet * 32 / 8 / 1024 ** 3)
+        print(
+            "Typical size of fully sampled data (GiB):\t{:3.1f}".format(self.nsamples * self.ndet * 32 / 8 / 1024 ** 3)
+        )
 
     @property
     def meta(self):
@@ -598,11 +600,13 @@ class KidsRawData(object):
         if isinstance(self.position_shift, (int, np.int, np.int16, np.int32, np.int64)):
             lon = np.roll(lon, self.position_shift)
             lat = np.roll(lat, self.position_shift)
-            mask = np.roll(mask, self.position_shift)
+            if mask:
+                mask = np.roll(mask, self.position_shift)
         elif isinstance(self.position_shift, (float, np.float, np.float32, np.float64)):
             lon = roll_fft(lon, self.position_shift)
             lat = roll_fft(lat, self.position_shift)
-            mask = roll_fft(mask, self.position_shift)
+            if mask:
+                mask = roll_fft(mask, self.position_shift)
 
         return lon, lat, mask
 
