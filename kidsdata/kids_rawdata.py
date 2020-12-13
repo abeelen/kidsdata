@@ -229,7 +229,7 @@ class KidsRawData(object):
         if re_scan:
             return int(re_scan.groups()[2])
         elif re_table:
-            return int(re_table.groups[2])
+            return int(re_table.groups()[2])
         else:
             self.__log.warning("No scan from filename")
             return None
