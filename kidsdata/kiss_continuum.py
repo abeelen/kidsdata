@@ -92,6 +92,31 @@ def sky_to_map(data, offsets, az, el, wcs, shape):
     return outputs, weights, hits
 
 
+def _continuum_psd(ikids):
+
+    global _pool_global
+    continuums, Fs, rebin = _pool_global
+
+    psds = []
+    for ikid in ikids:
+        psd = np.array(mlab.psd(continuums[ikid], Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0])
+        psds.append(psd)
+    #psds = np.array([mlab.psd(continuum, Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0] for continuum in continuums[ikids]])
+    return np.array(psds)
+
+def continuum_psd(continuums, Fs, rebin):
+    """psd of continnum"""
+
+    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(continuums, Fs, rebin),) as pool:
+        items = pool.map(_continuum_psd, np.array_split(np.arange(continuums.shape[0]), cpu_count()))
+
+    print ('np.shape(items)',np.shape(items))
+        
+    #psds = np.vstack([item for item in items])
+    return np.vstack(items)
+
+
+
 # pylint: disable=no-member
 @logged
 class KissContinuum(KissRawData):
@@ -475,3 +500,5 @@ class KissContinuum(KissRawData):
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
+
+
