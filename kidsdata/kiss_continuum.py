@@ -105,7 +105,7 @@ def _psd_cal(ikids):
     #psds = np.array([mlab.psd(continuum, Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0] for continuum in continuums[ikids]])
     return np.array(data_psds)
 
-def psd_cal(datas, Fs, rebin):
+def psd_cal(datas, Fs, rebin, _pool_global=None):
     """psd of data"""
 
     with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
