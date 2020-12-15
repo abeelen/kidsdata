@@ -24,6 +24,7 @@ from .db import RE_SCAN
 
 from .continuumdata import ContinuumData
 from astropy.nddata import InverseVariance
+from matplotlib import mlab
 
 
 # Helper functions to pass large arrays in multiprocessing.Pool
@@ -92,23 +93,23 @@ def sky_to_map(data, offsets, az, el, wcs, shape):
     return outputs, weights, hits
 
 
-def _continuum_psd(ikids):
+def _psd_cal(ikids):
 
     global _pool_global
-    continuums, Fs, rebin = _pool_global
+    datas, Fs, rebin = _pool_global
 
-    psds = []
+    data_psds = []
     for ikid in ikids:
-        psd = np.array(mlab.psd(continuums[ikid], Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0])
-        psds.append(psd)
+        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend='mean')[0])
+        data_psds.append(data_psd)
     #psds = np.array([mlab.psd(continuum, Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0] for continuum in continuums[ikids]])
-    return np.array(psds)
+    return np.array(data_psds)
 
-def continuum_psd(continuums, Fs, rebin):
-    """psd of continnum"""
+def psd_cal(datas, Fs, rebin):
+    """psd of data"""
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(continuums, Fs, rebin),) as pool:
-        items = pool.map(_continuum_psd, np.array_split(np.arange(continuums.shape[0]), cpu_count()))
+    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
+        items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
 
     print ('np.shape(items)',np.shape(items))
         
