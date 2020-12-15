@@ -600,12 +600,12 @@ class KidsRawData(object):
         if isinstance(self.position_shift, (int, np.int, np.int16, np.int32, np.int64)):
             lon = np.roll(lon, self.position_shift)
             lat = np.roll(lat, self.position_shift)
-            if mask:
+            if mask is not False:
                 mask = np.roll(mask, self.position_shift)
         elif isinstance(self.position_shift, (float, np.float, np.float32, np.float64)):
             lon = roll_fft(lon, self.position_shift)
             lat = roll_fft(lat, self.position_shift)
-            if mask:
+            if mask is not False:
                 mask = roll_fft(mask, self.position_shift)
 
         return lon, lat, mask
