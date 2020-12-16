@@ -257,6 +257,17 @@ class KissSpectroscopy(KissRawData):
         KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
+    def meta(self):
+        """Default meta data for products."""
+
+        meta = super().meta
+
+        # Specific cases
+        meta["LASER_SHIFT"] = self.laser_shift or 0
+
+        return meta
+
+    @property
     @lru_cache(maxsize=1)
     def interferograms(self):
         """Retrieve the interferograms as a masked array.
