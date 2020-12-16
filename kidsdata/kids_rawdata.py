@@ -312,6 +312,7 @@ class KidsRawData(object):
         meta["NSAMPLES"] = self.nsamples
         meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else ""
         meta["OBSTYPE"] = self.obstype
+        meta["POSITION_SHIFT"] = self.position_shift or 0
 
         return meta
 
