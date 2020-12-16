@@ -102,19 +102,18 @@ def _psd_cal(ikids):
     for ikid in ikids:
         data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend='mean')[0])
         data_psds.append(data_psd)
-    #psds = np.array([mlab.psd(continuum, Fs=Fs, NFFT=continuums.shape[1] // rebin, detrend='mean')[0] for continuum in continuums[ikids]])
+
     return np.array(data_psds)
 
 def psd_cal(datas, Fs, rebin, _pool_global=None):
     """psd of data"""
 
+    _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
+
     with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
         items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
-
-    print ('np.shape(items)',np.shape(items))
         
-    #psds = np.vstack([item for item in items])
-    return np.vstack(items)
+    return freq, np.vstack(items)
 
 
 
