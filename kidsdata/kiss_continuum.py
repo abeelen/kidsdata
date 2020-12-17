@@ -49,7 +49,11 @@ def _remove_polynomial(ikids, deg=None):
 def remove_polynomial(bgrds, deg):
 
     _this = partial(_remove_polynomial, deg=deg)
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(bgrds,),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(bgrds,),
+    ) as pool:
         output = pool.map(_this, np.array_split(np.arange(bgrds.shape[0]), cpu_count()))
 
     return np.vstack(output)
@@ -79,7 +83,11 @@ def _sky_to_map(ikids):
 
 def sky_to_map(data, az, el, offsets, wcs, shape):
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, az, el, offsets, wcs, shape),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(data, az, el, offsets, wcs, shape),
+    ) as pool:
         items = pool.map(_sky_to_map, np.array_split(np.arange(data.shape[0]), cpu_count()))
 
     outputs = np.vstack([item[0] for item in items if len(item[0]) != 0])
@@ -87,6 +95,34 @@ def sky_to_map(data, az, el, offsets, wcs, shape):
     hits = np.vstack([item[2] for item in items if len(item[2]) != 0])
 
     return outputs, weights, hits
+
+
+def _fit_beammaps(ikids):
+
+    global _pool_global
+    datas, weights, _ = _pool_global
+
+    if len(ikids) == 0:
+        return np.array([])
+
+    popts = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OptimizeWarning)
+        for data, weight in zip(datas[ikids], weights[ikids]):
+            if np.any(~np.isnan(data)):
+                popts.append(fit_gaussian(data, weight))
+            else:
+                popts.append([np.nan] * 7)
+
+    return np.array(popts)
+
+
+def fit_beammaps(datas):
+
+    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas)) as pool:
+        items = pool.map(_fit_beammaps, np.array_split(np.arange(len(datas[0])), cpu_count()))
+
+    return np.vstack([item for item in items if len(item) != 0])
 
 
 # pylint: disable=no-member
@@ -391,19 +427,11 @@ class KissContinuum(KissRawData):
         outputs = sky_to_map(bgrds, az, el, offsets, wcs, shape)
 
         self.__log.info("Fitting kidpar")
-        # Fit each of the maps
-        popts = []
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", OptimizeWarning)
-            for data, weight in zip(outputs[0], outputs[1]):
-                if np.any(~np.isnan(data)):
-                    popts.append(fit_gaussian(data, weight))
-                else:
-                    popts.append([np.nan] * 7)
+        popts = fit_beammaps(outputs)
 
         # Convert to proper kidpar in astropy.Table
         namedet = self._kidpar.loc[self.list_detector[ikid]]["namedet"]
-        kidpar = Table(np.array(popts), names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
+        kidpar = Table(popts, names=["amplitude", "x0", "y0", "fwhm_x", "fwhm_y", "theta", "offset"])
 
         meta = self.meta
         kidpar.meta = meta
