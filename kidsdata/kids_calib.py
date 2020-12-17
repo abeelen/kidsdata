@@ -254,6 +254,7 @@ def get_calfact_3pts(
     sigma=None,
     _reduc=np.median,
     do_calib=True,
+    fix_masq=True,
 ):
     """Compute calibration to converto into frequency shift in Hz.
 
@@ -311,9 +312,9 @@ def get_calfact_3pts(
     # shape = dataI.shape
     # ndet, nint, nptint = shape
 
-    A_low = A_masq_to_flag(A_masq, ModulationValue.low)
-    A_high = A_masq_to_flag(A_masq, ModulationValue.high)
-    A_normal = A_masq_to_flag(A_masq, ModulationValue.normal)
+    A_low = A_masq_to_flag(A_masq, ModulationValue.low) if fix_masq else A_masq == ModulationValue.low.value
+    A_high = A_masq_to_flag(A_masq, ModulationValue.high) if fix_masq else A_masq == ModulationValue.high.value
+    A_normal = A_masq_to_flag(A_masq, ModulationValue.normal) if fix_masq else A_masq == ModulationValue.normal.value
 
     # Selection of the good data for each mask and reduction of the data to one point with `_reduc`
 
