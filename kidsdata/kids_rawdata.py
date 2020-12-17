@@ -460,7 +460,7 @@ class KidsRawData(object):
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read some are computed...
-    def __check_attributes(self, attr_list, dependancies=None, read_missing=True):
+    def __check_attributes(self, attr_list, dependancies=None, read_missing=False):
         """Check if attributes have been read, read them if needed.
 
         Parameters
