@@ -74,7 +74,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
         if "ph_IQ" in self.__dict__:
             self.__log.info("Unwrap phIQ")
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 ph_IQ = pool.map(_ph_unwrap, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.ph_IQ = np.vstack(ph_IQ)
@@ -147,7 +151,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
         # Non moving mirror -> keep everything oversampled as continuum :
         if mad_std(self.laser.mean(0)) < 1:
             self.__log.info("Non moving laser, keeping fully sampled data")
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 continuum = pool.map(_to_continuum, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -156,7 +164,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.__log.info("Spectroscopic data, downsampling continuum")
 
             _this = partial(_downsample_to_continuum, nint=self.nint, nptint=self.nptint)
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 continuum = pool.map(_this, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -165,16 +177,44 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
             # fix_table & shift  before!!
             if self.mask_tel.shape[0] != self.continuum.shape[1]:
-                self._tabdiff_Az = np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, 1024).mean(axis=1).data
-                self._tabdiff_El = np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, 1024).mean(axis=1).data
+                self._tabdiff_Az = (
+                    np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+                )
+                self._tabdiff_El = (
+                    np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+                )
                 self.mask_tel = (
-                    self.mask_tel.reshape(-1, 1024).mean(axis=1) > 0.8
+                    self.mask_tel.reshape(-1, self.ntpint).mean(axis=1) > 0.8
                 )  # Allow for 80% flagged positional data
 
             # kidfreq is fully sampled (copy is made here) remove first order continuum
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 kidfreq = pool.map(_to_kidfreq, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.kidfreq = np.vstack(kidfreq)
 
             self.A_masq = np.zeros(self.ph_IQ.shape[1:])
+
+    def _change_nptint(self, nptint):
+
+        if self.nptint % nptint == 0 or nptint % self.nptint == 0:
+            self.__log.error("Not a multiple of the original nptint")
+            return None
+
+        # Scans are not well recorderd nptint is 1024, should be 512:
+        for key in self.__dict__.keys():
+            item = getattr(self, key)
+
+            if not hasattr(item, "shape"):
+                continue
+
+            if item.shape == (self.ndet, self.nint, self.nptint):
+                setattr(self, key, item.reshape(self.ndet, -1, nptint))
+            elif item.shape == (self.nint, self.nptint):
+                setattr(self, key, item.reshape(-1, nptint))
+        self.nint = self.nint * self.nptint // nptint
+        self.nptint = nptint
