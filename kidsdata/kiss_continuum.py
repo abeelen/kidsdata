@@ -106,7 +106,7 @@ def _psd_cal(ikids):
     return np.array(data_psds)
 
 
-def psd_cal(datas, Fs, rebin, _pool_global=None):
+def psd_cal(datas, Fs, rebin):
     """psd of data"""
 
     _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
