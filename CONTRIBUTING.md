@@ -31,8 +31,8 @@ Look through the GitHub issues for features. Anything tagged with
 
 ### Write Documentation
 
-KissData could always use more documentation, whether as part of the
-official KissData docs, in docstrings, or even on the web in blog posts,
+Kidsdata could always use more documentation, whether as part of the
+official Kidsdata docs, in docstrings, or even on the web in blog posts,
 articles, and such.
 
 ### Submit Feedback
@@ -51,20 +51,20 @@ If you are proposing a feature:
 Get Started!
 ------------
 
-Ready to contribute? Here\'s how to set up kissdata for local
+Ready to contribute? Here\'s how to set up kidsdata for local
 development.
 
-1.  Fork the kissdata repo on GitLab.
+1.  Fork the kidsdata repo on GitLab.
 2.  Clone your fork locally:
 
-        $ git clone git@github.com:your_name_here/kissdata.git
+        $ git clone git@gitlab.lam.fr:KISS/kidsdata.git
 
 3.  Install your local copy into a virtualenv. Assuming you have
     virtualenvwrapper installed, this is how you set up your fork for
     local development:
 
-        $ mkvirtualenv kissdata
-        $ cd kissdata/
+        $ mkvirtualenv kidsdata
+        $ cd kidsdata/
         $ python setup.py develop
 
 4.  Create a branch for local development:
@@ -73,11 +73,18 @@ development.
 
     Now you can make your changes locally.
 
-5.  When you\'re done making changes, check that your changes pass
-    flake8 and the tests, including testing other Python versions with
-    tox:
+4b. Install the pre-commit hook
+        
+        $ pre-commit install
+    
+    Each of the commits will need to pass black and flake8 linter
+    To get flake8 and black, just pip or conda install them into your virtualenv.
 
-        $ flake8 kissdata tests
+5.  [Optionnal for the moment] When you\'re done making changes, 
+    check that your changes pass flake8 and the tests, including testing 
+    other Python versions with tox:
+
+        $ flake8 kidsdata tests
         $ python setup.py test
         $ tox
 
@@ -89,7 +96,7 @@ development.
         $ git commit -m "Your detailed description of your changes."
         $ git push origin name-of-your-bugfix-or-feature
 
-7.  Submit a pull request through the GitHub website.
+7.  Submit a pull request through the GitLab website.
 
 Pull Request Guidelines
 -----------------------
@@ -101,5 +108,5 @@ Before you submit a pull request, check that it meets these guidelines:
     Put your new functionality into a function with a docstring, and add
     the feature to the list in README.md.
 3.  The pull request should work for Python 2.7, 3.3, 3.4, 3.5 and for
-    PyPy. Check <https://travis-ci.org/abeelen/kissdata/pull_requests>
+    PyPy. Check <https://travis-ci.org/abeelen/kidsdata/pull_requests>
     and make sure that the tests pass for all supported Python versions.
