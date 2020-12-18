@@ -100,10 +100,11 @@ def _psd_cal(ikids):
 
     data_psds = []
     for ikid in ikids:
-        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend='mean')[0])
+        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend="mean")[0])
         data_psds.append(data_psd)
 
     return np.array(data_psds)
+
 
 def psd_cal(datas, Fs, rebin, _pool_global=None):
     """psd of data"""
@@ -112,9 +113,8 @@ def psd_cal(datas, Fs, rebin, _pool_global=None):
 
     with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
         items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
-        
-    return freq, np.vstack(items)
 
+    return freq, np.vstack(items)
 
 
 # pylint: disable=no-member
@@ -500,5 +500,3 @@ class KissContinuum(KissRawData):
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
-
-
