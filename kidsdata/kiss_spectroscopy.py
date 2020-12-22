@@ -1070,6 +1070,8 @@ class KissSpectroscopy(KissRawData):
             wcs, x, y = build_celestial_wcs(
                 az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt[0:2], cunit=cunit[0:2]
             )
+        else:
+            x, y = wcs.all_world2pix(az, el, 0)
 
         if wcs.is_celestial:
             # extend the wcs for a third axis :
