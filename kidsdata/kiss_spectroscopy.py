@@ -169,8 +169,8 @@ class KissSpectroscopy(KissRawData):
         super().__init__(*args, **kwargs)
 
         self.__log.debug("KissSpectroscopy specific kwargs")
-        self.__laser_shift = laser_shift
-        self.__optical_flip = optical_flip
+        self.laser_shift = laser_shift
+        self.optical_flip = optical_flip
         self.__mask_glitches = mask_glitches
         self.__glitches_threshold = glitches_threshold
         self.laser_keys = laser_keys
@@ -615,9 +615,6 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
-        print("arguments")
-        print(ikid, opd_mode, laser_bins, kwargs)
-        print("----------")
         # Raw interferograms, without pipeline to get residuals peaks
         # interferograms = self.interferograms[ikid]
         interferograms = self.interferograms_pipeline(ikid=tuple(ikid), cm_func=None, flatfield=None, baseline=3)
@@ -1070,6 +1067,8 @@ class KissSpectroscopy(KissRawData):
             wcs, x, y = build_celestial_wcs(
                 az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt[0:2], cunit=cunit[0:2]
             )
+        else:
+            x, y = wcs.all_world2pix(az, el, 0)
 
         if wcs.is_celestial:
             # extend the wcs for a third axis :
