@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
-from .utils import _import_from
+from .utils import _import_from, sizeof_fmt
 
 # import line_profiler
 # import atexit
@@ -368,7 +368,7 @@ def read_all(
         list_detector = np.array(kidpar.loc_indices[list_detector])
 
     # Append the number of detectors as expected by the C library
-    list_detector = np.append(len(list_detector), list_detector).astype(np.int32)
+    list_detector = np.insert(list_detector, 0, len(list_detector)).astype(np.int32)
 
     assert len(names.RawDataDetector) >= list_detector[0]
 
@@ -378,13 +378,13 @@ def read_all(
     nb_to_read = end - start
 
     p_int32 = ctypes.POINTER(ctypes.c_int32)
-    p_double = ctypes.POINTER(ctypes.c_double)
+    p_float = ctypes.POINTER(ctypes.c_float)
 
     read_nika_all = READNIKADATA.read_nika_all
     read_nika_all.argtype = [
         ctypes.c_char_p,
-        p_double,
-        p_double,
+        p_float,
+        p_float,
         ctypes.c_char_p,
         p_int32,
         ctypes.c_int,
@@ -404,23 +404,23 @@ def read_all(
     _sample_S = nb_Sc + nb_Sd * nb_detectors
     _sample_U = nb_Uc + nb_Ud * nb_detectors
 
-    buffer_dataS = np.zeros(nb_to_read * _sample_S, dtype=np.double)
-    buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U, dtype=np.double)
+    buffer_dataS = np.zeros(nb_to_read * _sample_S, dtype=np.float32)
+    buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U, dtype=np.float32)
 
     logging.info(
-        "buffer allocated : \n    - buffer_dataS  {} MiB\n    - buffer_dataU  {} MiB".format(
-            buffer_dataS.nbytes / 1024 / 1024, buffer_dataU.nbytes / 1024 / 1024
+        "buffer allocated : \n    - buffer_dataS  {}\n    - buffer_dataU  {}".format(
+            sizeof_fmt(buffer_dataS.nbytes), sizeof_fmt(buffer_dataU.nbytes)
         )
     )
     logging.debug("before read_nika_all")
     nb_samples_read = read_nika_all(
         bytes(str(filename), "ascii"),
-        buffer_dataS.ctypes.data_as(p_double),
-        buffer_dataU.ctypes.data_as(p_double),
+        buffer_dataS.ctypes.data_as(p_float),
+        buffer_dataU.ctypes.data_as(p_float),
         bytes(str_data, "ascii"),
         list_detector.ctypes.data_as(p_int32),
         start,
-        end,
+        nb_to_read,
         silent,
     )
     logging.debug("after read_nika_all")
@@ -436,7 +436,7 @@ def read_all(
     _dataSd = np.moveaxis(
         buffer_dataS.reshape(nb_samples_read, _sample_S)[:, nb_Sc:].reshape(nb_samples_read, nb_Sd, nb_detectors), 0, -1
     )
-    del buffer_dataS  # Do not relase actual memory here...
+    del buffer_dataS  # Do not relase actual memory here because _dataSc and _dataSd are view on it...
 
     _dataUc = buffer_dataU.reshape(nb_samples_read // np_pt_bloc, _sample_U)[:, 0:nb_Uc].T
     _dataUd = np.moveaxis(
