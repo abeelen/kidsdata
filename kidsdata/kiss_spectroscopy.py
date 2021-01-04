@@ -3,6 +3,7 @@ import logging
 import warnings
 import numpy as np
 import datetime
+import re
 from enum import Enum
 from copy import deepcopy
 
@@ -146,6 +147,11 @@ def sky_to_cube(data, opds, az, el, offsets, wcs, shape):
 
 @logged
 class KissSpectroscopy(KissRawData):
+
+    __laser_shift = None
+    __laser_keys = None
+    __optical_flip = None
+
     def __init__(
         self,
         *args,
@@ -169,8 +175,8 @@ class KissSpectroscopy(KissRawData):
         super().__init__(*args, **kwargs)
 
         self.__log.debug("KissSpectroscopy specific kwargs")
-        self.__laser_shift = laser_shift
-        self.__optical_flip = optical_flip
+        self.laser_shift = laser_shift
+        self.optical_flip = optical_flip
         self.__mask_glitches = mask_glitches
         self.__glitches_threshold = glitches_threshold
         self.laser_keys = laser_keys
@@ -204,17 +210,17 @@ class KissSpectroscopy(KissRawData):
             boxes = {name[0:2] for name in self._kidpar["namedet"] if name[0] == "K"}
             if boxes == {"KA", "KB"}:
                 self.__log.info("Found Kiss data, flipping KB")
-                self.__optical_flip = ["KB"]
+                self.__optical_flip = "KB"
             elif boxes == {"KA", "KB", "KC", "KD", "KE", "KF", "KG", "KH", "KI", "KJ", "KK", "KL"}:
                 self.__log.info("Found CONCERTO data, flipping Kx - Kx")
-                self.__optical_flip = {"KA", "KB", "KC", "KD", "KE", "KF"}  # or {'KG', 'KH', 'KI', 'KJ', 'KK', 'KL'}
+                self.__optical_flip = "K(A|B|C|D|EF)"  # or {'K(G|H|I|J|K|L)'}
             else:
                 self.__log.error("Can  not determine the instrument for optical flip : disabled")
                 self.__optical_flip = None
-        else:
-            if not isinstance(value, list):
-                value = list(value)
+        elif isinstance(value, str) or value is None:
             self.__optical_flip = value
+        else:
+            raise ValueError("value must be a regex string, 'auto' or None")
 
     @property
     def laser_keys(self):
@@ -322,10 +328,9 @@ class KissSpectroscopy(KissRawData):
 
         if self.optical_flip:
             self.__log.info("Flipping {}".format(self.optical_flip))
-            boxes = list(self.optical_flip)
-            to_flip = np.char.startswith(self.list_detector, boxes[0])
-            for box in boxes[1:]:
-                to_flip |= np.char.startswith(self.list_detector, box)
+            p = re.compile(self.optical_flip)
+            vmatch = np.vectorize(lambda det: bool(p.match(det)))
+            to_flip = vmatch(self.list_detector)
 
             interferograms[to_flip] *= -1
 
@@ -615,9 +620,6 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
-        print("arguments")
-        print(ikid, opd_mode, laser_bins, kwargs)
-        print("----------")
         # Raw interferograms, without pipeline to get residuals peaks
         # interferograms = self.interferograms[ikid]
         interferograms = self.interferograms_pipeline(ikid=tuple(ikid), cm_func=None, flatfield=None, baseline=3)
@@ -1070,6 +1072,8 @@ class KissSpectroscopy(KissRawData):
             wcs, x, y = build_celestial_wcs(
                 az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), cdelt=cdelt[0:2], cunit=cunit[0:2]
             )
+        else:
+            x, y = wcs.all_world2pix(az, el, 0)
 
         if wcs.is_celestial:
             # extend the wcs for a third axis :

@@ -283,17 +283,17 @@ def build_celestial_wcs(
         wcs.wcs.name = "Terrestrial coordinates"
 
     if isinstance(cdelt, (int, np.int, float, np.float, np.float32, np.float64)):
-        cdelt = (-cdelt, cdelt)
+        cdelt = [-cdelt, cdelt]
+
+        # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
+        if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
+            cdelt[0] = -cdelt[0]
 
     if isinstance(cunit, str):
         cunit = (cunit, cunit)
 
     wcs.wcs.cdelt = cdelt
     wcs.wcs.cunit = cunit
-
-    # If we are in Offsets or Terrestrial coordinate, do not flip the longitude axis
-    if ctype[0][0] in ["O", "T"] and ctype[1][0] in ["O", "T"]:
-        wcs.wcs.cdelt[0] = -cdelt[0]
 
     if crval is None:
         # find the center of the projection
@@ -956,3 +956,12 @@ def mad_med(array):
     med = np.nanmedian(array)
     mad = np.nanmedian(np.abs(array - med))
     return med, mad
+
+
+# From https://stackoverflow.com/questions/1094841/reusable-library-to-get-human-readable-version-of-file-size
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return "%3.1f %s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f %s%s" % (num, "Yi", suffix)
