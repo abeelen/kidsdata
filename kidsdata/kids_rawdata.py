@@ -18,7 +18,7 @@ import astropy.units as u
 import h5py
 from autologging import logged
 
-from .read_kidsdata import read_info, read_all
+from .read_kidsdata import read_info, read_all, read_raw
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
@@ -44,8 +44,6 @@ class KidsRawData(object):
         Name of the raw data file. Could also be a scan number
     header : TconfigHeader (nametuple)
         the raw header of the file
-    version_header : int
-        the version of the header
     param_c: :dict
         common parameters
     kidpar: :obj: Astropy.Table
@@ -71,7 +69,7 @@ class KidsRawData(object):
     All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
     """
 
-    def __init__(self, filename, position_shift=None, e_kidpar="auto"):
+    def __init__(self, filename, position_shift=None, e_kidpar="auto", raw=False):
         """Initialize a KidsRawData object....
 
         Parameters
@@ -82,6 +80,8 @@ class KidsRawData(object):
             shit of the telescope positions
         e_kidpar: str of Path or 'auto'
             the path to the extended kidpar
+        raw: bool
+            Use the read_raw routine
 
         Returns
         -------
@@ -95,15 +95,23 @@ class KidsRawData(object):
 
         self.filename = Path(filename)
 
-        info = read_info_hdf5(self.filename) if h5py.is_hdf5(self.filename) else read_info(self.filename)
+        self.__raw = raw
 
-        self.header, self.version_header, self.param_c, _kidpar, self.names, self.nsamples = info
+        if h5py.is_hdf5(self.filename):
+            info = read_info_hdf5(self.filename)
+        elif self.__raw:
+            *info, _, _, _, _, _ = read_raw(self.filename, list_data=[])
+        else:
+            info = read_info(self.filename)
+
+        self.header, self.param_c, _kidpar, self.names, self.nsamples = info
+        del info  # Need to release the reference counting
 
         # Required here for self.obstime
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
 
-        # kidpar must be a masked table and have an index
+        # kidpar must be a masked table and have an index (mostly hdf5)
         if "index" not in _kidpar.keys():
             _kidpar["index"] = np.arange(len(_kidpar))
         if not _kidpar.has_masked_values:
@@ -129,6 +137,7 @@ class KidsRawData(object):
         self.__position_shift = position_shift
 
         # Find all potential telescope position keys
+        # TODO: needs to be done at reading time for read_raw=True
         keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
         pos_keys = [key.split("_")[1] for key in keys if "Az" in key]
         self.__position_keys = {
@@ -316,36 +325,67 @@ class KidsRawData(object):
 
         return meta
 
-    def read_data(self, *args, cache=False, array=np.array, list_data=["indice", "A_masq", "I", "Q"], **kwargs):
+    def read_data(self, list_data=None, cache=False, array=np.array, **kwargs):
         """Read raw data.
 
         Parameters
         ----------
+        list_data : list of str or str
+            list of data to read, see Notes
         cache : bool or 'only', optional
             use the cache file if present, by default False, see Notes
         array : function, (np.array|dask.array.from_array|None) optional
             function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
-        list_data : list, optional
-            list of data to read, by default ["indice", "A_masq", "I", "Q"]
         **kwargs
             additionnal parameters to be passed to the  `kidsdata.read_kidsdata.read_all`, in particular
                 list_detector : list, optional
-                    the list of detector indexes to be read, by default None: read all detectors
+                    the list of detector indexes to be read, see Notes, by default None: read all detectors
                 start : int
                     the starting block, default 0.
                 end : type
                     the ending block, default full available dataset.
+                silent : bool
+                    Silence the output of the C library. The default is True
+                diff_pps: bool
+                    pre-compute pps time differences. The default is False
+                correct_pps: bool
+                    correct the pps signal. The default is False
+                correct_time: bool or float
+                    correct the time signal by interpolating jumps higher that given value in second. The default is False
+
         Notes
         -----
         if `cache=True`, the function reads all possible data from the cache file, and read the missing data from the raw binary file
         if `cache='only'`, the function reads all possible data from the cache file
+
+        Depending on the `read_raw` flag when openning a kidsdata, the meaning of `list_data` and `list_detector` is changed:
+        if raw is False:
+            - `list_data` is a list of str within the data present in the files, see the `names` property.
+            - `list_detector` is a list or array of detector names within the `kidpar` of the file. See also `get_list_detector`.
+        if raw is True:
+            - `list_data` is a list or array contains elements from ['Sc', 'Sd, 'Uc', 'Ud', 'Rg'].
+            - `list_detector` is either a list or array of detector names within the `kidpar` of the file or
+                - 'all' : to read all kids
+                - 'one' or None : to read all kids of type 1
+                - 'array?' : to read kids from crate/array '?'. '?' must be an int.
+                - 'array_one?' : to read kids of type 1 from crate/array '?'. '?' must be an int.
+                - 'box?' : to read kids from  box '?'. '?' must be an int or a letter
+                - 'box_one?' : to read kids of type 1 from box '?'. '?' must be an int or a letter
+
+                For CONCERTO, crate/array '?' must be from 2 to 3, or :
+                - 'arrayT' : to read the kids from the array in transmission
+                - 'arrayT_one' : to read the kids of type 1 from the array in transmission
+                ' 'arrayR' : to read the kids from array in reflection
+                - 'arrayR_one': to read the kids of type 1 from the array in reflection
+
+        `None` or 'all' means read all data or detectors.
         """
         self.__log.debug("Reading data")
 
         if cache and self._cache is not None:
             self.__log.info("Reading cached raw data :")
 
-            *datas, extended_kidpar = read_all_hdf5(self._cache, array=array)
+            nb_samples_read, list_detector, *datas, extended_kidpar = read_all_hdf5(self._cache, array=array)
 
             dataSc, dataSd, dataUc, dataUd = datas
 
@@ -354,6 +394,8 @@ class KidsRawData(object):
             self.__dataSd.update(dataSd)
             self.__dataUc.update(dataUc)
             self.__dataUd.update(dataUd)
+            del datas  # Need to release the reference counting
+            del (dataSc, dataSd, dataUc, dataUd)  # Need to release the reference counting
 
             self._extended_kidpar = extended_kidpar
 
@@ -368,24 +410,34 @@ class KidsRawData(object):
                 list_data.remove(key)
             self.__log.debug("Remaining raw data : {}".format(list_data))
 
+            self.list_detector = list_detector
+
             # TODO: list_detectors and nsamples
+            if self.nsamples != nb_samples_read:
+                self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
+                self.nsamples = nb_samples_read
 
         if cache != "only" and list_data and not h5py.is_hdf5(self.filename):
             self.__log.debug("Reading raw data")
 
-            nb_samples_read, *datas = read_all(self.filename, *args, list_data=list_data, **kwargs)
+            if self.__raw:
+                _, _, _, _, nb_samples_read, list_detector, *datas = read_raw(
+                    self.filename, list_data=list_data, **kwargs
+                )
+            else:
+                nb_samples_read, list_detector, *datas = read_all(self.filename, list_data=list_data, **kwargs)
 
             dataSc, dataSd, dataUc, dataUd = datas
+
             self.__log.debug("Updating dictionnaries")
             self.__dataSc.update(dataSc)
             self.__dataSd.update(dataSd)
             self.__dataUc.update(dataUc)
             self.__dataUd.update(dataUd)
+            del datas  # Need to release the reference counting
+            del (dataSc, dataSd, dataUc, dataUd)  # Need to release the reference counting
 
-            if "list_detector" in kwargs and kwargs["list_detector"] is not None:
-                self.list_detector = np.asarray(kwargs["list_detector"])
-            else:
-                self.list_detector = np.asarray(self.names.RawDataDetector)
+            self.list_detector = list_detector
 
             if self.nsamples != nb_samples_read:
                 self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
@@ -436,7 +488,6 @@ class KidsRawData(object):
         info_to_hdf5(
             filename,
             self.header,
-            self.version_header,
             self.param_c,
             self._kidpar,
             self.names,
@@ -449,6 +500,7 @@ class KidsRawData(object):
         _file_kwargs["mode"] = "a"
         data_to_hdf5(
             filename,
+            self.list_detector,
             self.__dataSc,
             self.__dataSd if dataSd else None,
             self.__dataUc,
