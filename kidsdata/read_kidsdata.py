@@ -3,12 +3,14 @@ import os
 import gc
 import h5py
 from functools import partial, wraps
+from enum import IntEnum
 
 import logging
 import warnings
 import ctypes
 from pathlib import Path
 from collections import namedtuple
+from ipaddress import ip_address
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -23,16 +25,25 @@ from .utils import _import_from, sizeof_fmt
 # profile = line_profiler.LineProfiler()
 # atexit.register(profile.print_stats)
 
-# TODO: This should not be fixed here
-NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/")
+NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/CONCERTO/Processing/kid-all-sw/Readdata/C")
+READRAW_LIB_PATH = os.getenv("READRAW_LIB_PATH", "/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readRaw")
+
 NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
+READRAW_LIB_SO = Path(READRAW_LIB_PATH) / "libreadraw.so"
 
 assert NIKA_LIB_SO.exists(), (
     "Could not find NIKA LIB so File [%s] \n" % NIKA_LIB_SO
     + "You might have forgotten to set $NIKA_LIB_PATH or compile the library"
 )
-
 READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
+
+
+assert READRAW_LIB_SO.exists(), (
+    "Could not find NIKA LIB so File [%s] \n" % NIKA_LIB_SO
+    + "You might have forgotten to set $NIKA_LIB_PATH or compile the library"
+)
+READRAW = ctypes.cdll.LoadLibrary(str(READRAW_LIB_SO))
+
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
 TconfigHeader = namedtuple(
@@ -59,7 +70,7 @@ TconfigHeader = namedtuple(
     ],
 )
 
-# Tname list the name of the computed/requested variables and detectors
+# TName list the name of the computed/requested variables and detectors
 TName = namedtuple("TName", ["DataSc", "DataSd", "DataUc", "DataUd", "RawDataDetector"])
 
 
@@ -67,10 +78,11 @@ DETECTORS_CODE = {"kid": 3, "kod": 2, "all": 1, "a1": 4, "a2": 5, "a3": 6}
 
 
 def decode_ip(int32_val):
-    """Decode an int32 bit into 4 8 bit int."""
-    bin = np.binary_repr(int32_val, width=32)
-    int8_arr = [int(bin[0:8], 2), int(bin[8:16], 2), int(bin[16:24], 2), int(bin[24:32], 2)]
-    return int8_arr
+    """Decode an int32 bit into ip string."""
+    # binary = np.binary_repr(int32_val, width=32)
+    # int8_arr = [int(binary[0:8], 2), int(binary[8:16], 2), int(binary[16:24], 2), int(binary[24:32], 2)]
+    # return ".".join([str(int8) for int8 in int8_arr])
+    return str(ip_address(int32_val.tobytes()))
 
 
 # @profile
@@ -94,13 +106,11 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     -------
     tconfigheader: namedtuple
         a copy of the TconfigHeader of the file
-    version_header: int
-        the version of the header
     param_c: dict
         the common variables for the file
     kidpar: :class:`~astropy.table.Table`
         the kidpar of the file
-    tname: namedtuple
+    TName: namedtuple
         the full name of the requested data and detectors
     nb_read_sample: int
         the total  number of sample in the file
@@ -183,8 +193,6 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     nb_detectors = list_detector[0]
     idx_detectors = list_detector[1 : list_detector[0] + 1]
 
-    version_header = header.version_header // 65536
-
     # Proper way to do it :
     # var_name = [var_name_buffer.raw[ind: ind+16].strip(b'\x00').decode('ascii') for ind in range(0, len(var_name_buffer.raw), 16)]
     # Faster way :
@@ -198,36 +206,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     name_param_c = var_name[idx : idx + header.nb_param_c]
     val_param_c = buffer_header[idx_param_c : idx_param_c + header.nb_param_c]
     param_c = dict(zip(name_param_c, val_param_c))
-
-    # Decode the name
-    nomexp_keys = sorted([key for key in param_c.keys() if "nomexp" in key], key=lambda x: int(x[6:]))
-    param_c["nomexp"] = ""
-    for key in nomexp_keys:
-        param_c["nomexp"] += param_c[key].tobytes().strip(b"\x00").decode("ascii")
-        del param_c[key]
-
-    # Decode the IPs :
-    for key in param_c.keys():
-        if "_ip" in key:
-            param_c[key] = ".".join([str(int8) for int8 in decode_ip(param_c[key])])
-
-    # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
-    # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz  40=23Hz
-    param_c["div_kid"] = int(param_c["div_kid"])
-    # AB: Private Comm
-    div_kid = param_c["div_kid"] + 2 if param_c["div_kid"] < 1 else param_c["div_kid"] * 4
-    param_c["acqfreq"] = 5.0e8 / 2.0 ** 17 / div_kid
-
-    # Regroup keys per box
-    if flat is False:
-        box_delimiters = [".", "-", "_"]
-        box_keys = set([key[0] for key in param_c.keys() if key[1] in box_delimiters])
-        for box_key in box_keys:
-            items = {}
-            for key in [key for key in param_c.keys() if box_key == key[0]]:
-                items[key[2:]] = param_c[key]
-                del param_c[key]
-            param_c[box_key] = items
+    param_c = clean_param_c(param_c, flat=flat)
 
     # Retrieve the param detector
     idx += header.nb_param_c
@@ -237,35 +216,15 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     )
     param_d = dict(zip(name_param_d, val_param_d))
 
-    # nom1 & nom2 are actually defined as a struct Tname8 namedet (TconfingNika.h), ie char[8] ie 64 bit (public_def.h)
-    namedet = np.append(param_d["nom1"], param_d["nom2"]).reshape(header.nb_detecteurs, 2).view(np.byte)
-
-    # In principle the last 2 bytes should be always 0, ie we code up to 6 character, instead of 8, but sometimes....
-    if np.any(namedet[:, 6:8]):
-        if fix:
-            namedet[:, 6:8] = 0
-            warnings.warn("Corrupted namedet truncated to 6 characters")
-        else:
-            warnings.warn("Corrupted namedet")
-
-    param_d["namedet"] = [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
+    # nom1 & nom2 are actually defined as a struct TName8 namedet (TconfingNika.h), ie char[8] ie 64 bit (public_def.h)
+    namedet = np.append(param_d["nom1"], param_d["nom2"]).reshape(header.nb_detecteurs, 2)
     for key in ["nom1", "nom2"]:
         del param_d[key]
+    param_d["namedet"] = clean_namedet(namedet, fix=fix)
 
-    # typedet is actually a Utype typedet (TconfigNika.h & public_def.h) , ie a union of either a int32 val or a struct with 4 8 bit int.
-    param_d["typedet"], param_d["masqdet"], param_d["acqbox"], param_d["array"] = (
-        param_d["typedet"].view(np.byte).reshape(header.nb_detecteurs, 4).T
-    )
-
-    # WHY ?
-    param_d["frequency"] *= 10
-
-    # Build the kidpar
-    kidpar = Table(param_d, masked=True)
-    detector_mask = np.ones(header.nb_detecteurs, dtype=np.bool)
-    detector_mask[idx_detectors] = False
-    kidpar.add_column(MaskedColumn(np.arange(header.nb_detecteurs), mask=detector_mask), index=0, name="index")
-    kidpar.add_index("namedet")
+    kidpar = clean_param_d(param_d)
+    # unmask the detectors present in the file
+    kidpar["index"].mask[idx_detectors] = False
 
     idx += header.nb_param_d
     name_data_Sc = var_name[idx : idx + nb_Sc]
@@ -285,13 +244,12 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     gc.collect()
     ctypes._reset_cache()
 
-    return header, version_header, param_c, kidpar, names, nb_read_samples
+    return header, param_c, kidpar, names, nb_read_samples
 
 
 def read_all(
     filename,
-    det2read="KID",
-    list_data=["indice", "A_masq", "I", "Q"],
+    list_data=None,
     list_detector=None,
     start=None,
     end=None,
@@ -307,11 +265,9 @@ def read_all(
     ----------
     filename : str
         Full filename
-    det2read : str {kid, kod, all, a1, a2, a3}
-        Detector type to read
-    list_data : list of string, or  'all' or 'raw'
-        A list containing the list of data to be read, or the string 'all' to read all data, or 'raw' to only read the raw data
-    list_detector : :class:`~numpy.array`
+    list_data : list of string, or  'all'
+        A list containing the  data to be read, or the string 'all' to read all data
+    list_detector : array_like of str or 'None'
         The names of detectors to read, by default `None` read all available KIDs.
     start : int
         The starting block, default 0.
@@ -344,13 +300,16 @@ def read_all(
 
     Notes
     -----
-    `list_detector` is an :class:`~numpy.array` of int listing the index of the requested KIDs.
+    `list_detector` is a list or array of detector names within the `kidpar` of the file.
+    `list_data` must be within the data present in the files, see the `names` property of read_info
 
     """
     assert Path(filename).exists(), "{} does not exist".format(filename)
     assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
 
-    if list_data in ["all", "raw"]:
+    if list_data is None:
+        raise ValueError("You must provide a list_data")
+    elif list_data in ["all", "raw"]:
         str_data = list_data
     else:
         str_data = " ".join(list_data)
@@ -358,9 +317,7 @@ def read_all(
     # Read the basic header from the file and the name of the data
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        header, _, param_c, kidpar, names, nb_read_info = read_info(
-            filename, det2read=det2read, list_data=list_data, silent=silent
-        )
+        header, param_c, kidpar, names, nb_read_info = read_info(filename, list_data=list_data, silent=silent)
 
     if list_detector is None:
         list_detector = np.where(~kidpar["index"].mask)[0]
@@ -476,53 +433,76 @@ def read_all(
     del _dataUd
 
     # Shift RF_didq if present
-    if "RF_didq" in dataSd:
-        shift_rf_didq = -49
-        dataSd["RF_didq"] = np.roll(dataSd["RF_didq"].reshape(nb_detectors, -1), shift_rf_didq, axis=1).reshape(
-            dataSd["RF_didq"].shape
-        )
+    dataSd = clean_dataSd(dataSd)
 
     # Convert units azimuth and elevation to degrees
-    for ckey in ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"]:
-        for data in [dataSc, dataUc]:
-            if ckey in data:
-                data[ckey] = np.rad2deg(data[ckey] / 1000.0)
-
-    # if "F_diff_Az" in dataUc:
-    #     logging.warn("Correcting diff corrdinates")
-    #     dataUc['F_diff_Az'] = dataUc['F_diff_Az'] * np.cos(np.radians(dataUc['F_sky_El']))
+    for data in [dataUc, dataSc]:
+        clean_position_unit(data)
 
     # Compute median pps_time and differences and corrections
+    clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time)
+
+    gc.collect()
+    ctypes._reset_cache()
+
+    namedet = kidpar[list_detector[1:]]["namedet"]
+
+    return nb_samples_read, namedet, dataSc, dataSd, dataUc, dataUd
+
+
+def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_time=True, raw=False):
+
+    if raw:
+        # Some quantities are stored with a different units
+        unit_keys = []
+        for key in dataSc:
+            if key.endswith("_pps") or key.endswith("_ntp"):
+                # This avoid rounding errors
+                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-6)
+            elif key.endswith("_freq"):
+                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-2)
+            elif key.endswith("_n_mes"):
+                dataSc[key] = np.float32(np.int32(dataSc[key]) * 3600)
+            elif key.endswith("_pos"):
+                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-3)
+            elif ":" in key:
+                unit_keys.append(key)
+        for key in unit_keys:
+            _key, exp = key.split(":")
+            dataSc[_key] = np.float32(dataSc.pop(key) / 10 ** int(exp))
+
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
     if pps_keys:
         logging.debug("Using {} to compute median pps time".format(pps_keys))
-        times = [dataSc.get(key) for key in pps_keys]
+        shape = dataSc.get(pps_keys[0]).shape
+        times = [dataSc.get(key).flatten() for key in pps_keys]
         pps = np.nanmedian(times, axis=0)
+
         if diff_pps:
-            pps_diff = {"pps-{}".format(key): (pps - dataSc[key]) * 1e6 for key in pps_keys}
-            pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0)
+            pps_diff = {"pps-{}".format(key): (pps - dataSc[key].flatten()) * 1e6 for key in pps_keys}
+            pps_diff["pps_diff"] = np.asarray(list(pps_diff.values())).max(axis=0).reshape(shape)
 
             dataSc.update(pps_diff)
 
         # Fake pps time if necessary,
-        # TODO : based on acqfreq : must be correct !
         if correct_pps:
             logging.info("Correcting pps time")
 
             dummy = np.append(np.diff(pps), 0)
-            good = np.abs(dummy - 1 / param_c["acqfreq"]) < 0.02
+            good = np.abs(dummy - 1 / acqfreq) < 0.02
             if any(~good):
-                param = np.polyfit(dataSc["sample"][good], pps[good], 1)
-                pps[~good] = np.polyval(param, dataSc["sample"][~good])
+                param = np.polyfit(dataSc["sample"].flatten()[good], pps[good], 1)
+                pps[~good] = np.polyval(param, dataSc["sample"].flatten()[~good])
 
-        dataSc["time_pps"] = pps
+        dataSc["time_pps"] = pps.reshape(shape)
 
     # Compute median hours
     hours_keys = [key for key in dataSc if key.endswith("_hours")]
     if hours_keys:
         logging.debug("Using {} to compute median hours".format(hours_keys))
-        hours = [dataSc.get(key) for key in hours_keys]
-        hours = np.nanmedian(hours, axis=0)
+        shape = dataSc.get(hours_keys[0]).shape
+        hours = [dataSc.get(key).flatten() for key in hours_keys]
+        hours = np.nanmedian(hours, axis=0).reshape(shape)
         dataSc["hours"] = hours
 
     # Compute time if possible
@@ -548,10 +528,433 @@ def read_all(
 
         dataSc["time"] = time.reshape(hours.shape)
 
-    gc.collect()
-    ctypes._reset_cache()
+    return dataSc
 
-    return nb_samples_read, dataSc, dataSd, dataUc, dataUd
+
+def clean_param_c(param_c, flat=False):
+
+    # Decode the name
+    nomexp_keys = sorted([key for key in param_c.keys() if "nomexp" in key], key=lambda x: int(x[6:]))
+    param_c["nomexp"] = ""
+    logging.debug("Merging {} nomexp field".format(len(nomexp_keys)))
+    for key in nomexp_keys:
+        param_c["nomexp"] += param_c[key].tobytes().strip(b"\x00").decode("ascii")
+        del param_c[key]
+
+    # Decode the IPs :
+    for key in param_c.keys():
+        if "_ip" in key:
+            param_c[key] = decode_ip(param_c[key])
+
+    # from ./Acquisition/instrument/kid_amc/server/TamcServer.cpp
+    # -1 --> 4KHz   0 -> 2 kHz   1 -> 1 kHz  40=23Hz
+    param_c["div_kid"] = int(param_c["div_kid"])
+    # AB: Private Comm
+    div_kid = param_c["div_kid"] + 2 if param_c["div_kid"] < 1 else param_c["div_kid"] * 4
+    param_c["acqfreq"] = 5.0e8 / 2.0 ** 17 / div_kid
+
+    # Regroup keys per box
+    if flat is False:
+        box_delimiters = [".", "-", "_"]
+        box_keys = set([key[0] for key in param_c.keys() if key[1] in box_delimiters])
+        for box_key in box_keys:
+            items = {}
+            for key in [key for key in param_c.keys() if box_key == key[0]]:
+                items[key[2:]] = param_c[key]
+                del param_c[key]
+            param_c[box_key] = items
+
+    return param_c
+
+
+def clean_param_d(param_d):
+
+    # typedet is actually a Utype typedet (TconfigNika.h & public_def.h) , ie a union of either a int32 val or a struct with 4 8 bit int.
+    param_d["typedet"], param_d["masqdet"], param_d["acqbox"], param_d["array"] = (
+        param_d["typedet"].view(np.byte).reshape(param_d["typedet"].shape[0], 4).T
+    )
+
+    # WHY ?
+    param_d["frequency"] *= 10
+
+    # Add a default index column
+    if "index" not in param_d:
+        param_d["index"] = np.arange(len(param_d["namedet"]))
+
+    # Build the kidpar
+    kidpar = Table(param_d, masked=True)
+
+    # Reorder some columns
+    colnames = kidpar.colnames
+    for i, colname in enumerate(["index", "namedet"]):
+        colnames.remove(colname)
+        colnames.insert(i, colname)
+    kidpar = kidpar[colnames]
+
+    # by default mask all kids
+    kidpar["index"].mask = True
+    kidpar.add_index("namedet")
+
+    return kidpar
+
+
+def clean_dataSd(dataSd, shift_rf_didq=-49):
+    if "RF_didq" in dataSd and shift_rf_didq is not None:
+
+        shape = dataSd["RF_didq"].shape
+        dataSd["RF_didq"] = np.roll(dataSd["RF_didq"].reshape(shape[0], -1), shift_rf_didq, axis=1).reshape(shape)
+
+    return dataSd
+
+
+def clean_namedet(namedet, fix=True):
+    # In principle the last 2 bytes should be always 0, ie we code up to 6 character, instead of 8/16, but sometimes....
+    namedet = namedet.view(np.byte)
+    if np.any(namedet[:, 6:]):
+        if fix:
+            namedet[:, 6:] = 0
+            warnings.warn("Corrupted namedet truncated to 6 characters")
+        else:
+            warnings.warn("Corrupted namedet")
+    return [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
+
+
+def clean_position_unit(dataXc):
+    for ckey in ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"]:
+        if ckey in dataXc:
+            data[ckey] = np.rad2deg(data[ckey] / 1000.0)
+
+
+def namept_to_names(name, nbname):
+    return [item.tobytes().strip(b"\x00").decode() for item in np.ctypeslib.as_array(name, shape=(nbname, 16,),)]
+
+
+P_INT32 = ctypes.POINTER(ctypes.c_int32)
+P_CHAR = ctypes.POINTER(ctypes.c_char)
+
+
+class TdataPt(ctypes.Structure):
+    _fields_ = [
+        ("nbpt", ctypes.c_int32),
+        ("nbBloc", ctypes.c_int32),
+        ("nbBlocInFile", ctypes.c_int32),
+        ("nbBlocRead", ctypes.c_int32),
+        ("nbReglageRead", ctypes.c_int32),
+        ("nbSample", ctypes.c_int64),
+        ("nbDet", ctypes.c_int32),
+        ("nbReglage", ctypes.c_int32),
+        ("nbParanC", ctypes.c_int32),
+        ("nbParanD", ctypes.c_int32),
+        ("nbDataSc", ctypes.c_int32),
+        ("nbDataSd", ctypes.c_int32),
+        ("nbDataUc", ctypes.c_int32),
+        ("nbDataUd", ctypes.c_int32),
+        ("nbDataRg", ctypes.c_int32),
+        ("headerPt", P_INT32),
+        ("nameParamC", P_CHAR),
+        ("nameParamD", P_CHAR),
+        ("nameDataSc", P_CHAR),
+        ("nameDataSd", P_CHAR),
+        ("nameDataUc", P_CHAR),
+        ("nameDataUd", P_CHAR),
+        ("nameDet", P_CHAR),
+        ("ptParamC", P_INT32),
+        ("ptParamD", P_INT32),
+        ("ptDataSc", P_INT32),
+        ("ptDataSd", P_INT32),
+        ("ptDataUc", P_INT32),
+        ("ptDataUd", P_INT32),
+        ("ptDataRg", P_INT32),
+    ]
+
+
+"""
+filename = "/data/KISS/Raw/nika2c-data3/KISS/2020_05_27/X20200527_0438_S1050_Jupiter_ITERATIVERASTER"
+filename = "/data/CONCERTO/InLab/Data/CNC040_X/X1_2020_12_09/X15_13_Tablebt_scanStarted_6"  # very small
+filename = "/data/CONCERTO/InLab/Data/CNC041_X/X1_2020_12_18/X14_32_Tablebt_scanStarted_5"  #  big
+filename = "/data/CONCERTO/InLab/Data/CNC041_X/X1_2020_12_18/X10_43_Tablebt_scanStarted_2"  # huge
+output = read_raw(filename)
+"""
+
+
+class CODEDET(IntEnum):
+    all = -1
+    one = -2
+    array = -100
+    arrayT = -101
+    arrayR = -102
+    array_one = -200
+    arrayT_one = -201
+    arrayR_one = -202
+    box = -1000
+    box_one = -2000
+
+
+def list_detector_to_codedet(list_detector=None):
+
+    if list_detector is None:
+        list_detector = "one"
+
+    codeDet = None
+
+    if isinstance(list_detector, str):
+        list_detector = list_detector.lower()
+        codeDet = getattr(CODEDET, list_detector.lower(), None)
+
+        if list_detector.startswith("array_one") and codeDet is None:
+            array = int(list_detector[9:])
+            codeDet = CODEDET.array_one + array
+        elif list_detector.startswith("array") and codeDet is None:
+            array = int(list_detector[5:])
+            codeDet = CODEDET.array + array
+        elif list_detector.startswith("box_one"):
+            box = list_detector[7:]
+            try:
+                box = int(box)
+            except ValueError:
+                # box is a str, try to convert that to box index starting from a = 1
+                box = ord(box) - ord("a") + 1
+            codeDet = CODEDET.box_one + box
+        elif list_detector.startswith("box"):
+            box = list_detector[3:]
+            try:
+                box = int(box)
+            except ValueError:
+                # box is a str, try to convert that to box index starting from a = 1
+                box = ord(box) - ord("a") + 1
+            codeDet = CODEDET.box + box
+    elif isinstance(list_detector, (list, np.ndarray)):
+        codeDet = len(list_detector)
+        list_detector = np.int32(list_detector)
+
+    if codeDet is None:
+        raise ValueError("list_detector cat not be parsed")
+
+    if codeDet < 0:
+        list_detector = np.array([], dtype=np.int32)
+
+    return codeDet, list_detector
+
+
+def read_raw(
+    filename,
+    list_data=None,
+    list_detector=None,
+    start=None,
+    end=None,
+    fix=True,
+    flat=True,
+    diff_pps=False,
+    correct_pps=False,
+    correct_time=False,
+    silent=True,
+):
+    """Read Raw data from the binary file using the `read_raw` C function.
+
+    Parameters
+    ----------
+    filename : str
+        Full filename
+    list_data : list of string, or  'all'
+        A list containing the data to be read within ('Sd'|'Sc'|'Uc'|'Ud') or the string 'all' to read all data
+    list_detector : :class:`~numpy.array`
+        The names of detectors to read, see Notes, by default `None` read all KIDs of type 1.
+    start : int
+        The starting block, default 0.
+    end : type
+        The ending block, default full available dataset.
+    silent : bool
+        Silence the output of the C library. The default is True
+    diff_pps: bool
+        pre-compute pps time differences. The default is False
+    correct_pps: bool
+        correct the pps signal. The default is False
+    correct_time: bool or float
+        correct the time signal by interpolating jumps higher that given value in second. The default is False
+
+    Returns
+    -------
+    tconfigheader: namedtuple
+        a copy of the TconfigHeader of the file
+    param_c: dict
+        the common variables for the file
+    kidpar: :class:`~astropy.table.Table`
+        the kidpar of the file
+    TName: namedtuple
+        the full name of the requested data and detectors
+    nb_samples_read : int
+        The number of sample read
+    namedet: array of str
+        the names of the read detectors
+    dataSc : dict:
+        A dictionnary containing all the requested sampled common quantities data as 2D :class:`~numpy.array` of shape (n_bloc, nb_pt_bloc)
+    dataSd : dict
+        A dictionnary containing all the requested sampled data as 3D :class:`~numpy.array` of shape (n_det, n_bloc, nb_pt_bloc)
+    dataUc : dict:
+        A dictionnary containing all the requested under-sampled common quantities data as 1D :class:`~numpy.array` of shape (n_bloc,)
+    dataUd : dict
+        A dictionnary containing all the requested under-sampled data as 2D :class:`~numpy.array` of shape (n_det, n_bloc)
+
+    Notes
+    -----
+    `list_detector` is either a list or array of detector names within the `kidpar` of the file or
+    - 'all' : to read all kids
+    - 'one' or None : to read all kids of type 1
+    - 'array?' : to read kids from crate/array '?'. '?' must be an int.
+    - 'array_one?' : to read kids of type 1 from crate/array '?'. '?' must be an int.
+    - 'box?' : to read kids from  box '?'. '?' must be an int or a letter
+    - 'box_one?' : to read kids of type 1 from box '?'. '?' must be an int or a letter
+
+    For CONCERTO, crate/array '?' must be from 2 to 3, or :
+    - 'arrayT' : to read the kids from the array in transmission
+    - 'arrayT_one' : to read the kids of type 1 from the array in transmission
+    ' 'arrayR' : to read the kids from array in reflection
+    - 'arrayR_one': to read the kids of type 1 from the array in reflection
+    """
+
+    assert Path(filename).exists(), "{} does not exist".format(filename)
+    assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
+
+    if list_data is None or list_data == "all":
+        list_data = ["Sc", "Sd", "Uc", "Ud", "Rg"]
+
+    codeDet, list_detector = list_detector_to_codedet(list_detector=list_detector)
+
+    # default output
+    param_c = kidpar = None
+    dataSc = dataSd = dataUc = dataUd = None
+
+    # Number of blocks to read
+    start = start or 0
+    nb_to_read = end - start if (end is not None) and (end > start) else -1  # read all
+
+    read_raw = READRAW.readraw_c
+    read_raw.argtype = [
+        ctypes.c_char_p,
+        ctypes.c_int32,
+        ctypes.c_int32,
+        ctypes.c_bool,
+        ctypes.c_bool,
+        ctypes.c_bool,
+        ctypes.c_bool,
+        ctypes.c_bool,
+        ctypes.c_int32,
+        P_INT32,
+        ctypes.c_int,
+    ]
+    read_raw.restype = TdataPt
+
+    read_raw_free = READRAW.readrawFree_c
+    read_raw_free.argtype = [TdataPt]
+
+    logging.debug("before read_raw")
+    Tdata = read_raw(
+        bytes(str(filename), "ascii"),
+        start,
+        nb_to_read,
+        "Sc" in list_data,
+        "Sd" in list_data,
+        "Uc" in list_data,
+        "Ud" in list_data,
+        "Rg" in list_data,
+        codeDet,
+        list_detector.ctypes.data_as(P_INT32),
+        silent,
+    )
+    logging.debug("after read_raw")
+
+    if Tdata.nbDet == 0:
+        logging.error("No kid read, check list_detector")
+        return None
+
+    # See Acquisition/Library/configNika/TconfigNika.h
+    header = TconfigHeader(*np.ctypeslib.as_array(Tdata.headerPt, (22,))[4:22])
+
+    # ParamC
+    names = namept_to_names(Tdata.nameParamC, Tdata.nbParanC)
+    values = np.ctypeslib.as_array(Tdata.ptParamC, (Tdata.nbParanC,))
+    # TODO: Potentially make a copy here....
+    param_c = dict(zip(names, values))
+    del (names, values)
+    param_c = clean_param_c(param_c, flat=flat)
+
+    # Special treatment for namedet as some character are ill placed
+    namedet = np.ctypeslib.as_array(Tdata.nameDet, shape=(Tdata.nbDet, 16,),)
+    namedet = clean_namedet(namedet, fix=fix)
+
+    # Reglage
+    # F_tone ??
+    if "Rg" in list_data:
+        names = None
+        values = np.ctypeslib.as_array(Tdata.ptDataRg, (Tdata.nbReglage, 1 + Tdata.nbDet))
+        # Precision sur le reglage: le tableau DataReg contient une suite de lignes de longueur 1+nb_total_detecteurs. Chaque ligne commence par le numero de bloc et est suivit de la valeur des tones de chaque detecteur.
+        del (names, values)
+
+    # ParamD
+    names = namept_to_names(Tdata.nameParamD, Tdata.nbParanD)
+    values = np.ctypeslib.as_array(Tdata.ptParamD, (Tdata.nbParanD, Tdata.nbDet))
+    param_d = dict(zip(names, values))
+    del (names, values)
+    # Adding the namedet
+    param_d["namedet"] = namedet
+
+    # Rename some columns
+    for old_name, new_name in [("type", "typedet"), ("detnum", "index")]:
+        if old_name in param_d:
+            param_d[new_name] = param_d.pop(old_name)
+
+    kidpar = clean_param_d(param_d)
+    # with readraw the kidpar contains only the read data
+    kidpar["index"].mask = False
+
+    # dataSc
+    # the .astype(np.float32) force a copy since we defined pointers on int32
+    # the values need to be freed together if one want to free one
+    TName_dataSc = namept_to_names(Tdata.nameDataSc, Tdata.nbDataSc)
+    if "Sc" in list_data:
+        values = np.ctypeslib.as_array(Tdata.ptDataSc, (Tdata.nbDataSc, Tdata.nbBloc, Tdata.nbpt)).astype(np.float32)
+        dataSc = dict(zip(TName_dataSc, values))
+        del values
+        dataSc = clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time, raw=True)
+
+    # dataSd
+    # the .astype(np.float32) force a copy since we defined pointers on int32
+    # the values need to be freed together if one want to free one
+    TName_dataSd = namept_to_names(Tdata.nameDataSd, Tdata.nbDataSd)
+    if "Sd" in list_data:
+        values = np.ctypeslib.as_array(Tdata.ptDataSd, (Tdata.nbDataSd, Tdata.nbDet, Tdata.nbBloc, Tdata.nbpt)).astype(
+            np.float32
+        )
+        dataSd = dict(zip(TName_dataSd, values))
+        del values
+        dataSd = clean_dataSd(dataSd)
+
+    # dataUc
+    # the .astype(np.float32) force a copy since we defined pointers on int32
+    # the values need to be freed together if one want to free one
+    TName_dataUc = namept_to_names(Tdata.nameDataUc, Tdata.nbDataUc)
+    if "Uc" in list_data:
+        values = np.ctypeslib.as_array(Tdata.ptDataUc, (Tdata.nbDataUc, Tdata.nbBloc)).astype(np.float32)
+        # TODO: Potentially make a copy here....
+        dataUc = dict(zip(TName_dataUc, values))
+        del values
+
+    # dataUd
+    # the .astype(np.float32) force a copy since we defined pointers on int32
+    # the values need to be freed together if one want to free one
+    TName_dataUd = namept_to_names(Tdata.nameDataUd, Tdata.nbDataUd)
+    if "Ud" in list_data:
+        values = np.ctypeslib.as_array(Tdata.ptDataUd, (Tdata.nbDataUd, Tdata.nbDet, Tdata.nbBloc)).astype(np.float32)
+        # TODO: Potentially make a copy here
+        dataUd = dict(zip(TName_dataUd, values))
+        del values
+
+    names = TName(TName_dataSc, TName_dataSd, TName_dataUc, TName_dataUd, namedet)
+
+    # Release C memory
+    read_raw_free(Tdata)
+
+    return header, param_c, kidpar, names, Tdata.nbSample, namedet, dataSc, dataSd, dataUc, dataUd
 
 
 # https://stackoverflow.com/questions/2166818/how-to-check-if-an-object-is-an-instance-of-a-namedtuple
@@ -759,20 +1162,17 @@ def read_info_hdf5(filename):
     -------
     tconfigheader: namedtuple
         a copy of the TconfigHeader of the file, or None if not present
-    version_header: int
-        the version of the header,, or None if not present
     param_c: dict
         the common variables for the file, or None if not present
     kidpar: :class:`~astropy.table.Table`
         the kidpar of the file, or None if not present
-    tname: namedtuple
+    TName: namedtuple
         the full name of the requested data and detectors,, or None if not present
     nb_read_sample: int
         the total  number of sample in the file, or None if not present
 
     """
 
-    version_header = filename.attrs.get("version_header", None)
     nb_read_samples = filename.attrs.get("nb_read_samples", None)
 
     header = _from_hdf5(filename, "header") if "header" in filename else None
@@ -780,7 +1180,7 @@ def read_info_hdf5(filename):
     names = _from_hdf5(filename, "names") if "names" in filename else None
     kidpar = _from_hdf5(filename, "kidpar") if "kidpar" in filename else None
 
-    return header, version_header, param_c, kidpar, names, nb_read_samples
+    return header, param_c, kidpar, names, nb_read_samples
 
 
 @filename_or_h5py_file
@@ -809,18 +1209,23 @@ def read_all_hdf5(filename, array=np.array):
     extended_kidpar : ~astropy.table.Table
         The extended kidpar found in the file, None if not present
     """
-
     datas = []
     # Force np.array for small items, and array for the large fully sample data
     for item, _array in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [np.array, array, np.array, np.array]):
         datas.append(_from_hdf5(filename, item, array=_array) if item in filename else {})
 
+    nb_samples_read = filename.attrs.get("nb_read_samples", None)
+
+    list_detector = _from_hdf5(filename, "list_detector", array=np.array) if "list_detector" in filename else None
+
     extended_kidpar = _from_hdf5(filename, "extended_kidpar") if "extended_kidpar" in filename else None
 
-    return (*datas, extended_kidpar)
+    output = nb_samples_read, list_detector, *datas, extended_kidpar
+
+    return output
 
 
-def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_read_samples, file_kwargs=None, **kwargs):
+def info_to_hdf5(filename, header, param_c, kidpar, names, nb_read_samples, file_kwargs=None, **kwargs):
     """Save all header information to hdf5 attribute or group."""
 
     if file_kwargs is None:
@@ -832,16 +1237,19 @@ def info_to_hdf5(filename, header, version_header, param_c, kidpar, names, nb_re
         _to_hdf5(f, "names", names, **kwargs)
         _to_hdf5(f, "kidpar", kidpar, **kwargs)
         f.attrs["nb_read_samples"] = nb_read_samples
-        f.attrs["version_header"] = version_header
 
 
-def data_to_hdf5(filename, dataSc, dataSd, dataUc, dataUd, extended_kidpar, file_kwargs=None, **kwargs):
+def data_to_hdf5(filename, list_detector, dataSc, dataSd, dataUc, dataUd, extended_kidpar, file_kwargs=None, **kwargs):
     """save data to hdf5"""
 
     if file_kwargs is None:
         file_kwargs = {}
 
     with h5py.File(filename, **file_kwargs) as f:
+
+        if list_detector is not None:
+            _to_hdf5(f, "list_detector", list_detector)
+
         for item, data in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
             if data is not None:
                 _to_hdf5(f, item, data, **kwargs)
@@ -855,7 +1263,7 @@ if __name__ == "__main__":
     input = "/data/KISS/Raw/nika2c-data3/KISS/2019_11_16/Y20191116_1611_S0636_Jupiter_ITERATIVERASTER"
     # output = "myfile.hdf5"
     # TODO: Save read_info output
-    header, version_header, param_c, kidpar, names, nb_read_samples = read_info(input)
+    header, param_c, kidpar, names, nb_read_samples = read_info(input)
     # TODO: Some of the data must be computed on-line... check that in C library
     Data = [
         "u_ph_IQ",
@@ -891,16 +1299,16 @@ if __name__ == "__main__":
         if item in list_data:
             list_data.remove(item)
 
-    nb_sample_read, dataSc, dataSd, dataUc, dataUd = read_all(input, list_data=list_data)
+    nb_sample_read, list_detector, dataSc, dataSd, dataUc, dataUd = read_all(input, list_data=list_data)
 
-    # for dataset_name, dataset in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
-    #     data_to_hdf5(output, dataset_name, dataset)
+    # file_kwargs = {'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
+    # info_to_hdf5(output, header, param_c, kidpar, names, nb_read_samples, file_kwargs=None)
+    # data_to_hdf5(output, list_detector, dataSc, dataSd, dataUc, dataUd, None, file_kwargs=None)
 
     import deepdish as dd
 
     data = {
         "header": header,
-        "version_header": version_header,
         "param_c": param_c,
         "kidpar": kidpar,
         "names": names,
