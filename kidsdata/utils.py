@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 from scipy import optimize
 import importlib
+from matplotlib import mlab
 
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
