@@ -127,6 +127,7 @@ class KissRawData(KidsRawData):
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)
             fmod = self.param_c.get("1-modulFreq") or self.param_c.get("1").get("modulFreq")
+            # TODO: Check fmod for all boxes !!!
             self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
             self.__log.warning("calibrated data already present")
@@ -235,25 +236,55 @@ class KissRawData(KidsRawData):
 
         Parameters
         ----------
+        list_data : list of str or str
+            list of data to read, see Notes
         cache : bool or 'only', optional
             use the cache file if present, by default False, see Notes
         array : function, (np.array|dask.array.from_array|None) optional
             function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
         **kwargs
             additionnal parameters to be passed to the  `kidsdata.read_kidsdata.read_all`, in particular
-                list_data : list, optional
-                    list of data to read, by default ["indice", "A_masq", "I", "Q"]
                 list_detector : list, optional
-                    the list of detector indexes to be read, by default None: read all detectors
+                    the list of detector indexes to be read, see Notes, by default None: read all detectors
                 start : int
                     the starting block, default 0.
                 end : type
                     the ending block, default full available dataset.
+                silent : bool
+                    Silence the output of the C library. The default is True
+                diff_pps: bool
+                    pre-compute pps time differences. The default is False
+                correct_pps: bool
+                    correct the pps signal. The default is False
+                correct_time: bool or float
+                    correct the time signal by interpolating jumps higher that given value in second. The default is False
 
         Notes
         -----
         if `cache=True`, the function reads all possible data from the cache file, and read the missing data from the raw binary file
         if `cache='only'`, the function reads all possible data from the cache file
+
+        Depending on the `read_raw` flag when openning a kidsdata, the meaning of `list_data` and `list_detector` is changed:
+        if raw is False:
+            - `list_data` is a list of str within the data present in the files, see the `names` property.
+            - `list_detector` is a list or array of detector names within the `kidpar` of the file. See also `get_list_detector`.
+        if raw is True:
+            - `list_data` is a list or array contains elements from ['Sc', 'Sd, 'Uc', 'Ud', 'Rg'].
+            - `list_detector` is either a list or array of detector names within the `kidpar` of the file or
+                - 'all' : to read all kids
+                - 'one' or None : to read all kids of type 1
+                - 'array?' : to read kids from crate/array '?'. '?' must be an int.
+                - 'array_one?' : to read kids of type 1 from crate/array '?'. '?' must be an int.
+                - 'box?' : to read kids from  box '?'. '?' must be an int or a letter
+                - 'box_one?' : to read kids of type 1 from box '?'. '?' must be an int or a letter
+
+                For CONCERTO, crate/array '?' must be from 2 to 3, or :
+                - 'arrayT' : to read the kids from the array in transmission
+                - 'arrayT_one' : to read the kids of type 1 from the array in transmission
+                ' 'arrayR' : to read the kids from array in reflection
+                - 'arrayR_one': to read the kids of type 1 from the array in reflection
+
+        `None` or 'all' means read all data or detectors.
         """
         super().read_data(*args, cache=cache, array=array, **kwargs)
 
