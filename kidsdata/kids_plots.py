@@ -360,6 +360,70 @@ def show_contmap(self, data, label=None, snr=False):
     return fig
 
 
+def show_psdmap(self, data, label=None):
+
+    if not isinstance(data, list):
+        data = [data]
+
+    # TODO: assert same header....
+    fig, axes = plt.subplots(
+        ncols=len(data),
+        sharex=True,
+        sharey=True,
+        subplot_kw={"projection": data[0].wcs},
+        gridspec_kw={"wspace": 0, "hspace": 0},
+    )
+
+    if isinstance(axes, plt.Axes):
+        axes = [axes]
+
+    datas_to_plot = [_data.data for _data in data]
+
+    norm = Normalize(
+        vmin=np.nanmean(datas_to_plot) - 3 * np.nanstd(datas_to_plot),
+        vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
+    )
+
+    cdelt = np.diag(data[0].wcs.pixel_scale_matrix)
+
+    for ax, _data in zip(axes, datas_to_plot):
+        ax.plot(_data, origin="lower", norm=norm)
+        ax.set_aspect("equal")
+
+        if self.source == "Moon":
+            ax.add_patch(
+                Ellipse(
+                    xy=(0, 0),
+                    width=31 / 60 / cdelt[0],
+                    height=31 / 60 / cdelt[1],
+                    angle=0,
+                    edgecolor="r",
+                    fc="None",
+                    lw=2,
+                    alpha=0.5,
+                )
+            )
+
+    for ax in axes[1:]:
+        lat = ax.coords[1]
+        lat.set_ticklabel_visible(False)
+        lat.set_ticks_visible(False)
+        lat.set_axislabel("")
+
+    for ax in axes:
+        lon = ax.coords[0]
+        lon.set_ticklabel(exclude_overlapping=True)
+        lon.set_coord_type("longitude", 180)
+
+    if label is not None:
+        for ax, _label in zip(axes, label):
+            ax.set_title(_label)
+
+    # fig.colorbar(im, ax=axes, shrink=0.6)
+    fig.suptitle(self.filename)
+    return fig
+
+
 def plot_geometry(self, ikid, ax, value=None, **kwargs):
     x0, y0 = [self.kidpar.loc[self.list_detector[ikid]][item].to(u.arcmin).value for item in ["x0", "y0"]]
     scatter = ax.scatter(x0, y0, c=value, **kwargs)

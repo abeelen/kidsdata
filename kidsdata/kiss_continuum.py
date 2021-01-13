@@ -517,3 +517,68 @@ class KissContinuum(KissRawData):
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
+
+    ##########################################################################
+
+    def psd_map(self, data, ikid, Fs, rebin, wcs=None, shape=None, coord="diff", **kwargs):
+        """Project the psd data into one 2D map.
+
+        Parameters
+        ----------
+         ikid : array, optional
+            the selected kids index to consider, by default all
+        wcs : ~astropy.wcs.WCS, optional
+            the projection wcs if provided, by default None
+        shape : tuple of int
+            the shape of the resulting map
+        coord : str, optional
+            coordinate type, by default "diff"
+        **kwargs :
+            any keyword accepted by `_build_2d_wcs` or `psd_cal`
+
+        Returns
+        -------
+        data : `~kidsdata.continuumdata.ContinuumData`
+            the resulting map
+
+        """
+
+        az, el, mask_tel = self.get_telescope_position(coord)
+        good_tel = ~mask_tel
+        az, el = az[good_tel], el[good_tel]
+
+        if wcs is None:
+            self.__log.info("Computing WCS")
+            wcs, _shape = self._build_2d_wcs(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
+
+        if shape is None:
+            shape = _shape
+
+        # In case we project only one detector
+        if len(data.shape) == 1:
+            data = [data]
+
+        # self.__log.info("Projecting data")
+        outputs, freq = psd_cal(data, Fs, rebin)
+
+        return outputs, freq
+
+    def plot_psdmap(self, *args, ikid=None, **kwargs):
+        """Plot psd map(s), potentially with several KIDs selections."""
+        if ikid is None or isinstance(ikid[0], (int, np.int, np.int64)):
+            # Default to a list of list to be able to plot several maps
+            ikid = [ikid]
+
+        if kwargs.get("wcs", None) is None and kwargs.get("shape", None) is None:
+            # Need to compute the global wcs here...
+            if ikid[0] is None:
+                ikid[0] = np.arange(len(self.list_detector))
+            wcs, shape = self._build_2d_wcs(ikid=np.concatenate(ikid), **kwargs)
+            kwargs["wcs"] = wcs
+            kwargs["shape"] = shape
+
+        datas = []
+        for _ikid in zip(ikid or [None] * len(ikid)):
+            datas.append(self.psd_map(*args, ikid=_ikid, **kwargs)[0])
+
+        return kids_plots.show_contmap(self, datas), datas
