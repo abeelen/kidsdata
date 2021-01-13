@@ -283,7 +283,7 @@ def quickshow_beammaps(self, ikids, datas, wcs, kidpar, pointing_offsets=(0, 0),
     return fig_beammap
 
 
-def show_contmap(self, data, label=None, snr=False):
+def show_contmap(data, label=None, snr=False):
 
     if not isinstance(data, list):
         data = [data]
@@ -320,13 +320,13 @@ def show_contmap(self, data, label=None, snr=False):
         vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
     )
 
-    cdelt = np.diag(data[0].wcs.pixel_scale_matrix)
-
     for ax, _data in zip(axes, datas_to_plot):
         im = ax.imshow(_data, origin="lower", norm=norm)
         ax.set_aspect("equal")
 
+        """
         if self.source == "Moon":
+            cdelt = np.diag(_data.wcs.pixel_scale_matrix)
             ax.add_patch(
                 Ellipse(
                     xy=(0, 0),
@@ -339,6 +339,7 @@ def show_contmap(self, data, label=None, snr=False):
                     alpha=0.5,
                 )
             )
+        """
 
     for ax in axes[1:]:
         lat = ax.coords[1]
@@ -356,7 +357,7 @@ def show_contmap(self, data, label=None, snr=False):
             ax.set_title(_label)
 
     fig.colorbar(im, ax=axes, shrink=0.6)
-    fig.suptitle(self.filename)
+
     return fig
 
 
@@ -380,6 +381,7 @@ def show_kidpar(
     self,
     ikid=None,
     to_plot=["fwhms", "ellipticities", "amplitudes"],
+    plot_hist=True,
     ranges=None,
     bins=None,
     limits=[-0.62, 0.62],
@@ -399,6 +401,8 @@ def show_kidpar(
         to plot a subsample of the `list_detector` list
     to_plot : list of str
         list of item to plot within 'fwhms', 'ellipticities', 'amplitudes', None
+    plot_hist: bool
+        do we plot the histograms, default True
     ranges : dict, optionnal
         display ranges for the histograms as {item: [min, max]} with item within the to_plot list
     bins : dict, optionnal
@@ -465,7 +469,19 @@ def show_kidpar(
 
         _ikid = ikid[mask_box]
 
-        fig, axes = plt.subplots(2, len(to_plot), squeeze=False, **kwargs)
+        if plot_hist:
+            gs_kw = {"width_ratios": np.ones(len(to_plot)), "height_ratios": [1, 0.05, 0.3]}
+        else:
+            gs_kw = {"width_ratios": np.ones(len(to_plot)), "height_ratios": [1, 0.05]}
+
+        fig, axes = plt.subplots(
+            len(gs_kw["height_ratios"]),
+            len(gs_kw["width_ratios"]),
+            squeeze=False,
+            constrained_layout=True,
+            gridspec_kw=gs_kw,
+            **kwargs
+        )
 
         # Share x&y for the top row:
         target = axes[0, 0]
@@ -473,7 +489,7 @@ def show_kidpar(
             ax._shared_x_axes.join(target, ax)
             ax._shared_y_axes.join(target, ax)
 
-        for key_plot, ax_top, ax_bottom in zip(to_plot, axes[0], axes[1]):
+        for key_plot, ax_top, ax_color in zip(to_plot, axes[0], axes[1]):
             values = plotting_values[key_plot]["value"][mask_box]
             range_value = plotting_values[key_plot]["range"]
             bins_value = plotting_values[key_plot]["bins"]
@@ -488,15 +504,23 @@ def show_kidpar(
                 for x, y, name, value in zip(x0, y0, names, values):
                     ax_top.text(x, y, name, clip_on=True, fontsize="xx-small", c=scatter.cmap(norm(value)))
 
-            if key_plot is None:
-                ax_bottom.remove()
-            else:
-                ax_bottom.hist(values[~np.isnan(values)], range=range_value, bins=bins_value)
-                cbar = fig.colorbar(scatter, ax=ax_top, orientation="horizontal")
+            if key_plot is not None:
+                cbar = fig.colorbar(scatter, ax=ax_top, cax=ax_color, orientation="horizontal")
                 cbar.set_label(label)
 
             ax_top.set_xlim(np.array(limits) * 60)
             ax_top.set_ylim(np.array(limits) * 60)
+
+        if plot_hist:
+            for key_plot, ax_bottom in zip(to_plot, axes[2]):
+                if key_plot is None:
+                    ax_bottom.remove()
+                else:
+                    values = plotting_values[key_plot]["value"][mask_box]
+                    range_value = plotting_values[key_plot]["range"]
+                    bins_value = plotting_values[key_plot]["bins"]
+                    ax_bottom.hist(values[~np.isnan(values)], range=range_value, bins=bins_value)
+
         fig.suptitle("{} / {}".format(self.filename.name, group_label))
         fig.tight_layout()
 

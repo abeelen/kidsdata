@@ -237,7 +237,8 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.comm
     FakeKissRawData = namedtuple("FakeKissRawData", ["source", "filename"])
     fake_kd = FakeKissRawData(source="dummy", filename="Coadd {}".format(scans))
 
-    fig = show_contmap(fake_kd, [combined_map], [combined_weights], None)
+    fig = show_contmap([combined_map], [combined_weights], None)
+    fig.suptitle(fake_kd.filename)
 
     return fake_kd, fig, (combined_map, combined_weights)
 

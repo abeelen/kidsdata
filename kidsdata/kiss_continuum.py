@@ -496,7 +496,10 @@ class KissContinuum(KissRawData):
         for _ikid, _label in zip(ikid, label or [None] * len(ikid)):
             datas.append(self.continuum_map(*args, ikid=_ikid, label=_label, **kwargs))
 
-        return kids_plots.show_contmap(self, datas, label, snr=snr), datas
+        fig = kids_plots.show_contmap(datas, label, snr=snr)
+        fig.suptitle(self.filename)
+
+        return fig, datas
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
