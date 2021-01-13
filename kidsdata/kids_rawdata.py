@@ -410,7 +410,7 @@ class KidsRawData(object):
                 list_data.remove(key)
             self.__log.debug("Remaining raw data : {}".format(list_data))
 
-            self.list_detector = list_detector
+            self.list_detector = np.array(list_detector)
 
             # TODO: list_detectors and nsamples
             if self.nsamples != nb_samples_read:
@@ -437,7 +437,7 @@ class KidsRawData(object):
             del datas  # Need to release the reference counting
             del (dataSc, dataSd, dataUc, dataUd)  # Need to release the reference counting
 
-            self.list_detector = list_detector
+            self.list_detector = np.array(list_detector)
 
             if self.nsamples != nb_samples_read:
                 self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
@@ -659,7 +659,7 @@ class KidsRawData(object):
             lon = roll_fft(lon, self.position_shift)
             lat = roll_fft(lat, self.position_shift)
             if mask is not False:
-                mask = roll_fft(mask, self.position_shift)
+                mask = roll_fft(mask.astype(float), self.position_shift) > 0.5
 
         return lon, lat, mask
 
