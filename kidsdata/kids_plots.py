@@ -360,7 +360,7 @@ def show_contmap(self, data, label=None, snr=False):
     return fig
 
 
-def show_psdmap(self, data, label=None):
+def show_psdmap(self, data, wcs, label=None):
 
     if not isinstance(data, list):
         data = [data]
@@ -370,21 +370,21 @@ def show_psdmap(self, data, label=None):
         ncols=len(data),
         sharex=True,
         sharey=True,
-        subplot_kw={"projection": data[0].wcs},
+        subplot_kw={"projection": wcs},
         gridspec_kw={"wspace": 0, "hspace": 0},
     )
 
     if isinstance(axes, plt.Axes):
         axes = [axes]
 
-    datas_to_plot = [_data.data for _data in data]
+    datas_to_plot = [_data for _data in data]
 
     norm = Normalize(
         vmin=np.nanmean(datas_to_plot) - 3 * np.nanstd(datas_to_plot),
         vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
     )
 
-    cdelt = np.diag(data[0].wcs.pixel_scale_matrix)
+    cdelt = np.diag(wcs.pixel_scale_matrix)
 
     for ax, _data in zip(axes, datas_to_plot):
         ax.plot(_data, origin="lower", norm=norm)
