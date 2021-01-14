@@ -400,7 +400,7 @@ def show_kidpar(
     ikid : array_like, optionnal
         to plot a subsample of the `list_detector` list
     to_plot : list of str
-        list of item to plot within 'fwhms', 'ellipticities', 'amplitudes', None
+        list of item to plot within 'fwhms', 'major_axis, 'minor_axis', 'mean_fwhms', ellipticities', 'amplitudes', None
     plot_hist: bool
         do we plot the histograms, default True
     ranges : dict, optionnal
@@ -440,6 +440,9 @@ def show_kidpar(
 
     plotting_values = {
         "fwhms": {"value": np.nanmax(fwhms, axis=1), "label": "fwhms [arcmin]"},  # fwhm in arcmin
+        "major_axis": {"value": np.nanmax(fwhms, axis=1), "label": "major axis [arcmin]"},  # fwhm in arcmin
+        "minor_axis": {"value": np.nanmin(fwhms, axis=1), "label": "minor axis [arcmin]"},  # fwhm in arcmin
+        "mean_fwhms": {"value": np.nanmean(fwhms, axis=1), "label": "mean fwhms [arcmin]"},  # fwhm in arcmin
         "ellipticities": {
             "value": (np.max(fwhms, axis=1) - np.min(fwhms, axis=1)) / np.max(fwhms, axis=1),
             "label": "ellipticities",
