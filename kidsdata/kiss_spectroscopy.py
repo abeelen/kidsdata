@@ -135,7 +135,11 @@ def _sky_to_cube(ikids):
 
 def sky_to_cube(data, opds, az, el, offsets, wcs, shape):
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, opds, az, el, offsets, wcs, shape),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(data, opds, az, el, offsets, wcs, shape),
+    ) as pool:
         items = pool.map(_sky_to_cube, np.array_split(np.arange(data.shape[0]), cpu_count()))
 
     outputs = np.vstack([item[0] for item in items if len(item[0]) != 0])
@@ -302,6 +306,7 @@ class KissSpectroscopy(KissRawData):
         self.__log.info("Masking modulation phases")
 
         # TODO: Should be done elsewhere
+        # TODO: Do not use A_masq here, but rather the proper masq for each box !!
         A_masq = self.A_masq
 
         # Make sure we have no issues with A_masq
@@ -348,13 +353,15 @@ class KissSpectroscopy(KissRawData):
             # # kidfreq_norm = kd.kidfreq - gaussian_filter1d(kd.kidfreq, 3, axis=1)
 
             # Try something else on the modulation flagged interferograms
-            max_abs_interferogram = np.abs(interferograms).max(axis=2)
+            abs_interferograms = np.abs(interferograms)
+            max_abs_interferogram = abs_interferograms.max(axis=2)
 
             # Threshold for gaussian statistic, along the interferogram axis only :
             sigma = erfcinv(self.glitches_threshold / np.product(interferograms.shape[1])) * np.sqrt(2)
 
             cutoffs = max_abs_interferogram.mean(axis=1) + sigma * max_abs_interferogram.std(axis=1)
-            glitches_mask = np.abs(interferograms) > cutoffs[:, None, None]
+            glitches_mask = abs_interferograms > cutoffs[:, None, None]
+            del abs_interferograms
 
             self.__log.warning("Masking {:3.1f}% of the data from glitches".format(np.mean(glitches_mask) * 100))
 
@@ -742,7 +749,13 @@ class KissSpectroscopy(KissRawData):
         return interferograms
 
     def _build_3d_wcs(
-        self, ikid=None, wcs=None, coord="diff", cdelt=(0.1, 0.1, 0.2), cunit=("deg", "deg", "mm"), **kwargs,
+        self,
+        ikid=None,
+        wcs=None,
+        coord="diff",
+        cdelt=(0.1, 0.1, 0.2),
+        cunit=("deg", "deg", "mm"),
+        **kwargs,
     ):
         """Compute wcs and project the telescope position and optical path differences.
 
@@ -795,7 +808,12 @@ class KissSpectroscopy(KissRawData):
         if wcs is None:
             # Project only the telescope position
             wcs, _, _ = build_celestial_wcs(
-                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0:2], cunit=cunit[0:2],
+                az,
+                el,
+                crval=(0, 0),
+                ctype=("OLON-SFL", "OLAT-SFL"),
+                cdelt=cdelt[0:2],
+                cunit=cunit[0:2],
             )
 
             # Add marging from the kidpar offsets

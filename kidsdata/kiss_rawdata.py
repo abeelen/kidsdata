@@ -119,7 +119,7 @@ class KissRawData(KidsRawData):
                 self.__log.debug("Saving calibrated data")
                 _to_hdf5(f, "calib", self.__calib, **kwargs)
 
-    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", **kwargs):
+    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", clean_raw=False, **kwargs):
         """Calibrate the KIDS timeline."""
 
         if getattr(self, "__calib", None) is None:
@@ -131,8 +131,8 @@ class KissRawData(KidsRawData):
             # Exclude null values
             fmods = [self.param_c[key] for key in fmods if self.param_c[key] != 0]
             if np.std(fmods) != 0:
-                self.__warning("modulFreq are varying over crates  {}".format(fmods))
-                self.__warning("Using the first non null value")
+                self.__log.warning("modulFreq are varying over crates  {}".format(fmods))
+                self.__log.warning("Using the first non null value")
             fmod = fmods[0]
             self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
@@ -144,6 +144,14 @@ class KissRawData(KidsRawData):
         # must be deleted together
         for ckey in self.__calib.keys():
             self.__dict__[ckey] = self.__calib[ckey]
+
+        if clean_raw:
+            # Once calibrated, drop the raw data !!!
+            for key in getattr(self, "_KidsRawData__dataSd").keys():
+                delattr(self, key)
+            del key
+            delattr(self, "_KidsRawData__dataSd")
+            # all references should be freed !!
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...
