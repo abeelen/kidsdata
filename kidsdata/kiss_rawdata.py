@@ -126,8 +126,14 @@ class KissRawData(KidsRawData):
             self.__log.debug("calibration using {}".format(calib_func))
             self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
             calib_func = _import_from(calib_func)
-            fmod = self.param_c.get("1-modulFreq") or self.param_c.get("1").get("modulFreq")
-            # TODO: Check fmod for all boxes !!!
+
+            fmods = sorted([key for key in self.param_c.keys() if "modulFreq" in key])
+            # Exclude null values
+            fmods = [self.param_c[key] for key in fmods if self.param_c[key] != 0]
+            if np.std(fmods) != 0:
+                self.__warning("modulFreq are varying over crates  {}".format(fmods))
+                self.__warning("Using the first non null value")
+            fmod = fmods[0]
             self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
             self.__log.warning("calibrated data already present")
