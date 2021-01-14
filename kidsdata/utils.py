@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 from scipy import optimize
 import importlib
+from matplotlib import mlab
 
 from astropy.wcs import WCS
 from astropy.stats import gaussian_fwhm_to_sigma
@@ -965,3 +966,50 @@ def sizeof_fmt(num, suffix="B"):
             return "%3.1f %s%s" % (num, unit, suffix)
         num /= 1024.0
     return "%.1f %s%s" % (num, "Yi", suffix)
+
+
+_pool_global = None
+
+
+def _pool_initializer(*args):
+    global _pool_global
+    _pool_global = args
+
+
+def _psd_cal(ikids):
+
+    global _pool_global
+    datas, Fs, rebin = _pool_global
+
+    data_psds = []
+    for ikid in ikids:
+        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend="mean")[0])
+        data_psds.append(data_psd)
+
+    return np.array(data_psds)
+
+
+def psd_cal(datas, Fs, rebin):
+    """Calculate the psd of 2D data.
+
+    Parameters
+    ----------
+    datas: {Nx, Ny}
+           data of array_like
+    Fs:    sample frequency
+    rebin: Number of the data points in one single bin
+
+    Returns
+    -------
+    Freq : Frequency
+
+    np.vstack(items) : {Nx, Ny/rebin} ndarray
+                       the psds
+    """
+
+    _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
+
+    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
+        items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
+
+    return freq, np.vstack(items)
