@@ -132,8 +132,8 @@ class KissRawData(KidsRawData):
             fmods = [self.param_c[key] for key in fmods if self.param_c[key] != 0]
             if np.std(fmods) != 0:
                 self.__log.warning("modulFreq are varying over crates  {}".format(fmods))
-                self.__log.warning("Using the first non null value")
             fmod = fmods[0]
+            self.__log.info("Calibrating with fmod={} and {}".format(fmod, kwargs))
             self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
         else:
             self.__log.warning("calibrated data already present")
