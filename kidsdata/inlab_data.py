@@ -74,14 +74,24 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
         if "ph_IQ" in self.__dict__:
             self.__log.info("Unwrap phIQ")
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 ph_IQ = pool.map(_ph_unwrap, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.ph_IQ = np.vstack(ph_IQ)
 
     # Fix table positions
-    def _fix_table(self, delta_pix=300000, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
-        # Normalized to avoid projection effect between -0.5 & 0.5
+    def _fix_table(self, delta_pix=540000, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
+
+        ## Andrea Catalano Priv. Comm 20200113 : 30 arcsec == 4.5 mm
+        # Scan X15_16_Tablebt_scanStarted_12 with Lxy = 90/120, we have (masked) delta_x = 180000.0, masked_delta_y = 240000.0,
+        # so we have micron and Lxy is to be understood has half the full map
+        # ((4.5*u.mm) / (30*u.arcsec)).to(u.micron / u.deg) = <Quantity 540000. micron / deg>
+        # So with delta_pix = 540000 with should have proper degree in _tabdiff_Az and _tabdiff_El
+
         tab_keys = [
             key
             for key in self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
@@ -141,13 +151,29 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             ax.scatter(tabdiff_Az, tabdiff_El)
             ax.scatter(tabdiff_Az[~mask], tabdiff_El[~mask])
 
+        # fix_table & shift  before!!
+        if self.mask_tel.shape[0] != self.continuum.shape[1]:
+            self._tabdiff_Az = (
+                np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+            )
+            self._tabdiff_El = (
+                np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+            )
+            self.mask_tel = (
+                self.mask_tel.reshape(-1, self.nptint).mean(axis=1) > 0.8
+            )  # Allow for 80% flagged positional data
+
         return delta_pix
 
     def _from_phase(self):
         # Non moving mirror -> keep everything oversampled as continuum :
         if mad_std(self.laser.mean(0)) < 1:
             self.__log.info("Non moving laser, keeping fully sampled data")
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 continuum = pool.map(_to_continuum, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -156,7 +182,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.__log.info("Spectroscopic data, downsampling continuum")
 
             _this = partial(_downsample_to_continuum, nint=self.nint, nptint=self.nptint)
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 continuum = pool.map(_this, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -176,7 +206,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
                 )  # Allow for 80% flagged positional data
 
             # kidfreq is fully sampled (copy is made here) remove first order continuum
-            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
+            with Pool(
+                N_CPU,
+                initializer=_pool_initializer,
+                initargs=(self.ph_IQ,),
+            ) as pool:
                 kidfreq = pool.map(_to_kidfreq, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.kidfreq = np.vstack(kidfreq)
