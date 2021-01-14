@@ -118,30 +118,6 @@ def fit_beammaps(datas):
     return np.vstack([item for item in items if len(item) != 0])
 
 
-def _psd_cal(ikids):
-
-    global _pool_global
-    datas, Fs, rebin = _pool_global
-
-    data_psds = []
-    for ikid in ikids:
-        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend="mean")[0])
-        data_psds.append(data_psd)
-
-    return np.array(data_psds)
-
-
-def psd_cal(datas, Fs, rebin):
-    """psd of data"""
-
-    _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
-
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
-        items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
-
-    return freq, np.vstack(items)
-
-
 # pylint: disable=no-member
 @logged
 class KissContinuum(KissRawData):
@@ -517,74 +493,3 @@ class KissContinuum(KissRawData):
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
-
-    ##########################################################################
-
-    # def psd_map(self, data, ikid, Fs, rebin, wcs=None, shape=None, coord="diff", **kwargs):
-    #    """Project the psd data into one 2D map.
-
-    #    Parameters
-    #    ----------
-    #     ikid : array, optional
-    #        the selected kids index to consider, by default all
-    #    wcs : ~astropy.wcs.WCS, optional
-    #        the projection wcs if provided, by default None
-    #    shape : tuple of int
-    #        the shape of the resulting map
-    #    coord : str, optional
-    #        coordinate type, by default "diff"
-    #    **kwargs :
-    #        any keyword accepted by `_build_2d_wcs` or `psd_cal`
-
-    #    Returns
-    #    -------
-    #    data : `~kidsdata.continuumdata.ContinuumData`
-    #        the resulting map
-
-    #    """
-
-    #    az, el, mask_tel = self.get_telescope_position(coord)
-    #    good_tel = ~mask_tel
-    #    az, el = az[good_tel], el[good_tel]
-
-    #    if wcs is None:
-    #        self.__log.info("Computing WCS")
-    #        wcs, _shape = self._build_2d_wcs(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
-
-    #    if shape is None:
-    #        shape = _shape
-
-    #    # In case we project only one detector
-    #    if len(data.shape) == 1:
-    #        data = [data]
-
-    #    # self.__log.info("Projecting data")
-    #    outputs, freq = psd_cal(data, Fs, rebin)
-
-    #    return outputs, freq
-
-    def plot_psdmap(self, *args, data, ikid, label, Fs, rebin, **kwargs):
-        """Plot psd map(s), potentially with several KIDs selections."""
-
-        label = self.get_list_detector()
-        datas, freq = psd_cal(data, Fs, rebin)
-        if ikid is None or isinstance(ikid[0], (int, np.int, np.int64)):
-            # Default to a list of list to be able to plot several maps
-            ikid = [ikid]
-            label = [label]
-            datas = [datas]
-
-        if kwargs.get("wcs", None) is None and kwargs.get("shape", None) is None:
-            # Need to compute the global wcs here...
-            if ikid[0] is None:
-                ikid[0] = np.arange(len(self.list_detector))
-            wcs, shape = self._build_2d_wcs(ikid=np.concatenate(ikid), **kwargs)
-            kwargs["wcs"] = wcs
-            kwargs["shape"] = shape
-
-        # datas = []
-        # for _ikid, _label in zip(ikid, label or [None] * len(ikid)):
-        #    datas.append(self.psd_cal(data, Fs, rebin)[0])
-
-        # return kids_plots.show_psdmap(self, datas, label), datas
-        return kids_plots.show_psdmap(self, datas, wcs, label), datas
