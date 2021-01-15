@@ -118,30 +118,6 @@ def fit_beammaps(datas):
     return np.vstack([item for item in items if len(item) != 0])
 
 
-def _psd_cal(ikids):
-
-    global _pool_global
-    datas, Fs, rebin = _pool_global
-
-    data_psds = []
-    for ikid in ikids:
-        data_psd = np.array(mlab.psd(datas[ikid], Fs=Fs, NFFT=datas.shape[1] // rebin, detrend="mean")[0])
-        data_psds.append(data_psd)
-
-    return np.array(data_psds)
-
-
-def psd_cal(datas, Fs, rebin):
-    """psd of data"""
-
-    _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
-
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
-        items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
-
-    return freq, np.vstack(items)
-
-
 # pylint: disable=no-member
 @logged
 class KissContinuum(KissRawData):

@@ -596,3 +596,40 @@ def multi_im(xs, aspect_ratio=1, marging=1, n_pages=1, norm=None):
             pixels[page, j * (M + marging) : j * (M + marging) + M, i * (N + marging) : i * (N + marging) + N] = _sub
 
     return np.squeeze(pixels), (ncols, nrows)
+
+
+def plot_psd(psds, freq, ikids, list_detector):
+
+    fig = plt.figure(figsize=(10, 5))
+    ax1 = fig.add_axes([0.04, 0.15, 0.4, 0.79])
+    ax2 = fig.add_axes([0.58, 0.15, 0.4, 0.79])
+    cax = fig.add_axes([0.45, 0.15, 0.006, 0.79])
+
+    im = ax1.imshow(np.log(psds), aspect="auto", extent=(0.2, freq.max(), psds.shape[0], 0))
+    boxes = set(namedet[0:2] for namedet in list_detector[ikids])
+    boxes = np.sort(list(boxes))
+    ticks = []
+    ticklabels = []
+    for box in boxes:
+        mask_box = np.char.startswith(list_detector[ikids], box)
+        _min, _max = np.where(mask_box)[0].min(), np.where(mask_box)[0].max()
+        ticks.append((_min + _max) / 2)
+        ticklabels.append(box)
+    ax1.yaxis.set_ticks(ticks)
+    ax1.yaxis.set_ticklabels(ticklabels)
+    ax1.set_xlabel("Freq [Hz]")
+    plt.colorbar(im, ax=ax1, cax=cax)
+    ax1.set_xscale("log")
+
+    boxes = set(namedet[0:2] for namedet in list_detector[ikids])
+    colors = list(2 * np.pi * np.arange(len(boxes)))
+    for box in boxes:
+        mask_box = np.char.startswith(list_detector[ikids], box)
+        ax2.plot(freq, np.median(psds[mask_box], axis=0), color=colors[list(boxes).index(box)], cmap="jet", label=box)
+    ax2.set_xlabel("Freq [Hz]")
+    ax2.set_ylabel("PSD")
+    ax2.set_yscale("log")
+    ax2.set_xscale("log")
+    ax2.legend()
+
+    return fig
