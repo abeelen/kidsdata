@@ -1122,4 +1122,8 @@ class KissSpectroscopy(KissRawData):
 
         freq, psds = self.interferograms_psds(datas, Fs, rebin)
 
-        return kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None)
+        return (
+            kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None),
+            freq,
+            psds,
+        )
