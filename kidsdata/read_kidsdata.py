@@ -297,6 +297,8 @@ def read_all(
         A dictionnary containing all the requested under-sampled common quantities data as 1D :class:`~numpy.array` of shape (n_bloc,)
     dataUd : dict
         A dictionnary containing all the requested under-sampled data as 2D :class:`~numpy.array` of shape (n_det, n_bloc)
+    dataRg: dict
+        An empty dictionnary for the moment, as `readdata_nika_data` do not handle reglage
 
     Notes
     -----
@@ -447,7 +449,9 @@ def read_all(
 
     namedet = kidpar[list_detector[1:]]["namedet"]
 
-    return nb_samples_read, namedet, dataSc, dataSd, dataUc, dataUd
+    dataRg = {}
+
+    return nb_samples_read, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
 
 def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_time=True, raw=False):
@@ -575,7 +579,7 @@ def clean_param_d(param_d):
     )
 
     # WHY ?
-    param_d["frequency"] *= 10
+    param_d["frequency"] = param_d["frequency"].astype(np.float) * 10
 
     # Add a default index column
     if "index" not in param_d:
@@ -658,6 +662,7 @@ class TdataPt(ctypes.Structure):
         ("nameDataUc", P_CHAR),
         ("nameDataUd", P_CHAR),
         ("nameDet", P_CHAR),
+        ("numBlocRg", P_INT32),
         ("ptParamC", P_INT32),
         ("ptParamD", P_INT32),
         ("ptDataSc", P_INT32),
@@ -794,6 +799,8 @@ def read_raw(
         A dictionnary containing all the requested under-sampled common quantities data as 1D :class:`~numpy.array` of shape (n_bloc,)
     dataUd : dict
         A dictionnary containing all the requested under-sampled data as 2D :class:`~numpy.array` of shape (n_det, n_bloc)
+    dataRg : dict
+        A dictionnary containing all the reglage in the file, key is the bloc number and items is a 1D :class:`~numpy.array` of shape (n_det)
 
     Notes
     -----
@@ -822,7 +829,7 @@ def read_raw(
 
     # default output
     param_c = kidpar = None
-    dataSc = dataSd = dataUc = dataUd = None
+    dataSc = dataSd = dataUc = dataUd = dataRg = {}
 
     # Number of blocks to read
     start = start or 0
@@ -885,10 +892,10 @@ def read_raw(
     # Reglage
     # F_tone ??
     if "Rg" in list_data:
-        names = None
-        values = np.ctypeslib.as_array(Tdata.ptDataRg, (Tdata.nbReglage, 1 + Tdata.nbDet))
-        # Precision sur le reglage: le tableau DataReg contient une suite de lignes de longueur 1+nb_total_detecteurs. Chaque ligne commence par le numero de bloc et est suivit de la valeur des tones de chaque detecteur.
-        del (names, values)
+        bloc = np.ctypeslib.as_array(Tdata.numBlocRg, (Tdata.nbReglage,))
+        values = np.ctypeslib.as_array(Tdata.ptDataRg, (Tdata.nbReglage, Tdata.nbDet)).astype(np.float32)
+        dataRg = dict(zip(bloc, values))
+        del (bloc, values)
 
     # ParamD
     names = namept_to_names(Tdata.nameParamD, Tdata.nbParanD)
@@ -954,7 +961,7 @@ def read_raw(
     # Release C memory
     read_raw_free(Tdata)
 
-    return header, param_c, kidpar, names, Tdata.nbSample, namedet, dataSc, dataSd, dataUc, dataUd
+    return header, param_c, kidpar, names, Tdata.nbSample, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
 
 # https://stackoverflow.com/questions/2166818/how-to-check-if-an-object-is-an-instance-of-a-namedtuple
@@ -1211,7 +1218,9 @@ def read_all_hdf5(filename, array=np.array):
     """
     datas = []
     # Force np.array for small items, and array for the large fully sample data
-    for item, _array in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [np.array, array, np.array, np.array]):
+    for item, _array in zip(
+        ["dataSc", "dataSd", "dataUc", "dataUd", "dataRg"], [np.array, array, np.array, np.array, np.array]
+    ):
         datas.append(_from_hdf5(filename, item, array=_array) if item in filename else {})
 
     nb_samples_read = filename.attrs.get("nb_read_samples", None)
@@ -1239,7 +1248,9 @@ def info_to_hdf5(filename, header, param_c, kidpar, names, nb_read_samples, file
         f.attrs["nb_read_samples"] = nb_read_samples
 
 
-def data_to_hdf5(filename, list_detector, dataSc, dataSd, dataUc, dataUd, extended_kidpar, file_kwargs=None, **kwargs):
+def data_to_hdf5(
+    filename, list_detector, dataSc, dataSd, dataUc, dataUd, dataRg, extended_kidpar, file_kwargs=None, **kwargs
+):
     """save data to hdf5"""
 
     if file_kwargs is None:
@@ -1250,7 +1261,9 @@ def data_to_hdf5(filename, list_detector, dataSc, dataSd, dataUc, dataUd, extend
         if list_detector is not None:
             _to_hdf5(f, "list_detector", list_detector)
 
-        for item, data in zip(["dataSc", "dataSd", "dataUc", "dataUd"], [dataSc, dataSd, dataUc, dataUd]):
+        for item, data in zip(
+            ["dataSc", "dataSd", "dataUc", "dataUd", "dataRg"], [dataSc, dataSd, dataUc, dataUd, dataRg]
+        ):
             if data is not None:
                 _to_hdf5(f, item, data, **kwargs)
 

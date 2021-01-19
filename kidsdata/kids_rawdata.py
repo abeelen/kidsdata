@@ -36,6 +36,32 @@ if not CACHE_DIR.exists():
 
 @logged
 class KidsRawData(object):
+
+    filename = None
+    header = None
+    param_c = None
+    names = None
+    nsamples = None
+    nptint = None
+    nint = None
+
+    _kidpar = None
+    _extended_kidpar = None
+
+    __raw = False
+    __position_shift = None
+    __position_keys = None
+
+    _cache = None  # The open cache file
+    _cache_filename = None
+
+    list_detector = None
+    __dataSc = {}
+    __dataSd = {}
+    __dataUc = {}
+    __dataUd = {}
+    __dataRg = {}
+
     """Arrays of (I,Q) with associated information from KIDs raw data.
 
     Attributes
@@ -100,7 +126,7 @@ class KidsRawData(object):
         if h5py.is_hdf5(self.filename):
             info = read_info_hdf5(self.filename)
         elif self.__raw:
-            *info, _, _, _, _, _ = read_raw(self.filename, list_data=[])
+            *info, _, _, _, _, _, _ = read_raw(self.filename, list_data=[])
         else:
             info = read_info(self.filename)
 
@@ -151,13 +177,7 @@ class KidsRawData(object):
         # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
 
-        self.__dataSc = {}
-        self.__dataSd = {}
-        self.__dataUc = {}
-        self.__dataUd = {}
-
         # TODO: Need to decide what file structure we want, flat, or by dates
-        self._cache = None
         self._cache_filename = (
             self.filename if h5py.is_hdf5(self.filename) else CACHE_DIR / self.filename.with_suffix(".hdf5").name
         )
@@ -387,15 +407,14 @@ class KidsRawData(object):
 
             nb_samples_read, list_detector, *datas, extended_kidpar = read_all_hdf5(self._cache, array=array)
 
-            dataSc, dataSd, dataUc, dataUd = datas
+            dataSc, dataSd, dataUc, dataUd, dataRg = datas
 
             self.__log.debug("Updating dictionnaries with cached data")
             self.__dataSc.update(dataSc)
             self.__dataSd.update(dataSd)
             self.__dataUc.update(dataUc)
             self.__dataUd.update(dataUd)
-            del datas  # Need to release the reference counting
-            del (dataSc, dataSd, dataUc, dataUd)  # Need to release the reference counting
+            self.__dataRg.update(dataRg)
 
             self._extended_kidpar = extended_kidpar
 
@@ -412,6 +431,9 @@ class KidsRawData(object):
 
             self.list_detector = np.array(list_detector)
 
+            del datas  # Need to release the reference counting
+            del (dataSc, dataSd, dataUc, dataUd, dataRg)  # Need to release the reference counting
+
             # TODO: list_detectors and nsamples
             if self.nsamples != nb_samples_read:
                 self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
@@ -427,15 +449,17 @@ class KidsRawData(object):
             else:
                 nb_samples_read, list_detector, *datas = read_all(self.filename, list_data=list_data, **kwargs)
 
-            dataSc, dataSd, dataUc, dataUd = datas
+            dataSc, dataSd, dataUc, dataUd, dataRg = datas
 
             self.__log.debug("Updating dictionnaries")
             self.__dataSc.update(dataSc)
             self.__dataSd.update(dataSd)
             self.__dataUc.update(dataUc)
             self.__dataUd.update(dataUd)
+            self.__dataRg.update(dataRg)
+
             del datas  # Need to release the reference counting
-            del (dataSc, dataSd, dataUc, dataUd)  # Need to release the reference counting
+            del (dataSc, dataSd, dataUc, dataUd, dataRg)  # Need to release the reference counting
 
             self.list_detector = np.array(list_detector)
 
@@ -505,6 +529,7 @@ class KidsRawData(object):
             self.__dataSd if dataSd else None,
             self.__dataUc,
             self.__dataUd,
+            self.__dataRg,
             self._extended_kidpar,
             file_kwargs=_file_kwargs,
             **kwargs
