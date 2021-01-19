@@ -74,11 +74,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
         if "ph_IQ" in self.__dict__:
             self.__log.info("Unwrap phIQ")
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 ph_IQ = pool.map(_ph_unwrap, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.ph_IQ = np.vstack(ph_IQ)
@@ -152,7 +148,11 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             ax.scatter(tabdiff_Az[~mask], tabdiff_El[~mask])
 
         # fix_table & shift  before!!
-        if self.mask_tel.shape[0] != self.continuum.shape[1]:
+        if (
+            hasattr(self, "continuum")
+            and self.continuum is not None
+            and self.mask_tel.shape[0] != self.continuum.shape[1]
+        ):
             self._tabdiff_Az = (
                 np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
             )
@@ -169,11 +169,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
         # Non moving mirror -> keep everything oversampled as continuum :
         if mad_std(self.laser.mean(0)) < 1:
             self.__log.info("Non moving laser, keeping fully sampled data")
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 continuum = pool.map(_to_continuum, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -182,11 +178,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.__log.info("Spectroscopic data, downsampling continuum")
 
             _this = partial(_downsample_to_continuum, nint=self.nint, nptint=self.nptint)
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 continuum = pool.map(_this, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -206,11 +198,7 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
                 )  # Allow for 80% flagged positional data
 
             # kidfreq is fully sampled (copy is made here) remove first order continuum
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 kidfreq = pool.map(_to_kidfreq, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.kidfreq = np.vstack(kidfreq)
