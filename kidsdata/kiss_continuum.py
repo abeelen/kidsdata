@@ -18,6 +18,7 @@ from astropy.utils.console import ProgressBar
 from .kiss_data import KissRawData
 from .utils import project, build_celestial_wcs, fit_gaussian
 from .utils import _import_from, cpu_count
+from .utils import psd_cal
 
 from . import kids_plots
 from .db import RE_SCAN
@@ -496,3 +497,15 @@ class KissContinuum(KissRawData):
 
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
+
+    def continuum_psds(self, datas, Fs, rebin, *args, **kwargs):
+        freq, psds = psd_cal(datas, Fs, rebin)
+        return freq, psds
+
+    def plot_continuum_psds(self, datas, Fs, rebin, ikid, *args, **kwargs):
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        freq, psds = self.continuum_psds(datas, Fs, rebin)
+
+        return kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None)

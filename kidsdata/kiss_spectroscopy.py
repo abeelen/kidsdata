@@ -31,6 +31,8 @@ from .utils import cpu_count
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
 from .utils import _import_from
 from .utils import interferograms_regrid, project_3d
+from .utils import psd_cal
+from . import kids_plots
 from .kids_calib import ModulationValue, A_masq_to_flag
 from .db import RE_SCAN
 
@@ -1109,3 +1111,15 @@ class KissSpectroscopy(KissRawData):
             wcs.wcs.crpix[2] -= _slice.start
 
         return (outputs, weights, hits), wcs
+
+    def interferograms_psds(self, datas, Fs, rebin, *args, **kwargs):
+        freq, psds = psd_cal(datas, Fs, rebin)
+        return freq, psds
+
+    def plot_interferograms_psds(self, datas, Fs, rebin, ikid, *args, **kwargs):
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        freq, psds = self.interferograms_psds(datas, Fs, rebin)
+
+        return kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None)
