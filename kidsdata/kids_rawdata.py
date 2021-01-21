@@ -9,6 +9,8 @@ from copy import deepcopy
 from functools import lru_cache
 from itertools import chain
 
+from custom_inherit import DocInheritMeta
+
 import datetime
 from dateutil.parser import parse
 from astropy.time import Time
@@ -35,7 +37,68 @@ if not CACHE_DIR.exists():
 
 
 @logged
-class KidsRawData(object):
+class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_methods=True)):
+    """Class dealing with KIDS raw data.
+
+    Attributes
+    ----------
+    filename: str, or int
+        Name of the raw data file. Could also be a scan number
+    header : TconfigHeader (nametuple)
+        the raw header of the file
+    param_c: :dict
+        common parameters
+    names : TName (namedtuple)
+        the variable names contained in the raw file
+    nsamples : int
+        the total number of sample
+    nptint : int
+        the number of points per bloc
+    nint : int
+        the number of bloc
+    ndet : int
+        the number of KIDS detectors
+    kidpar: :obj: Astropy.Table
+        the kidpar contatenation of the infile _kidpar, and external _extended_kidpar
+    list_detector : array_like
+        names of the read detectors
+    obsdate : array_like
+        return the obsdate of the observation, based on filename
+    obstime : array_like
+        proper observed time per interferogram
+    exptime : float
+        the exposure time of the object
+    scan : int
+        the scans number, based on filename
+    source : str
+        the source name, based on filename
+    obstype : str
+        the observation type, based on filename
+    position_shift : float
+        the shift in sample between the position of the telescope and the KIDs data
+
+    __dataSc, __dataSd: dict
+        Fully sampled common and detector data
+    __dataUc, __dataUd: dict
+        Undersampled common and detector data
+
+    Methods
+    -------
+    info()
+        Display the basic infomation about the data file.
+    meta()
+        Default meta data for products.
+    read_data(**kwargs)
+        Read the raw data.
+    get_list_detector(**kwargs)
+        Retrieve the valid detector list given a pattern.
+    get_telescope_position(coord="pdiff") (cached)
+        Retrieve the telescope position, with shifts applied.
+
+    Notes
+    -----
+    All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
+    """
 
     filename = None
     header = None
@@ -56,44 +119,11 @@ class KidsRawData(object):
     _cache_filename = None
 
     list_detector = None
-    __dataSc = {}
-    __dataSd = {}
-    __dataUc = {}
-    __dataUd = {}
-    __dataRg = {}
-
-    """Arrays of (I,Q) with associated information from KIDs raw data.
-
-    Attributes
-    ----------
-    filename: str, or int
-        Name of the raw data file. Could also be a scan number
-    header : TconfigHeader (nametuple)
-        the raw header of the file
-    param_c: :dict
-        common parameters
-    kidpar: :obj: Astropy.Table
-        KID parameters.
-    names : TName (namedtuple)
-        the variable names contained in the raw file
-    list_detector : array_like
-        names of the read detectors
-    __dataSc, __dataSd: dict
-        Fully sampled common and detector data
-    __dataUc, __dataUd: dict
-        Undersampled common and detector data
-
-    Methods
-    -------
-    listInfo()
-        Display the basic infomation about the data file.
-    read_data(list_data = 'all')
-        List selected data.
-
-    Notes
-    -----
-    All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
-    """
+    __dataSc = None
+    __dataSd = None
+    __dataUc = None
+    __dataUd = None
+    __dataRg = None
 
     def __init__(self, filename, position_shift=None, e_kidpar="auto", raw=False):
         """Initialize a KidsRawData object....
@@ -122,6 +152,11 @@ class KidsRawData(object):
         self.filename = Path(filename)
 
         self.__raw = raw
+        self.__dataSc = dict()
+        self.__dataSd = dict()
+        self.__dataUc = dict()
+        self.__dataUd = dict()
+        self.__dataRg = dict()
 
         if h5py.is_hdf5(self.filename):
             info = read_info_hdf5(self.filename)
@@ -252,7 +287,7 @@ class KidsRawData(object):
     @property
     @lru_cache(maxsize=1)
     def scan(self):
-        """Return the scan number of the observation, based on filename."""
+        """Return the scan number, based on filename."""
         re_scan = RE_SCAN.match(self.filename.name)
         re_table = RE_TABLE.match(self.filename.name)
         if re_scan:
@@ -291,6 +326,7 @@ class KidsRawData(object):
             return "Unknown"
 
     def info(self):
+        """Display the basic infomation about the data file."""
         print("RAW DATA")
         print("==================")
         print("File name:\t" + str(self.filename))
@@ -346,7 +382,7 @@ class KidsRawData(object):
         return meta
 
     def read_data(self, list_data=None, cache=False, array=np.array, **kwargs):
-        """Read raw data.
+        """Read the raw data.
 
         Parameters
         ----------
@@ -648,7 +684,7 @@ class KidsRawData(object):
 
     @lru_cache(maxsize=1)
     def get_telescope_position(self, coord="pdiff"):
-        """Get the telescope position, with shifts applied.
+        """Retrieve the telescope position, with shifts applied.
 
         Parameters
         ----------

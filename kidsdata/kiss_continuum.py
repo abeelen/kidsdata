@@ -128,6 +128,24 @@ def fit_beammaps(datas):
 # pylint: disable=no-member
 @logged
 class KissContinuum(KissRawData):
+    """This Class deals with continuum data in KISS.
+
+    Methods
+    -------
+    continuum_pipeline(*args, **kwargs)
+        return the continuum data processed by given pipeline
+    continuum_map(**kwargs)
+        project the continuum data into one 2D map
+    continuum_beammaps(**kwargs)
+        project individual detectors into square map in AltAz coordinates
+    plot_beammap(*args, **kwargs)
+        plot beammaps
+    plot_contmap(*args, **kwargs)
+        plot continuum map(s), potentially with several KIDs selections.
+    plot_photometry(*args, **kwargs)
+        DEPRECATED -- ?
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

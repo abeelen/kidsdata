@@ -18,7 +18,7 @@ from scipy.interpolate import interp1d
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
-from .utils import _import_from, sizeof_fmt
+from .utils import _import_from, sizeof_fmt, pprint_list
 
 # import line_profiler
 # import atexit
@@ -477,7 +477,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
 
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
     if pps_keys:
-        logging.debug("Using {} to compute median pps time".format(pps_keys))
+        logging.debug("Using {} to compute median pps time".format(pprint_list(pps_keys, "_time_pps")))
         shape = dataSc.get(pps_keys[0]).shape
         times = [dataSc.get(key).flatten() for key in pps_keys]
         pps = np.nanmedian(times, axis=0)
@@ -503,7 +503,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
     # Compute median hours
     hours_keys = [key for key in dataSc if key.endswith("_hours")]
     if hours_keys:
-        logging.debug("Using {} to compute median hours".format(hours_keys))
+        logging.debug("Using {} to compute median hours".format(pprint_list(hours_keys, "_hours")))
         shape = dataSc.get(hours_keys[0]).shape
         hours = [dataSc.get(key).flatten() for key in hours_keys]
         hours = np.nanmedian(hours, axis=0).reshape(shape)
@@ -630,7 +630,16 @@ def clean_position_unit(dataXc):
 
 
 def namept_to_names(name, nbname):
-    return [item.tobytes().strip(b"\x00").decode() for item in np.ctypeslib.as_array(name, shape=(nbname, 16,),)]
+    return [
+        item.tobytes().strip(b"\x00").decode()
+        for item in np.ctypeslib.as_array(
+            name,
+            shape=(
+                nbname,
+                16,
+            ),
+        )
+    ]
 
 
 P_INT32 = ctypes.POINTER(ctypes.c_int32)
@@ -822,7 +831,7 @@ def read_raw(
     assert Path(filename).exists(), "{} does not exist".format(filename)
     assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
 
-    if list_data is None or list_data == "all":
+    if list_data is None or (isinstance(list_data, str) and list_data.lower() == "all"):
         list_data = ["Sc", "Sd", "Uc", "Ud", "Rg"]
 
     codeDet, list_detector = list_detector_to_codedet(list_detector=list_detector)
@@ -886,7 +895,13 @@ def read_raw(
     param_c = clean_param_c(param_c, flat=flat)
 
     # Special treatment for namedet as some character are ill placed
-    namedet = np.ctypeslib.as_array(Tdata.nameDet, shape=(Tdata.nbDet, 16,),)
+    namedet = np.ctypeslib.as_array(
+        Tdata.nameDet,
+        shape=(
+            Tdata.nbDet,
+            16,
+        ),
+    )
     namedet = clean_namedet(namedet, fix=fix)
 
     # Reglage

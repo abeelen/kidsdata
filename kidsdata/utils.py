@@ -23,6 +23,11 @@ def cpu_count():
     return ncpus
 
 
+def pprint_list(keys, suffix=None):
+    keys = [key.split(suffix)[0] for key in keys]
+    return "({}){}".format("|".join(keys), suffix)
+
+
 # From https://docs.python.org/fr/3/library/itertools.html#itertools-recipes
 def grouper(iterable, n, fillvalue=None):
     """Collect data into fixed-length chunks or blocks"""
@@ -747,7 +752,9 @@ def Df_2b(c, xy):
 def _pool_f2b(x, y):
     try:
         center_estimate = fit_circle_algebraic(x, y)
-        center_2d, _ = optimize.leastsq(f_2b, center_estimate, args=([x, y],), Dfun=Df_2b, col_deriv=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            center_2d, _ = optimize.leastsq(f_2b, center_estimate, args=([x, y],), Dfun=Df_2b, col_deriv=True)
         return center_2d
     except (np.linalg.LinAlgError):
         return (np.nan, np.nan)
@@ -909,6 +916,7 @@ def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
 # From
 # https://stackoverflow.com/questions/45526700/easy-parallelization-of-numpy-apply-along-axis
 # TODO: Add multiprocessing globals
+# WIP !!
 def parallel_apply_along_axis(func1d, axis, arr, *args, **kwargs):
     """
     Like numpy.apply_along_axis(), but takes advantage of multiple

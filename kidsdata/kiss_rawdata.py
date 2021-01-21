@@ -24,7 +24,7 @@ from . import kids_plots
 from .kids_rawdata import KidsRawData
 from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
-from .utils import _import_from
+from .utils import _import_from, pprint_list
 
 try:
     from .kiss_pointing_model import KISSPmodel
@@ -44,37 +44,52 @@ except ModuleNotFoundError:
 # pylint: disable=no-member
 @logged
 class KissRawData(KidsRawData):
-    """Arrays of (I,Q) with associated information from KISS raw data.
+    """Class dealing with KISS raw data.
+
+    Derive from KidsRawData and add specific attributes and methods
 
     Attributes
     ----------
-    kidpar: :obj: Astropy.Table
-        KID parameter.
-    param_c: :dict
-        Global parameters.
-    I: array
-        Stokes I measured by KID detectors.
-    Q: array
-        Stokes Q measured by KID detectors.
-    __dataSc: obj:'ScData', optional
-        Sample data set.
-    __dataSd:
-        Sample data set.
+    pointing_model : str
+        the name of the pointing model to use
+    f_mod : float, cached
+        the modulation frequency to be used for calibration
+    mod_mask : array_like, cached
+        the modulation mask to be used for calibration
+    __calib : dict
+        The calibrated data
+    _pdiff_Az _pdiff_El : array_like
+        The proper position offset from the observed source
 
     Methods
     -------
-    info()
-        Display the basic infomation about the data file.
-    read_data(list_data = 'all')
-        List selected data.
-
+    calib_raw(calib_func="kidsdata.kids__calib.get_calfact", clean_raw=False, **kwargs)
+        Calibrate the data
+    get_object_altaz(npoints=None), cached
+        Compute the object alt az positions for the observations
+    plot_kidpar(*args, **kwargs)
+        Deprecated -- Plot the current kidpar
+    plot_calib(*args, **kwargs)
+        Deprecated -- Plot the calibration
+    plot_pointing(*args, **kwargs)
+        Deprecated -- Plot the pointing
     """
 
+    pointing_model = None
+
+    __calib = None
+
     def __init__(self, *args, pointing_model="KISSMateoNov2020", **kwargs):
+        """
+        Parameters
+        ----------
+        pointing_model : str
+            the key used for the KISS pointing model
+        """
         super().__init__(*args, **kwargs)
 
         self.pointing_model = pointing_model
-        self.__calib = {}
+        self.__calib = dict()
 
         # Add special position keys :
         self._KidsRawData__position_keys["pdiff"] = ("_pdiff_Az", "_pdiff_El")
@@ -119,22 +134,59 @@ class KissRawData(KidsRawData):
                 self.__log.debug("Saving calibrated data")
                 _to_hdf5(f, "calib", self.__calib, **kwargs)
 
-    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", clean_raw=False, **kwargs):
+    @property
+    @lru_cache(maxsize=1)
+    def mod_mask(self):
+        # Check the *_masq values
+        self.__log.debug("Checking the *_masq arrays")
+        # Retrieve the kid boxes
+        masq_names = np.unique(["{}_masq".format(item[1]) for item in self.list_detector])
+        self.__check_attributes(masq_names, read_missing=False)
+        # Check that they are all the same
+        masqs = [getattr(self, masq) for masq in masq_names]
+
+        if np.any(np.std(masqs, axis=0) != 0):
+            self.__log.error("*_masq is varying -- Please check : {}".format(pprint_list(masq_names, "_masq")))
+        masq = masqs[0]
+        # masq are screwed somehow, should be on the first two bits only, third bit for blanking,
+        # but this does not work properly as bit 0 is set when bit 1 is set (ie working with 0 1 3 instead of 0 1 2)
+        # thus
+        # AB (#CONCERTO_DAQ January 11 13:02)
+        # _flag_balayage_en_cours & _flag_blanking_synthe
+        # Ainsi on aura la modulation en bit0 et 1 et le flag blanking en bit
+        # Thus as a temporary fix, let's clear the 3rd bit
+        self.__log.warning("Temporary fix : clearing the 3rd bit of masq")
+        masq = masq.astype(np.int8) & ~(1 << 2)
+
+        return masq
+
+    @property
+    @lru_cache(maxsize=1)
+    def fmod(self):
+        # Check on frequency modulation values, in principle one should use the one corresponding on the array/crate, but depending on the files this could lead to wrong result
+        self.__log.debug("Checking the *-modulFreq values")
+        fmod_names = sorted([key for key in self.param_c.keys() if "modulFreq" in key])
+
+        # Exclude null values (CONCERTO crate 1 has 0, has it does not read kids)
+        fmods = [self.param_c[key] for key in fmod_names if self.param_c[key] != 0]
+        if np.std(fmods) != 0:
+            self.__log.warning("modulFreq are varying over crates  {}".format(dict(zip(fmod_names, fmods))))
+        return fmods[0]
+
+    def calib_raw(self, calib_func="kidsdata.kids__calib.get_calfact", clean_raw=False, **kwargs):
         """Calibrate the KIDS timeline."""
 
         if getattr(self, "__calib", None) is None:
             self.__log.debug("calibration using {}".format(calib_func))
-            self.__check_attributes(["I", "Q", "A_masq"], read_missing=False)
-            calib_func = _import_from(calib_func)
+            self.__check_attributes(["I", "Q"], read_missing=False)
 
-            fmods = sorted([key for key in self.param_c.keys() if "modulFreq" in key])
-            # Exclude null values
-            fmods = [self.param_c[key] for key in fmods if self.param_c[key] != 0]
-            if np.std(fmods) != 0:
-                self.__log.warning("modulFreq are varying over crates  {}".format(fmods))
-            fmod = fmods[0]
+            fmod = self.fmod
+            masq = self.mod_mask
+
             self.__log.info("Calibrating with fmod={} and {}".format(fmod, kwargs))
-            self.__calib = calib_func(self.I, self.Q, self.A_masq, fmod=fmod, **kwargs)
+            calib_func = _import_from(calib_func)
+            self.__calib = calib_func(self.I, self.Q, masq, fmod=fmod, **kwargs)
+
         else:
             self.__log.warning("calibrated data already present")
 
@@ -212,7 +264,6 @@ class KissRawData(KidsRawData):
 
     # Move most of that to __repr__ or __str__
     def info(self):
-        """List basic observation description and data set dimensions."""
         super().info()
         print("No. of interfergrams:\t", self.nint)
         print("No. of points per interfergram:\t", self.nptint)
@@ -248,57 +299,12 @@ class KissRawData(KidsRawData):
     def read_data(self, *args, cache=False, array=np.array, **kwargs):
         """Read raw data.
 
-        Parameters
-        ----------
-        list_data : list of str or str
-            list of data to read, see Notes
-        cache : bool or 'only', optional
-            use the cache file if present, by default False, see Notes
-        array : function, (np.array|dask.array.from_array|None) optional
-            function to apply to the largest cached value, by default np.array, if None return h5py.Dataset
-        **kwargs
-            additionnal parameters to be passed to the  `kidsdata.read_kidsdata.read_all`, in particular
-                list_detector : list, optional
-                    the list of detector indexes to be read, see Notes, by default None: read all detectors
-                start : int
-                    the starting block, default 0.
-                end : type
-                    the ending block, default full available dataset.
-                silent : bool
-                    Silence the output of the C library. The default is True
-                diff_pps: bool
-                    pre-compute pps time differences. The default is False
-                correct_pps: bool
-                    correct the pps signal. The default is False
-                correct_time: bool or float
-                    correct the time signal by interpolating jumps higher that given value in second. The default is False
+        Also read the calibrated data in the cache file if present.
 
         Notes
         -----
-        if `cache=True`, the function reads all possible data from the cache file, and read the missing data from the raw binary file
-        if `cache='only'`, the function reads all possible data from the cache file
 
-        Depending on the `read_raw` flag when openning a kidsdata, the meaning of `list_data` and `list_detector` is changed:
-        if raw is False:
-            - `list_data` is a list of str within the data present in the files, see the `names` property.
-            - `list_detector` is a list or array of detector names within the `kidpar` of the file. See also `get_list_detector`.
-        if raw is True:
-            - `list_data` is a list or array contains elements from ['Sc', 'Sd, 'Uc', 'Ud', 'Rg'].
-            - `list_detector` is either a list or array of detector names within the `kidpar` of the file or
-                - 'all' : to read all kids
-                - 'one' or None : to read all kids of type 1
-                - 'array?' : to read kids from crate/array '?'. '?' must be an int.
-                - 'array_one?' : to read kids of type 1 from crate/array '?'. '?' must be an int.
-                - 'box?' : to read kids from  box '?'. '?' must be an int or a letter
-                - 'box_one?' : to read kids of type 1 from box '?'. '?' must be an int or a letter
-
-                For CONCERTO, crate/array '?' must be from 2 to 3, or :
-                - 'arrayT' : to read the kids from the array in transmission
-                - 'arrayT_one' : to read the kids of type 1 from the array in transmission
-                ' 'arrayR' : to read the kids from array in reflection
-                - 'arrayR_one': to read the kids of type 1 from the array in reflection
-
-        `None` or 'all' means read all data or detectors.
+        The different Kiss telescope positions are also handled
         """
         super().read_data(*args, cache=cache, array=array, **kwargs)
 
@@ -333,8 +339,8 @@ class KissRawData(KidsRawData):
         # Default telescope mask : keep all/undersampled position per block
         self.mask_tel = np.zeros(self.nint, dtype=np.bool)
 
-        if "indice" in self._KidsRawData__dataSc.keys():
-            indice = self._KidsRawData__dataSc["indice"]
+        if hasattr(self, "indice"):
+            indice = self.indice
             assert self.nptint == np.int(indice.max() - indice.min() + 1), "Problem with 'indice' or header"
 
         # Support for old parameters
