@@ -11,6 +11,7 @@ from astropy.stats import mad_std
 from .kiss_continuum import KissContinuum
 from .kiss_spectroscopy import KissSpectroscopy
 from .kiss_rawdata import KissRawData
+from .kids_rawdata import KidsRawData
 from .utils import cpu_count, mad_med
 from .utils import _import_from
 
@@ -86,11 +87,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
 
         if "ph_IQ" in self.__dict__:
             self.__log.info("Unwrap phIQ")
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 ph_IQ = pool.map(_ph_unwrap, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.ph_IQ = np.vstack(ph_IQ)
@@ -185,11 +182,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
         # Non moving mirror -> keep everything oversampled as continuum :
         if mad_std(self.laser.mean(0)) < 1:
             self.__log.info("Non moving laser, keeping fully sampled data")
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 continuum = pool.map(_to_continuum, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -198,11 +191,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
             self.__log.info("Spectroscopic data, downsampling continuum")
 
             _this = partial(_downsample_to_continuum, nint=self.nint, nptint=self.nptint)
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 continuum = pool.map(_this, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.continuum = np.vstack(continuum)
@@ -210,7 +199,12 @@ class InLabData(KissContinuum, KissSpectroscopy):
             # As well as telescope positions :cube = self.interferograms_cube(ikid=[20], coord='tabdiff', flatfield=None, cm_func=None, baseline=2, cdelt=(0.02, 0.25), weights=None, bins=150)
 
             # fix_table & shift  before!!
-            if self.mask_tel.shape[0] != self.continuum.shape[1]:
+            if (
+                hasattr(self, "_tabdiff_Az")
+                and hasattr(self, "_tabdiff_El")
+                and hasattr(self, "mask_tel")
+                and (self.mask_tel.shape[0] != self.continuum.shape[1])
+            ):
                 self._tabdiff_Az = (
                     np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
                 )
@@ -222,11 +216,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
                 )  # Allow for 80% flagged positional data
 
             # kidfreq is fully sampled (copy is made here) remove first order continuum
-            with Pool(
-                N_CPU,
-                initializer=_pool_initializer,
-                initargs=(self.ph_IQ,),
-            ) as pool:
+            with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
                 kidfreq = pool.map(_to_kidfreq, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
             self.kidfreq = np.vstack(kidfreq)
@@ -235,11 +225,18 @@ class InLabData(KissContinuum, KissSpectroscopy):
 
     def _change_nptint(self, nptint):
 
-        if self.nptint % nptint == 0 or nptint % self.nptint == 0:
+        if self.nptint % nptint != 0 and nptint % self.nptint != 0:
             self.__log.error("Not a multiple of the original nptint")
             return None
 
         # Scans are not well recorderd nptint is 1024, should be 512:
+        nptint_ratio = nptint / self.nptint
+        nint = int(self.nint / nptint_ratio)
+
+        nint_max = int(nint * nptint_ratio)
+        if self.nint % nint_max != 0:
+            self.__log.warning("{} blocs truncated".format(self.nint % nint_max))
+
         for key in self.__dict__.keys():
             item = getattr(self, key)
 
@@ -247,8 +244,27 @@ class InLabData(KissContinuum, KissSpectroscopy):
                 continue
 
             if item.shape == (self.ndet, self.nint, self.nptint):
-                setattr(self, key, item.reshape(self.ndet, -1, nptint))
+                setattr(self, key, item[:, 0:nint_max, :].reshape(self.ndet, -1, nptint))
             elif item.shape == (self.nint, self.nptint):
-                setattr(self, key, item.reshape(-1, nptint))
+                setattr(self, key, item[0:nint_max].reshape(-1, nptint))
+            elif item.shape == (self.nint,) or item.shape == (self.ndet, self.nint):
+                self.__log.warning("{} need special care".format(key))
+
         self.nint = self.nint * self.nptint // nptint
         self.nptint = nptint
+        self.__log.info("Clearing Cache")
+        KissSpectroscopy.interferograms.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
+        KissSpectroscopy.interferograms_pipeline.cache_clear()
+        KissSpectroscopy.laser.fget.cache_clear()
+        KissSpectroscopy.laser_directions.fget.cache_clear()
+        KissContinuum.continuum_pipeline.cache_clear()
+        KissRawData.mod_mask.fget.cache_clear()
+        KissRawData.fmod.fget.cache_clear()
+        KissRawData.get_object_altaz.cache_clear()
+        KissRawData._pdiff_Az.fget.cache_clear()
+        KissRawData._pdiff_El.fget.cache_clear()
+        KidsRawData.get_telescope_position.cache_clear()
+        KidsRawData.obsdate.fget.cache_clear()
+        KidsRawData.obstime.fget.cache_clear()
+        self.__log.info("You probably need to run _fix_table()")
