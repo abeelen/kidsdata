@@ -4,31 +4,5 @@ from .kiss_spectroscopy import KissSpectroscopy
 
 
 # pylint: disable=no-member
-class KissData(KissContinuum, KissSpectroscopy, KissRawData):
-    """Arrays of (I,Q) with associated information from KISS raw data.
-
-    Attributes
-    ----------
-    kidpar: :obj: Astropy.Table
-        KID parameter.
-    param_c: :dict
-        Global parameters.
-    I: array
-        Stokes I measured by KID detectors.
-    Q: array
-        Stokes Q measured by KID detectors.
-    __dataSc: obj:'ScData', optional
-        Sample data set.
-    __dataSd:
-        Sample data set.
-
-    Methods
-    -------
-    info()
-        Display the basic infomation about the data file.
-    read_data(list_data = 'all')
-        List selected data.
-
-    """
-
+class KissData(KissSpectroscopy, KissContinuum):
     pass

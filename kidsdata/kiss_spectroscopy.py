@@ -33,7 +33,7 @@ from .utils import _import_from
 from .utils import interferograms_regrid, project_3d
 from .utils import psd_cal
 from . import kids_plots
-from .kids_calib import ModulationValue, A_masq_to_flag
+from .kids_calib import ModulationValue, mod_masq_to_flag
 from .db import RE_SCAN
 
 from .ftsdata import FTSData
@@ -149,10 +149,40 @@ def sky_to_cube(data, opds, az, el, offsets, wcs, shape):
 
 @logged
 class KissSpectroscopy(KissRawData):
+    """This Class deals with spectroscopic data in KISS.
+
+    Attributes
+    ----------
+    laser_keys : str
+        list of keys to be used to derive laser position, default "auto"
+    laser_shift : float, optionnal
+        the number or sample to shift the laser position wrt to interferograms
+    optical_flip : str
+        regular expression to select kids to sign flip, by default auto
+    interferograms : numpy.ma.MaskedArray (ndet, nint, nptint cached)
+        the interferograms with optical flip and glitches removed if needed.
+    laser : array_like (nint, nptint, cached)
+        Retrieve the laser position with missing value interpolated.
+    laser_directions : array_like (nptint, cached)
+        the laser directions as listed in `LaserDirection`
+
+    Methods
+    -------
+    find_lasershifts_brute(**kwargs)
+        find potential shift between mirror position and interferograms timeline
+    interferograms_pipeline(**kwargs) (cached)
+        return the interferograms processed by given pipeline
+    interferogram_cube(**kwargs)
+        project the interferograms into one 3D cube
+    interferogram_beamcubes(**kwargs)
+        project the interferograms into individual 3D cubes
+    """
 
     __laser_shift = None
     __laser_keys = None
     __optical_flip = None
+    __mask_glitches = None
+    __glitches_threshold = None
 
     def __init__(
         self,
@@ -167,8 +197,16 @@ class KissSpectroscopy(KissRawData):
         """
         Parameters
         ----------
-        optical_flip : array_like
-            list of kids prefix to sign flip, by default auto
+        laser_keys : str
+            list of keys to be used to derive laser position, default "auto"
+        laser_shift : float, optionnal
+            the number or sample to shift the laser position wrt to interferograms
+        optical_flip : str
+            regular expression to select kids to sign flip, by default auto
+        mask_glitches : bool
+            to flag the glitches in the interferograms, default True
+        glitches_threshold : float
+            the sigma threshold to flag the glitches
 
         Notes
         -----
@@ -177,11 +215,11 @@ class KissSpectroscopy(KissRawData):
         super().__init__(*args, **kwargs)
 
         self.__log.debug("KissSpectroscopy specific kwargs")
+        self.laser_keys = laser_keys
         self.laser_shift = laser_shift
         self.optical_flip = optical_flip
         self.__mask_glitches = mask_glitches
         self.__glitches_threshold = glitches_threshold
-        self.laser_keys = laser_keys
 
     # TODO: This could probably be done more elegantly
     @property
@@ -215,7 +253,7 @@ class KissSpectroscopy(KissRawData):
                 self.__optical_flip = "KB"
             elif boxes == {"KA", "KB", "KC", "KD", "KE", "KF", "KG", "KH", "KI", "KJ", "KK", "KL"}:
                 self.__log.info("Found CONCERTO data, flipping Kx - Kx")
-                self.__optical_flip = "K(A|B|C|D|EF)"  # or {'K(G|H|I|J|K|L)'}
+                self.__optical_flip = "K(G|H|I|J|K|L)"  # or "K(A|B|C|D|EF)"
             else:
                 self.__log.error("Can  not determine the instrument for optical flip : disabled")
                 self.__optical_flip = None
@@ -266,8 +304,6 @@ class KissSpectroscopy(KissRawData):
 
     @property
     def meta(self):
-        """Default meta data for products."""
-
         meta = super().meta
 
         # Specific cases
@@ -304,6 +340,7 @@ class KissSpectroscopy(KissRawData):
         self.__log.info("Masking modulation phases")
 
         # TODO: Should be done elsewhere
+        # TODO: Do not use A_masq here, but rather the proper masq for each box !!
         A_masq = self.A_masq
 
         # Make sure we have no issues with A_masq
@@ -350,13 +387,15 @@ class KissSpectroscopy(KissRawData):
             # # kidfreq_norm = kd.kidfreq - gaussian_filter1d(kd.kidfreq, 3, axis=1)
 
             # Try something else on the modulation flagged interferograms
-            max_abs_interferogram = np.abs(interferograms).max(axis=2)
+            abs_interferograms = np.abs(interferograms)
+            max_abs_interferogram = abs_interferograms.max(axis=2)
 
             # Threshold for gaussian statistic, along the interferogram axis only :
             sigma = erfcinv(self.glitches_threshold / np.product(interferograms.shape[1])) * np.sqrt(2)
 
             cutoffs = max_abs_interferogram.mean(axis=1) + sigma * max_abs_interferogram.std(axis=1)
-            glitches_mask = np.abs(interferograms) > cutoffs[:, None, None]
+            glitches_mask = abs_interferograms > cutoffs[:, None, None]
+            del abs_interferograms
 
             self.__log.warning("Masking {:3.1f}% of the data from glitches".format(np.mean(glitches_mask) * 100))
 
@@ -854,10 +893,10 @@ class KissSpectroscopy(KissRawData):
         if isinstance(interferograms, np.ma.MaskedArray):
             interferograms = interferograms.data
 
-        A_masq = self.A_masq
+        mod_masq = self.mod_masq
 
-        A_high = A_masq_to_flag(A_masq, ModulationValue.high)
-        A_low = A_masq_to_flag(A_masq, ModulationValue.low)
+        A_high = mod_masq_to_flag(mod_masq, ModulationValue.high)
+        A_low = mod_masq_to_flag(mod_masq, ModulationValue.low)
 
         # Compute median standard deviation in the modulation points
         mad_stds = []
@@ -1017,7 +1056,7 @@ class KissSpectroscopy(KissRawData):
         opd_trim=None,
         **kwargs,
     ):
-        """Project the interferograms into one 3D cube.
+        """Project the interferograms into individual 3D cubes.
 
         Parameters
         ----------

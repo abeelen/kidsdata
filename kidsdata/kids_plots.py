@@ -400,7 +400,7 @@ def show_kidpar(
     ikid : array_like, optionnal
         to plot a subsample of the `list_detector` list
     to_plot : list of str
-        list of item to plot within 'fwhms', 'ellipticities', 'amplitudes', None
+        list of item to plot within 'fwhms', 'major_axis, 'minor_axis', 'mean_fwhms', ellipticities', 'amplitudes', None
     plot_hist: bool
         do we plot the histograms, default True
     ranges : dict, optionnal
@@ -440,6 +440,9 @@ def show_kidpar(
 
     plotting_values = {
         "fwhms": {"value": np.nanmax(fwhms, axis=1), "label": "fwhms [arcmin]"},  # fwhm in arcmin
+        "major_axis": {"value": np.nanmax(fwhms, axis=1), "label": "major axis [arcmin]"},  # fwhm in arcmin
+        "minor_axis": {"value": np.nanmin(fwhms, axis=1), "label": "minor axis [arcmin]"},  # fwhm in arcmin
+        "mean_fwhms": {"value": np.nanmean(fwhms, axis=1), "label": "mean fwhms [arcmin]"},  # fwhm in arcmin
         "ellipticities": {
             "value": (np.max(fwhms, axis=1) - np.min(fwhms, axis=1)) / np.max(fwhms, axis=1),
             "label": "ellipticities",
@@ -605,10 +608,28 @@ def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, 
     ax2 = fig.add_axes([0.58, 0.15, 0.4, 0.79])
     cax = fig.add_axes([0.45, 0.15, 0.006, 0.79])
 
-    color_sequence = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c',
-                  '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5',
-                  '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f',
-                  '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
+    color_sequence = [
+        "#1f77b4",
+        "#aec7e8",
+        "#ff7f0e",
+        "#ffbb78",
+        "#2ca02c",
+        "#98df8a",
+        "#d62728",
+        "#ff9896",
+        "#9467bd",
+        "#c5b0d5",
+        "#8c564b",
+        "#c49c94",
+        "#e377c2",
+        "#f7b6d2",
+        "#7f7f7f",
+        "#c7c7c7",
+        "#bcbd22",
+        "#dbdb8d",
+        "#17becf",
+        "#9edae5",
+    ]
 
     im = ax1.imshow(np.log10(psds), aspect="auto", extent=(0.2, freq.max(), psds.shape[0], 0), vmin=ymin, vmax=ymax)
     boxes = set(namedet[0:2] for namedet in list_detector[ikids])
@@ -629,18 +650,17 @@ def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, 
     boxes = set(namedet[0:2] for namedet in list_detector[ikids])
     for box in boxes:
         mask_box = np.char.startswith(list_detector[ikids], box)
-        ax2.plot(freq, np.median(psds[mask_box], axis=0), color=color_sequence[list(boxes).index(box)],label=box)
+        ax2.plot(freq, np.median(psds[mask_box], axis=0), color=color_sequence[list(boxes).index(box)], label=box)
 
-    if ymin == None and ymax == None:
+    if ymin is None and ymax is None:
         pass
     else:
-        ax2.set_ylim(ymin,ymax)
+        ax2.set_ylim(ymin, ymax)
 
-    if xmin == None and xmax == None:
+    if xmin is None and xmax is None:
         pass
     else:
-        ax2.set_xlim(xmin,xmax)
-
+        ax2.set_xlim(xmin, xmax)
 
     ax2.set_xlabel("Freq [Hz]")
     ax2.set_ylabel("PSD")

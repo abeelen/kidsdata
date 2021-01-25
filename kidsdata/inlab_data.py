@@ -11,6 +11,7 @@ from astropy.stats import mad_std
 from .kiss_continuum import KissContinuum
 from .kiss_spectroscopy import KissSpectroscopy
 from .kiss_rawdata import KissRawData
+from .kids_rawdata import KidsRawData
 from .utils import cpu_count, mad_med
 from .utils import _import_from
 
@@ -67,7 +68,19 @@ def _ph_unwrap(ikids):
 
 
 @logged
-class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
+class InLabData(KissContinuum, KissSpectroscopy):
+    """Class dealing with CONCERTO Lab data.
+
+    Methods
+    -------
+    _fix_table(**kwargs)
+        to transform table positions into angles and flags
+    _from_phase()
+        derive continuum and kidsfreq from phase only data
+    _change_nptint(nptint)
+        reshape the current data with new nptint
+    """
+
     def read_data(self, *args, **kwargs):
 
         super().read_data(*args, **kwargs)
@@ -80,8 +93,14 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             self.ph_IQ = np.vstack(ph_IQ)
 
     # Fix table positions
-    def _fix_table(self, delta_pix=300000, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
-        # Normalized to avoid projection effect between -0.5 & 0.5
+    def _fix_table(self, delta_pix=540000, speed_sigma_clipping=5, min_speed=1, plot=False, savgol_args=(11, 3)):
+
+        ## Andrea Catalano Priv. Comm 20200113 : 30 arcsec == 4.5 mm
+        # Scan X15_16_Tablebt_scanStarted_12 with Lxy = 90/120, we have (masked) delta_x = 180000.0, masked_delta_y = 240000.0,
+        # so we have micron and Lxy is to be understood has half the full map
+        # ((4.5*u.mm) / (30*u.arcsec)).to(u.micron / u.deg) = <Quantity 540000. micron / deg>
+        # So with delta_pix = 540000 with should have proper degree in _tabdiff_Az and _tabdiff_El
+
         tab_keys = [
             key
             for key in self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
@@ -141,6 +160,22 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             ax.scatter(tabdiff_Az, tabdiff_El)
             ax.scatter(tabdiff_Az[~mask], tabdiff_El[~mask])
 
+        # fix_table & shift  before!!
+        if (
+            hasattr(self, "continuum")
+            and self.continuum is not None
+            and self.mask_tel.shape[0] != self.continuum.shape[1]
+        ):
+            self._tabdiff_Az = (
+                np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+            )
+            self._tabdiff_El = (
+                np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+            )
+            self.mask_tel = (
+                self.mask_tel.reshape(-1, self.nptint).mean(axis=1) > 0.8
+            )  # Allow for 80% flagged positional data
+
         return delta_pix
 
     def _from_phase(self):
@@ -164,7 +199,12 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
             # As well as telescope positions :cube = self.interferograms_cube(ikid=[20], coord='tabdiff', flatfield=None, cm_func=None, baseline=2, cdelt=(0.02, 0.25), weights=None, bins=150)
 
             # fix_table & shift  before!!
-            if self.mask_tel.shape[0] != self.continuum.shape[1]:
+            if (
+                hasattr(self, "_tabdiff_Az")
+                and hasattr(self, "_tabdiff_El")
+                and hasattr(self, "mask_tel")
+                and (self.mask_tel.shape[0] != self.continuum.shape[1])
+            ):
                 self._tabdiff_Az = (
                     np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
                 )
@@ -185,11 +225,18 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
 
     def _change_nptint(self, nptint):
 
-        if self.nptint % nptint == 0 or nptint % self.nptint == 0:
+        if self.nptint % nptint != 0 and nptint % self.nptint != 0:
             self.__log.error("Not a multiple of the original nptint")
             return None
 
         # Scans are not well recorderd nptint is 1024, should be 512:
+        nptint_ratio = nptint / self.nptint
+        nint = int(self.nint / nptint_ratio)
+
+        nint_max = int(nint * nptint_ratio)
+        if self.nint % nint_max != 0:
+            self.__log.warning("{} blocs truncated".format(self.nint % nint_max))
+
         for key in self.__dict__.keys():
             item = getattr(self, key)
 
@@ -197,8 +244,27 @@ class InLabData(KissContinuum, KissSpectroscopy, KissRawData):
                 continue
 
             if item.shape == (self.ndet, self.nint, self.nptint):
-                setattr(self, key, item.reshape(self.ndet, -1, nptint))
+                setattr(self, key, item[:, 0:nint_max, :].reshape(self.ndet, -1, nptint))
             elif item.shape == (self.nint, self.nptint):
-                setattr(self, key, item.reshape(-1, nptint))
+                setattr(self, key, item[0:nint_max].reshape(-1, nptint))
+            elif item.shape == (self.nint,) or item.shape == (self.ndet, self.nint):
+                self.__log.warning("{} need special care".format(key))
+
         self.nint = self.nint * self.nptint // nptint
         self.nptint = nptint
+        self.__log.info("Clearing Cache")
+        KissSpectroscopy.interferograms.fget.cache_clear()
+        KissSpectroscopy.opds.cache_clear()
+        KissSpectroscopy.interferograms_pipeline.cache_clear()
+        KissSpectroscopy.laser.fget.cache_clear()
+        KissSpectroscopy.laser_directions.fget.cache_clear()
+        KissContinuum.continuum_pipeline.cache_clear()
+        KissRawData.mod_mask.fget.cache_clear()
+        KissRawData.fmod.fget.cache_clear()
+        KissRawData.get_object_altaz.cache_clear()
+        KissRawData._pdiff_Az.fget.cache_clear()
+        KissRawData._pdiff_El.fget.cache_clear()
+        KidsRawData.get_telescope_position.cache_clear()
+        KidsRawData.obsdate.fget.cache_clear()
+        KidsRawData.obstime.fget.cache_clear()
+        self.__log.info("You probably need to run _fix_table()")
