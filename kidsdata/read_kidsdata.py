@@ -1123,8 +1123,10 @@ def _from_hdf5(parent_group, key, array=None):
         if "type" in item.attrs:
             # Special types
             if item.attrs["type"] == "list-array":
-                # originally a list
-                return list(item[:])
+                data = list(item[:])
+                if len(data) > 0 and isinstance(data[0], bytes):
+                    data = [item.decode() for item in data]
+                return data
             elif item.attrs["type"] == "Table":
                 return read_table_hdf5(item.parent, path=item.name, character_as_bytes=False)
         else:

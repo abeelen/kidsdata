@@ -197,7 +197,6 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         self.__position_shift = position_shift
 
         # Find all potential telescope position keys
-        # TODO: needs to be done at reading time for read_raw=True
         keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
         pos_keys = [key.split("_")[1] for key in keys if "Az" in key]
         self.__position_keys = {
@@ -454,7 +453,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             self._extended_kidpar = extended_kidpar
 
             # Removing cache data from the requested list_data:
-            if list_data == "all":
+            if list_data == "all" or list_data is None:
                 list_data = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
 
             keys = [key for data in datas for key in data if key in list_data]
