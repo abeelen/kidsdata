@@ -31,18 +31,19 @@ READRAW_LIB_PATH = os.getenv("READRAW_LIB_PATH", "/data/CONCERTO/Processing/kid-
 NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
 READRAW_LIB_SO = Path(READRAW_LIB_PATH) / "libreadraw.so"
 
-assert NIKA_LIB_SO.exists(), (
-    "Could not find NIKA LIB so File [%s] \n" % NIKA_LIB_SO
-    + "You might have forgotten to set $NIKA_LIB_PATH or compile the library"
-)
-READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
+if NIKA_LIB_SO.exists():
+    READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
+else:
+    READNIKADATA = None
+    logging.error("Could not find {} : Please check $NIKA_LIB_PATH ({})".format(NIKA_LIB_SO.name, NIKA_LIB_PATH))
 
-
-assert READRAW_LIB_SO.exists(), (
-    "Could not find NIKA LIB so File [%s] \n" % NIKA_LIB_SO
-    + "You might have forgotten to set $NIKA_LIB_PATH or compile the library"
-)
-READRAW = ctypes.cdll.LoadLibrary(str(READRAW_LIB_SO))
+if READRAW_LIB_SO.exists():
+    READRAW = ctypes.cdll.LoadLibrary(str(READRAW_LIB_SO))
+else:
+    READRAW = None
+    logging.error(
+        "Could not find {} : Please check $READRAW_LIB_PATH ({})".format(READRAW_LIB_SO.name, READRAW_LIB_PATH)
+    )
 
 
 # Defining TconfigHeader following Acquisition/Library/configNika/TconfigNika.h
@@ -630,16 +631,7 @@ def clean_position_unit(dataXc):
 
 
 def namept_to_names(name, nbname):
-    return [
-        item.tobytes().strip(b"\x00").decode()
-        for item in np.ctypeslib.as_array(
-            name,
-            shape=(
-                nbname,
-                16,
-            ),
-        )
-    ]
+    return [item.tobytes().strip(b"\x00").decode() for item in np.ctypeslib.as_array(name, shape=(nbname, 16,),)]
 
 
 P_INT32 = ctypes.POINTER(ctypes.c_int32)
@@ -895,13 +887,7 @@ def read_raw(
     param_c = clean_param_c(param_c, flat=flat)
 
     # Special treatment for namedet as some character are ill placed
-    namedet = np.ctypeslib.as_array(
-        Tdata.nameDet,
-        shape=(
-            Tdata.nbDet,
-            16,
-        ),
-    )
+    namedet = np.ctypeslib.as_array(Tdata.nameDet, shape=(Tdata.nbDet, 16,),)
     namedet = clean_namedet(namedet, fix=fix)
 
     # Reglage

@@ -1,7 +1,7 @@
 import os
 import re
 import numpy as np
-import warnings
+import logging
 
 from pathlib import Path
 from copy import deepcopy
@@ -32,8 +32,7 @@ from .db import get_kidpar
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
 
 if not CACHE_DIR.exists():
-    warnings.warn("Cache dir created : {}".format(CACHE_DIR))
-    CACHE_DIR.mkdir()
+    logging.warning("Cache dir do not exist : {}".format(CACHE_DIR))
 
 
 @logged

@@ -1,5 +1,5 @@
 import os
-import warnings
+import logging
 from pathlib import Path
 import astropy.units as u
 from astropy.coordinates import get_body, solar_system_ephemeris, EarthLocation
@@ -26,7 +26,7 @@ if KISS_CAT_FILENAME.exists():
         exclude_names=["dummy1", "dummy2"],
     )
 else:
-    warnings.warn("KISS catalog not found, please check {}".format(KISS_CAT_FILENAME))
+    logging.warning("KISS catalog not found, please check {}".format(KISS_CAT_FILENAME))
     KISS_CAT = None
 
 
