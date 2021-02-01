@@ -523,7 +523,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         file_kwargs, dict, optionnal
             additionnal keyword for h5py.File object, by default None
         **kwargs
-            additionnal keyword argument for the h5py.Dataset, see Note
+            additionnal keyword argument for the h5py.Dataset, see Notes
 
         Notes
         -----
@@ -659,8 +659,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         list_detector: list
             the list which should be used for the `.read_data()` method
 
-        Note
-        ----
+        Notes
+        -----
         namedet='KA' will match all KA detectors
         namedet='K(A|B)' will match both KA and KB detectors
 

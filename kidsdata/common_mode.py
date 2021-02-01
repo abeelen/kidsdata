@@ -23,6 +23,7 @@ def _pool_initializer(*args):
 
 
 def basic_continuum(bgrd, diff_mask=False, medfilt_size=None, **kwargs):
+    """Time wise medium filtering."""
     # Only a rough Baseline for now...
 
     if diff_mask:
@@ -41,6 +42,7 @@ def basic_continuum(bgrd, diff_mask=False, medfilt_size=None, **kwargs):
 
 
 def median_filtering(bgrd, ikid_ref=0, offset=True, flat=True, **kwargs):
+    """Array wise median filtering."""
 
     # Note that bgrd content is lost here
     bgrd_cleanned, med_flatfield, med_offset, _ = correlated_median_removal(
@@ -56,7 +58,7 @@ def median_filtering(bgrd, ikid_ref=0, offset=True, flat=True, **kwargs):
 
 
 def pca_filtering(bgrd, ncomp=1, **kwargs):
-
+    """PCA filtering."""
     # PCA needs zero centered values,
     bgrd = bgrd.T
     bgrd -= bgrd.mean(axis=0)

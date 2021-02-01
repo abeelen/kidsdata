@@ -2,8 +2,8 @@
 Usage
 =====
 
-Start by importing KissData.
+Start by importing KidsData.
 
 .. code-block:: python
 
-    import kissdata
+    import kidsdata

@@ -165,65 +165,6 @@ def project_3d(x, y, z, data, shape, weights=None):
     -----
     The pixel index must follow the 0 indexed convention, i.e. use `origin=0` in `*_worl2pix` methods from `~astropy.wcs.WCS`.
 
-    >>> data, weight, hits = project_3d([0], [0], [0], [1], 2)
-    >>> data
-    array([[[ 1., nan],
-            [nan, nan]],
-
-           [[nan, nan],
-            [nan, nan]]])
-    >>> weight
-    array([[[1., 0.],
-            [0., 0.]],
-
-           [[0., 0.],
-            [0., 0.]]])
-    >>> hits
-    array([[[1, 0],
-            [0, 0]],
-
-           [[0, 0],
-            [0, 0]]])
-
-    >>> data, _, _ = project_3d([-0.4], [0], [1], [1], 2)
-    >>> data
-    array([[[nan, nan],
-            [nan, nan]]])
-
-           [[ 1., nan],
-            [nan, nan]]])
-
-    There is no test for out of shape data
-
-    >>> data, _, _ = project_3d([-0.6, 1.6], [0, 0], [0, 0], [1, 1], 2)
-    >>> data
-    array([[[nan, nan],
-            [nan, nan]],
-
-           [[nan, nan],
-            [nan, nan]]])
-
-    Weighted means are also possible :
-
-    >>> data, weight, hits = project_3d([-0.4, 0.4], [0, 0], [0, 0], [0.5, 2], 2, weights=[2, 1])
-    >>> data
-    array([[[ 1., nan],
-            [nan, nan]],
-
-            [[nan, nan],
-            [nan, nan]]])
-    >>> weight
-    array([[[3., 0.],
-            [0., 0.]],
-
-           [[0., 0.],
-            [0., 0.]]])
-    >>> hits
-    array([[[2, 0],
-            [0, 0]],
-
-           [[0, 0],
-            [0, 0]]])
     """
     if isinstance(shape, (int, np.integer)):
         shape = (shape, shape, shape)
@@ -260,8 +201,8 @@ def build_celestial_wcs(
 ):
     """Build a celestial wcs with square pixels for the projection.
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     lon, lat: array_like
         input longitude and latitude in degree
     crval: tuple of 2 float

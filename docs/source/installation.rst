@@ -4,4 +4,4 @@ Installation
 
 At the command line::
 
-    $ pip install kissdata
+    $ pip install kidsdata

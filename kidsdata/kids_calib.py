@@ -43,8 +43,8 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
     We fit a circle to the available data (2 modulation points + data)
 
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     dataI, dataQ : array_like, shape (ndet, nint, nptint)
         the raw KIDS I & Q data
     A_masq : array_like, shape (nint, nptint)

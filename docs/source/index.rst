@@ -13,3 +13,5 @@ KissData Documentation
    usage
    release-history
    min_versions
+   api
+ 
