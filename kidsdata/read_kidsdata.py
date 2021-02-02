@@ -687,11 +687,11 @@ class CODEDET(IntEnum):
     all = -1
     one = -2
     array = -100
-    arrayT = -101
-    arrayR = -102
+    arrayt = -101
+    arrayr = -102
     array_one = -200
-    arrayT_one = -201
-    arrayR_one = -202
+    arrayt_one = -201
+    arrayr_one = -202
     box = -1000
     box_one = -2000
 
