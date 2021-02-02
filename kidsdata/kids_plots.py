@@ -601,7 +601,7 @@ def multi_im(xs, aspect_ratio=1, marging=1, n_pages=1, norm=None):
     return np.squeeze(pixels), (ncols, nrows)
 
 
-def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, ymin=None):
+def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, ymin=None, **kwargs):
 
     fig = plt.figure(figsize=(10, 5))
     ax1 = fig.add_axes([0.04, 0.15, 0.4, 0.79])

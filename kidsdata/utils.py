@@ -944,9 +944,11 @@ def psd_cal(datas, Fs, rebin):
     Parameters
     ----------
     datas: {Nx, Ny}
-           data of array_like
-    Fs:    sample frequency
-    rebin: Number of the data points in one single bin
+       data of array_like
+    Fs: float
+       sample frequency
+    rebin: int
+        Number of the data points in one single bin
 
     Returns
     -------

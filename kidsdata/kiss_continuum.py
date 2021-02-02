@@ -318,7 +318,7 @@ class KissContinuum(KissRawData):
 
         Parameters
         ----------
-         ikid : array, optional
+        ikid : array, optional
             the selected kids index to consider, by default all
         wcs : ~astropy.wcs.WCS, optional
             the projection wcs if provided, by default None
@@ -407,7 +407,32 @@ class KissContinuum(KissRawData):
         return ContinuumData(output, uncertainty=InverseVariance(weight), hits=hits, wcs=wcs, meta=meta)
 
     def continuum_beammaps(self, ikid=None, wcs=None, coord="diff", **kwargs):
-        """Project individual detectors into square map in AltAz coordinates."""
+        """Project individual detectors into square map in AltAz coordinates.
+
+        Parameters
+        ----------
+        ikid : array, optional
+            the selected kids index to consider, by default all
+        wcs : ~astropy.wcs.WCS, optional
+            the projection wcs if provided, by default None
+        coord : str, optional
+            coordinate type, by default "diff"
+        **kwargs : dict
+            Additionnal keyword arguments accepted by
+            * :meth:`~kidsdata.kiss_continuum.KissContinuum.continuum_pipeline` or
+            * :func:`~kidsdata.utils.build_celestial_wcs`
+
+        Returns
+        -------
+        outputs : tuple of 3 numpy.ndarray (maps, weights, hits) each (nkids, ny, nx)
+            the individual maps with ikid order
+        wcs : ~astropy.wcs.WCS
+            the corresponding wcs
+        kidpar : ~astropy.table.Table
+            the fitted geometry kidpar
+        pointing_offset : tuple of 2 float
+            the additionnal offset to the kidpar (0, 0)
+        """
         assert "diff" in coord, "beammaps should be done of `diff` coordinates"
 
         if ikid is None:
@@ -516,18 +541,26 @@ class KissContinuum(KissRawData):
     def plot_photometry(self, *args, **kwargs):
         return kids_plots.photometry(self, *args, **kwargs)
 
-    def continuum_psds(self, datas, Fs, rebin, *args, **kwargs):
-        freq, psds = psd_cal(datas, Fs, rebin)
-        return freq, psds
-
-    def plot_continuum_psds(self, datas, Fs, rebin, ikid, *args, **kwargs):
+    def continuum_psds(self, ikid=None, rebin=1, **kwargs):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        freq, psds = self.continuum_psds(datas, Fs, rebin)
+        datas = self.continuum[ikid]
+
+        Fs = self.param_c["acqfreq"]
+
+        freq, psds = psd_cal(datas, Fs, rebin)
+
+        return freq, psds
+
+    def plot_continuum_psds(self, ikid=None, rebin=1, **kwargs):
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        freq, psds = self.continuum_psds(ikid=ikid, rebin=rebin)
 
         return (
-            kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None),
+            kids_plots.plot_psd(psds, freq, ikid, self.list_detector[ikid], **kwargs),
             freq,
             psds,
         )
