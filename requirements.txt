@@ -7,3 +7,5 @@ autologging
 h5py
 dask
 custom_inherit
+sqlalchemy
+rich
