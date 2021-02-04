@@ -13,10 +13,8 @@ from astropy.time import Time
 from astropy.table import Table, join, vstack, unique, MaskedColumn, Column
 from astropy.utils.console import ProgressBar
 
-
-BASE_DIRS = [Path(directory) for directory in os.getenv("DATA_DIR", "/data/KISS/Raw/nika2c-data3/KISS").split(";")]
-CALIB_DIR = Path(os.getenv("CALIB_DIR", "/data/KISS/Calib/"))
-
+from .database.constants import CALIB_DIR, BASE_DIRS, RE_INLAB, RE_DIR, RE_EXTRA, RE_KIDPAR, RE_SCAN
+from .database.helpers import scan_columns, extra_columns, inlab_columns
 
 DB_DIR = Path(os.getenv("DB_DIR", "."))
 DB_SCAN_FILE = DB_DIR / ".kidsdb_scans.fits"
@@ -26,118 +24,6 @@ DB_TABLE_FILE = DB_DIR / ".kidsdb_table.fits"
 DB_KIDPAR_FILE = CALIB_DIR / "kidpardb.fits"
 
 __all__ = ["list_scan", "get_scan", "list_extra", "get_extra", "list_table", "get_filename", "get_kidpar"]
-
-RE_DIR = re.compile(r"X(\d*)_(\d{4,4})_(\d{2,2})_(\d{2,2})$")
-
-# Regular scans : X20201110_0208_S1192_Crab_ITERATIVERASTER
-RE_SCAN = re.compile(r"^X(\d{8,8})_(\d{4,4})_S(\d{4,4})_([\w|\+]*)_(\w*)$")
-
-# Extra files : X_2020_10_22_12h53m20_AA_man :
-RE_EXTRA = re.compile(r"^X_(\d{4,4})_(\d{2,2})_(\d{2,2})_(\d{2,2})h(\d{2,2})m(\d{2,2})_AA_man$")
-
-# CONCERTO InLab test : X14_04_Tablebt_scanStarted_10 :
-RE_TABLE = re.compile(r"X(\d{2,2})_(\d{2,2})_Tablebt_scanStarted_(\d*)$")
-
-# for kidpar files
-RE_KIDPAR = re.compile(r"^e_kidpar")
-
-
-def scan_columns(filename, re_pattern=None):
-    date, hour, scan, source, obsmode = re_pattern.match(filename.name).groups()
-    dtime = Time(datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M").isoformat())
-    scan = int(scan)
-    return {
-        "date": dtime,
-        "scan": scan,
-        "source": source,
-        "obsmode": obsmode,
-    }
-
-
-def extra_columns(filename, re_pattern=None):
-    time_data = [int(item) for item in re_pattern.match(filename.name).groups()]
-    return {"date": Time(datetime(*time_data).isoformat())}
-
-
-def table_columns(filename, re_pattern=None):
-    hour, minute, scan = re_pattern.match(filename.name).groups()
-    _, year, month, day = RE_DIR.match(filename.parent.name).groups()
-    dtime = Time(datetime.strptime(" ".join([year, month, day, hour, minute]), "%Y %m %d %H %M").isoformat())
-    return {"date": dtime, "scan": scan}
-
-
-def extend_database():
-    """Read the header of each file and construct the parameter database."""
-    ## WIP
-    global DBs, DB_PARAM
-    for db in DBs:
-        db.update()
-
-    from .kids_rawdata import KidsRawData  # To avoid import loop
-
-    for db in DBs:
-        data_rows = []
-        param_rows = {}
-        for item in ProgressBar(db):
-            if "param_id" in item.colnames and item["param_id"]:
-                # Skip if present
-                continue
-            filename = item["filename"]
-            try:
-                kd = KidsRawData(filename)
-                hash_param = hash(str(kd.param_c))
-                data_row = {"filename": filename, "param_id": hash_param}
-                param_row = {"param_id": hash_param}
-                param_row.update(kd.param_c)
-                data_rows.append(data_row)
-                param_rows[hash_param] = param_row
-                del kd
-            except AssertionError:
-                logging.warning("{} failed".format(filename))
-
-        if len(param_rows) > 0:
-            # We found new scans and/or new parameters
-            param_rows = [*param_rows.values()]
-
-            # Get unique parameter list
-            param_set = set(chain(*[param.keys() for param in param_rows] + [DB_PARAM.colnames if DB_PARAM else []]))
-
-            # Fill missing value
-            missing = []
-            for param in param_rows:
-                for key in param_set:
-                    if key not in param:
-                        param[key] = None
-                        missing.append(key)
-            missing = set(missing)
-
-            NEW_PARAM = Table(param_rows)
-            for key in missing:
-                mask = NEW_PARAM[key] == None  # noqa: E711
-                _dtype = type(NEW_PARAM[key][~mask][0])
-                NEW_PARAM[key][mask] = _dtype(0)
-                NEW_PARAM[key] = MaskedColumn(NEW_PARAM[key].data.astype(_dtype), mask=mask)
-
-            if DB_PARAM is not None:
-                DB_PARAM = vstack([DB_PARAM, NEW_PARAM])
-                DB_PARAM = unique(DB_PARAM, "param_id")
-            else:
-                DB_PARAM = NEW_PARAM
-
-            # Update db
-            NEW_PARAM = Table(data_rows)
-            if "param_id" not in db.colnames:
-                db.add_column(Column(0, name="param_id", dtype=np.int64))
-
-            db.add_index("filename")
-            idx = db.loc_indices[NEW_PARAM["filename"]]
-            db["param_id"][idx] = NEW_PARAM["param_id"]
-
-            db._correct_time()
-
-            DB_PARAM.write(DB_PARAM_FILE, overwrite=True)
-            db.write(db.filename, overwrite=True)
-
 
 def get_scan(scan=None):
     """Get filename of corresponding scan number.
@@ -260,7 +146,7 @@ def list_data(database=None, pprint_columns=None, output=False, **kwargs):
 
 class KidsDB(Table):
     def __init__(
-        self, *args, filename=None, dirs=None, re_pattern=None, extract_func=None, pprint_columns=None, **kwargs
+            self, *args, filename=None, dirs=None, re_pattern=None, extract_func=None, pprint_columns=None, **kwargs
     ):
         super().__init__(*args, **kwargs)
 
@@ -506,7 +392,7 @@ class KidparDB(Table):
 
 DB_SCAN = KidsDB(filename=DB_SCAN_FILE, re_pattern=RE_SCAN, extract_func=scan_columns, dirs=BASE_DIRS)
 DB_EXTRA = KidsDB(filename=DB_EXTRA_FILE, re_pattern=RE_EXTRA, extract_func=extra_columns, dirs=BASE_DIRS)
-DB_TABLE = KidsDB(filename=DB_TABLE_FILE, re_pattern=RE_TABLE, extract_func=table_columns, dirs=BASE_DIRS)
+DB_TABLE = KidsDB(filename=DB_TABLE_FILE, re_pattern=RE_INLAB, extract_func=inlab_columns, dirs=BASE_DIRS)
 
 DB_KIDPAR = KidparDB(filename=DB_KIDPAR_FILE, re_pattern=RE_KIDPAR, calib_dir=CALIB_DIR)
 
@@ -519,7 +405,6 @@ list_scan = partial(list_data, database=DB_SCAN, pprint_columns=["date", "scan",
 list_extra = partial(list_data, database=DB_EXTRA, pprint_columns=["name", "date", "size"])
 list_table = partial(list_data, database=DB_TABLE, pprint_columns=["name", "date", "scan", "size"])
 get_kidpar = DB_KIDPAR.get_kidpar
-
 
 # self = KidparDB(
 #     [
