@@ -964,3 +964,171 @@ def psd_cal(datas, Fs, rebin):
         items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
 
     return freq, np.vstack(items)
+
+
+def multipolyvander(x, deg):
+    """Multi Vandermonde matrix of given degree."""
+
+    v = [np.polynomial.polynomial.polyvander(_x, _deg) for _x, _deg in zip(x, deg)]
+
+    # Force non-constant terms for upper van der mond matrices
+    for _v in v[1:]:
+        _v[:, 0] = 0
+
+    return np.hstack(v)
+
+
+# from numpy.polynomial.polyutils._fit
+def multipolyfit(x, y, deg, rcond=None, full=False, w=None):
+    """Least-squares fit of a multi-polynomial to data.
+
+    Return the coefficients of a multi-polynomial of several degree `deg` that is the
+    least squares fit to the data values `y` given at several points `xs`.
+    The fitted polynomial(s) are in the form
+
+    .. math::  p(x) = c_0 + c_1 * x[0] + ... + c_n * x[0]^n + c_n+1 * x[1] + ... + c_q x[-1]^m,
+
+    where `n` is `deg[0]` and `m` is deg[-1]`, and `q` is the sum of `deg`
+
+    Parameters
+    ----------
+    x : array_like, shape (`N`, `M`,)
+        multi x-coordinates of the `M` sample (data) points.
+    y : array_like, shape (`M`,) or (`M`, `K`)
+        y-coordinates of the sample points.  Several sets of sample points
+        sharing the same x-coordinates can be (independently) fit with one
+        call to `polyfit` by passing in for `y` a 2-D array that contains
+        one data set per column.
+    deg : list or list of set of int, (`N`)
+        Degree(s) of the fitting polynomials for the first dimension of `x`
+    rcond : float, optional
+        Relative condition number of the fit.  Singular values smaller
+        than `rcond`, relative to the largest singular value, will be
+        ignored.  The default value is ``len(x)*eps``, where `eps` is the
+        relative precision of the platform's float type, about 2e-16 in
+        most cases.
+    full : bool, optional
+        Switch determining the nature of the return value.  When ``False``
+        (the default) just the coefficients are returned; when ``True``,
+        diagnostic information from the singular value decomposition (used
+        to solve the fit's matrix equation) is also returned.
+    w : array_like, shape (`M`,), optional
+        Weights. If not None, the contribution of each point
+        ``(x_0[i], x_1[i], ...,x_n[i], y[i])`` to the fit is weighted by `w[i]`. Ideally the
+        weights are chosen so that the errors of the products ``w[i]*y[i]``
+        all have the same variance.  The default value is None.
+
+    Returns
+    -------
+    coef : list of ndarray, shape (`deg_i` + 1,) or (`deg_i` + 1, `K`)
+        Polynomial coefficients ordered from low to high.  If `y` was 2-D,
+        the coefficients in column `k` of `coef` represent the polynomial
+        fit to the data in `y`'s `k`-th column.
+    [residuals, rank, singular_values, rcond] : list
+        These values are only returned if `full` = True
+        resid -- sum of squared residuals of the least squares fit
+        rank -- the numerical rank of the scaled Vandermonde matrix
+        sv -- singular values of the scaled Vandermonde matrix
+        rcond -- value of `rcond`.
+        For more details, see `linalg.lstsq`.
+
+    Notes
+    -----
+    Based on `numpy.polynomial.polyutils._fit`
+    """
+    x = np.asarray(x) + 0.0
+    y = np.asarray(y) + 0.0
+    deg = np.asarray(deg)
+
+    # check arguments.
+    if deg.ndim > 1 or deg.dtype.kind not in "iu" or deg.size == 0:
+        raise TypeError("deg must be an int or non-empty 1-D array of int")
+    if deg.min() < 0:
+        raise ValueError("expected deg >= 0")
+    if x.ndim != len(deg):
+        raise TypeError("expected same dimension for x and deg")
+    if x.size == 0:
+        raise TypeError("expected non-empty vector for x")
+    if y.ndim < 1 or y.ndim > 2:
+        raise TypeError("expected 1D or 2D array for y")
+    if any([len(_x) != len(y) for _x in x]):
+        raise TypeError("expected x and y to have same length")
+
+    van = multipolyvander(x, deg)
+
+    # set up the least squares matrices in transposed form
+    lhs = van.T
+    rhs = y.T
+    if w is not None:
+        w = np.asarray(w) + 0.0
+        if w.ndim != 1:
+            raise TypeError("expected 1D vector for w")
+        if len(y) != len(w):
+            raise TypeError("expected x and w to have same length")
+        # apply weights. Don't use inplace operations as they
+        # can cause problems with NA.
+        lhs = lhs * w
+        rhs = rhs * w
+
+    # set rcond
+    if rcond is None:
+        rcond = len(y) * np.finfo(y.dtype).eps
+
+    # Determine the norms of the design matrix columns.
+    if issubclass(lhs.dtype.type, np.complexfloating):
+        scl = np.sqrt((np.square(lhs.real) + np.square(lhs.imag)).sum(1))
+    else:
+        scl = np.sqrt(np.square(lhs).sum(1))
+    scl[scl == 0] = 1
+
+    # Solve the least squares problem.
+    c, resids, rank, s = np.linalg.lstsq(lhs.T / scl, rhs.T, rcond)
+    c = (c.T / scl).T
+
+    # Put back in list
+    c = [c[first:last] for first, last in zip(np.cumsum([0, *(deg + 1)]), np.cumsum(deg + 1))]
+
+    if full:
+        return c, [resids, rank, s, rcond]
+    else:
+        return c
+
+
+def multipolyval(x, c, tensor=True):
+    """
+    Evaluate a multi polynomial at points x_*.
+
+    Parameters
+    ----------
+    x : array_like, shape (`N`, `M`,)
+        multi x-coordinates of the `M` sample (data) points.
+    c : array_like
+        Array of coefficients ordered so that the coefficients for terms of
+        degree n are contained in c[n]. If `c` is multidimensional the
+        remaining indices enumerate multiple polynomials. In the two
+        dimensional case the coefficients may be thought of as stored in
+        the columns of `c`.
+    tensor : boolean, optional
+        If True, the shape of the coefficient array is extended with ones
+        on the right, one for each dimension of `x`. Scalars have dimension 0
+        for this action. The result is that every column of coefficients in
+        `c` is evaluated for every element of `x`. If False, `x` is broadcast
+        over the columns of `c` for the evaluation.  This keyword is useful
+        when `c` is multidimensional. The default value is True.
+        .. versionadded:: 1.7.0
+    Returns
+    -------
+    values : ndarray, compatible object
+        The shape of the returned array is described above.
+    See Also
+    --------
+    polyval2d, polygrid2d, polyval3d, polygrid3d
+    Notes
+    -----
+
+    Based on numpy.polynomial.polynomial.polyval
+    """
+    c0 = np.polynomial.polynomial.polyval(x[0], c[0])
+    for _x, _c in zip(x[1:], c[1:]):
+        c0 += np.polynomial.polynomial.polyval(_x, _c)
+    return c0

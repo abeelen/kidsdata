@@ -31,13 +31,12 @@ from .utils import cpu_count
 from .utils import roll_fft, build_celestial_wcs, extend_wcs
 from .utils import _import_from
 from .utils import interferograms_regrid, project_3d
+from .utils import multipolyfit, multipolyval
 
 from .utils import psd_cal
 from . import kids_plots
 
 from .kids_calib import ModulationValue, mod_masq_to_flag
-from .db import RE_SCAN
-
 from .ftsdata import FTSData
 
 
@@ -325,7 +324,7 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        The modulation and flagged from A_masq are used to mask the interferograms,
+        The modulation and flagged from mod_masq are used to mask the interferograms,
         glitches are optionnaly removed with a simple median absolute deviation threshold
 
         Class properties which can change its behavior :
@@ -337,29 +336,27 @@ class KissSpectroscopy(KissRawData):
         glitches_threshold : float
             fake detection threshold
         """
-        self._KissRawData__check_attributes(["A_masq", "kidfreq"])
+        self._KissRawData__check_attributes(["kidfreq"])
 
         self.__log.info("Masking modulation phases")
 
-        # TODO: Should be done elsewhere
-        # TODO: Do not use A_masq here, but rather the proper masq for each box !!
-        A_masq = self.A_masq
+        mod_masq = self.mod_masq
 
-        # Make sure we have no issues with A_masq
+        # Make sure we have no issues with mod_masq
         structure = np.zeros((3, 3), np.bool)
         structure[1] = True
 
-        # A_masq has problems when != (0,1,3), binary_closing opening,
+        # mod_masq has problems when != (0,1,3), binary_closing opening,
         # up to 6 iterations (see scan 800 iint=7)
-        A_masq = binary_opening(A_masq * 4, structure, iterations=4)
+        mod_masq = binary_opening(mod_masq * 4, structure, iterations=4)
 
-        # Remove a bit more from A_masq, will also remove some good data : TBC
-        A_masq = binary_dilation(A_masq, structure, iterations=2)
+        # Remove a bit more from mod_masq, will also remove some good data : TBC
+        mod_masq = binary_dilation(mod_masq, structure, iterations=2)
 
         # Make kidfreq into a masked array (copy data just in case here, should not be needed)
         # TODO: This copy the data...
         interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(A_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
+            self.kidfreq, mask=np.tile(mod_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
 
         # Mask nans if present
@@ -703,7 +700,14 @@ class KissSpectroscopy(KissRawData):
 
     @lru_cache(maxsize=1)
     def interferograms_pipeline(
-        self, ikid=None, flatfield="amplitude", baseline=None, cm_func="kidsdata.common_mode.pca_filtering", **kwargs
+        self,
+        ikid=None,
+        flatfield="amplitude",
+        baseline=None,
+        baseline_opd=None,
+        baseline_time=None,
+        cm_func="kidsdata.common_mode.pca_filtering",
+        **kwargs,
     ):
         """Return the interferograms processed by given pipeline.
 
@@ -715,6 +719,10 @@ class KissSpectroscopy(KissRawData):
             the flatfield applied to the data prior to common mode removal (default: amplitude)
         baseline : int, optionnal
             the polynomial degree (in opd space) of final baselines to be removed
+        baseline_opd : int, optionnal
+            the polynomial degree (in opd space) of baselines
+        baseline_time : int, optionnal
+            the polynomial degree (in time space) of baselines
         cm_func : str
             Function to use for the common mode removal, by default 'kidsdata.common_mode.pca_filtering'
         **kwargs :
@@ -772,12 +780,53 @@ class KissSpectroscopy(KissRawData):
             interferograms = np.ma.array(output, mask=interferograms.mask)
 
         if baseline is not None:
-            self.__log.debug("Polynomial baseline per block on laser position of deg {}".format(baseline))
+            warnings.warn("baseline is deprecated, use baseline_opd and/or baseline_time instead", DeprecationWarning)
+            if baseline_opd is None:
+                baseline_opd = baseline
+            if baseline_time is None:
+                baseline_time = baseline
+
+        if baseline_opd is not None and baseline_time is not None:
+            self.__log.debug(
+                "Polynomial baseline per block on laser position ({}) and time position ({})".format(
+                    baseline_opd, baseline_time
+                )
+            )
             baselines = []
+            _time = np.arange(self.nptint)
+            # Mean weight, to avoid masked region
+            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
             # TODO: Can be parallalized like the continuum
             for _laser, _output in zip(self.laser, interferograms.swapaxes(0, 1)):
                 # .filled is mandatory here...
-                p = np.polynomial.polynomial.polyfit(_laser, _output.T.filled(0), deg=baseline)
+                p = multipolyfit((_time, _laser), _output.T.filled(0), deg=(baseline_time, baseline_opd), w=_w)
+                baselines.append(multipolyval((_time, _laser), p))
+
+            interferograms -= np.array(baselines).swapaxes(0, 1)
+
+        elif baseline_opd is not None:
+            self.__log.debug("Polynomial baseline per block on laser position of deg {}".format(baseline_opd))
+            baselines = []
+            # Mean weight, to avoid masked region
+            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
+            # TODO: Can be parallalized like the continuum
+            for _laser, _output in zip(self.laser, interferograms.swapaxes(0, 1)):
+                # .filled is mandatory here...
+                p = np.polynomial.polynomial.polyfit(_laser, _output.T.filled(0), deg=baseline_opd, w=_w)
+                baselines.append(np.polynomial.polynomial.polyval(_laser, p))
+
+            interferograms -= np.array(baselines).swapaxes(0, 1)
+
+        elif baseline_time is not None:
+            self.__log.debug("Polynomial baseline per block on time position of deg {}".format(baseline_time))
+            baselines = []
+            _time = np.arange(self.nptint)
+            # Mean weight, to avoid masked region
+            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
+            # TODO: Can be parallalized like the continuum
+            for _output in interferograms.swapaxes(0, 1):
+                # .filled is mandatory here...
+                p = np.polynomial.polynomial.polyfit(_time, _output.T.filled(0), deg=baseline_time, w=_w)
                 baselines.append(np.polynomial.polynomial.polyval(_laser, p))
 
             interferograms -= np.array(baselines).swapaxes(0, 1)
@@ -785,7 +834,7 @@ class KissSpectroscopy(KissRawData):
         return interferograms
 
     def _build_3d_wcs(
-        self, ikid=None, wcs=None, coord="diff", cdelt=(0.1, 0.1, 0.2), cunit=("deg", "deg", "mm"), **kwargs,
+        self, ikid=None, wcs=None, coord="diff", cdelt=(0.1, 0.1, 0.2), cunit=("deg", "deg", "mm"), **kwargs
     ):
         """Compute wcs and project the telescope position and optical path differences.
 
