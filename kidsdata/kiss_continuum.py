@@ -545,7 +545,7 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        datas = self.continuum[ikid]
+        datas = self.continuum_pipeline(ikid=ikid, **kwargs)
 
         Fs = self.param_c["acqfreq"]
 
@@ -557,7 +557,7 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        freq, psds = self.continuum_psds(ikid=ikid, rebin=rebin)
+        freq, psds = self.continuum_psds(ikid=ikid, rebin=rebin, **kwargs)
 
         return (
             kids_plots.plot_psd(psds, freq, ikid, self.list_detector[ikid], **kwargs),

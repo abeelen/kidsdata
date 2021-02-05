@@ -1202,18 +1202,27 @@ class KissSpectroscopy(KissRawData):
 
         return (outputs, weights, hits), wcs
 
-    def interferograms_psds(self, datas, Fs, rebin, *args, **kwargs):
-        freq, psds = psd_cal(datas, Fs, rebin)
-        return freq, psds
+    def interferograms_psds(self, ikid=None, rebin=1, **kwargs):
 
-    def plot_interferograms_psds(self, datas, Fs, rebin, ikid, *args, **kwargs):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        freq, psds = self.interferograms_psds(datas, Fs, rebin)
+        datas = self.interferograms_pipeline(ikid=tuple(ikid), **kwargs)
+
+        Fs = self.param_c["acqfreq"]
+
+        freq, psds = psd_cal(datas, Fs, rebin)
+
+        return freq, psds
+
+    def plot_interferograms_psds(self, ikid=None, rebin=1, **kwargs):
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        freq, psds = self.interferograms_psds(ikid=ikid, rebin=rebin, **kwargs)
 
         return (
-            kids_plots.plot_psd(psds, freq, ikid, self.list_detector, xmin=None, xmax=None, ymax=None, ymin=None),
+            kids_plots.plot_psd(psds, freq, ikid, self.list_detector[ikid], **kwargs),
             freq,
             psds,
         )
