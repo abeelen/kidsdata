@@ -198,12 +198,7 @@ class KissRawData(KidsRawData):
             self.__dict__[ckey] = self.__calib[ckey]
 
         if clean_raw:
-            # Once calibrated, drop the raw data !!!
-            for key in getattr(self, "_KidsRawData__dataSd").keys():
-                delattr(self, key)
-            del key
-            delattr(self, "_KidsRawData__dataSd")
-            # all references should be freed !!
+            self._clean_data("_KidsRawData__dataSd")
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read so are computed...

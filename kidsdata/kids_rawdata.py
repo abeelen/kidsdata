@@ -24,7 +24,7 @@ from .read_kidsdata import read_info, read_all, read_raw
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
-from .utils import roll_fft
+from .utils import roll_fft, interp1d_nan
 
 from .db import RE_SCAN, RE_EXTRA, RE_TABLE, RE_DIR
 from .db import get_kidpar
@@ -569,6 +569,25 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             **kwargs
         )
 
+    def _clean_data(self, key):
+        """Remove data from the object.
+
+        Parameters
+        ----------
+        key : str (dataSc|dataSd|dataUc|dataUd)
+            the data to clean
+        """
+        if isinstance(getattr(self, key, None), dict):
+            self.__log.debug("Cleaning top level {}".format(key))
+            # delete from the top level dictionnary
+            for _key in getattr(self, key).keys():
+                delattr(self, _key)
+            del _key
+            # delete the dictionnary itself
+            self.__log.debug("Cleaning {}".format(key))
+            delattr(self, key)
+            # all references should be freed !!
+
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read some are computed...
     def __check_attributes(self, attr_list, dependancies=None, read_missing=False):
@@ -701,8 +720,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
 
         self.__check_attributes([lon_coord, lat_coord, "mask_tel"])
 
-        lon = getattr(self, lon_coord)
-        lat = getattr(self, lat_coord)
+        lon = getattr(self, lon_coord).copy()
+        lat = getattr(self, lat_coord).copy()
         mask = getattr(self, "mask_tel")
 
         if self.position_shift is None:
@@ -713,11 +732,17 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             lon = np.roll(lon, self.position_shift)
             lat = np.roll(lat, self.position_shift)
             if mask is not False:
+                mask = mask.copy()
                 mask = np.roll(mask, self.position_shift)
         elif isinstance(self.position_shift, (float, np.float, np.float32, np.float64)):
-            lon = roll_fft(lon, self.position_shift)
-            lat = roll_fft(lat, self.position_shift)
+            # replace flagged values by interpolated values before performing the ffts...
+            for item in [lon, lat]:
+                item[mask] = np.nan
+                item[:] = interp1d_nan(item)
+                item[:] = roll_fft(item, self.position_shift)
+
             if mask is not False:
+                mask = mask.copy()
                 mask = roll_fft(mask.astype(float), self.position_shift) > 0.5
 
         return lon, lat, mask

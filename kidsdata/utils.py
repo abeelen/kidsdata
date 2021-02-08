@@ -50,6 +50,7 @@ def interp1d_nan(arr):
     arr : 1d array_like
         the same 1d array with nan linearly interpolated
     """
+    arr = np.array(arr)
     nans = np.isnan(arr)
     if np.any(nans):
         x = arr.nonzero()[0]
