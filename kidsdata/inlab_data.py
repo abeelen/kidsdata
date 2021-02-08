@@ -5,6 +5,7 @@ from functools import partial
 from autologging import logged
 
 from scipy.signal import savgol_filter
+from scipy.ndimage.morphology import binary_closing
 
 from astropy.stats import mad_std
 
@@ -125,21 +126,21 @@ class InLabData(KissContinuum, KissSpectroscopy):
             # speed = np.sqrt(np.diff(tabx, append=0)**2 + np.diff(taby, append=0)**2)
             # Flag small speed which sometimes could represent most of the data
             mask |= speed < min_speed
+            mask = binary_closing(mask, iterations=10)
+
             med_speed, mad_speed = mad_med(speed[~mask])
             if mad_speed > 0:
                 mask |= np.abs(speed - med_speed) > speed_sigma_clipping * mad_speed
 
-            from scipy.ndimage.morphology import binary_closing
-
-            # Remove singletons, and doublons
-            mask = binary_closing(mask, iterations=2)
+            # Remove large singletons (up to 10 appart)
+            mask = binary_closing(mask, iterations=10)
 
         if mad_std(tabx) == 0 and mad_std(taby) == 0:
             self.__log.info("Non moving planet")
             mask = np.zeros_like(tabx, dtype=bool)
             delta_pix = 1
         elif delta_pix is None:
-            # Normalization of the tab position between -0.5, 0.5
+            # Normalization of the tab position
             delta_x = tabx[~mask].max() - tabx[~mask].min()
             delta_y = taby[~mask].max() - taby[~mask].min()
             delta_pix = np.max([delta_x, delta_y])
@@ -156,9 +157,11 @@ class InLabData(KissContinuum, KissSpectroscopy):
         self.__log.warning("Masking {:3.0f} % of the data from speed".format(np.mean(mask) * 100))
 
         if plot:
-            fig, ax = plt.subplots()
-            ax.scatter(tabdiff_Az, tabdiff_El)
-            ax.scatter(tabdiff_Az[~mask], tabdiff_El[~mask])
+            fig, axes = plt.subplots(nrows=2)
+            axes[0].semilogy(speed)
+            axes[0].plot(mask)
+            axes[1].scatter(tabdiff_Az, tabdiff_El)
+            axes[1].scatter(tabdiff_Az[~mask], tabdiff_El[~mask])
 
         # fix_table & shift  before!!
         if (
@@ -167,18 +170,20 @@ class InLabData(KissContinuum, KissSpectroscopy):
             and self.mask_tel.shape[0] != self.continuum.shape[1]
         ):
             self._tabdiff_Az = (
-                np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+                np.ma.array(self._tabdiff_Az, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).filled(np.nan)
             )
             self._tabdiff_El = (
-                np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).data
+                np.ma.array(self._tabdiff_El, mask=self.mask_tel).reshape(-1, self.nptint).mean(axis=1).filled(np.nan)
             )
             self.mask_tel = (
-                self.mask_tel.reshape(-1, self.nptint).mean(axis=1) > 0.8
+                (self.mask_tel.reshape(-1, self.nptint).mean(axis=1) > 0.8)
+                | np.isnan(self._tabdiff_Az)
+                | np.isnan(self._tabdiff_El)
             )  # Allow for 80% flagged positional data
 
         return delta_pix
 
-    def _from_phase(self):
+    def _from_phase(self, clean_raw=False):
         # Non moving mirror -> keep everything oversampled as continuum :
         if mad_std(self.laser.mean(0)) < 1:
             self.__log.info("Non moving laser, keeping fully sampled data")
@@ -222,6 +227,9 @@ class InLabData(KissContinuum, KissSpectroscopy):
             self.kidfreq = np.vstack(kidfreq)
 
             self.A_masq = np.zeros(self.ph_IQ.shape[1:])
+
+        if clean_raw:
+            self._clean_data("_KidsRawData__dataSd")
 
     def _change_nptint(self, nptint):
 
