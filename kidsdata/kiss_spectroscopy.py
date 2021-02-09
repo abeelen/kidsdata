@@ -36,7 +36,7 @@ from .utils import multipolyfit, multipolyval
 from .utils import psd_cal
 from . import kids_plots
 
-from .kids_calib import ModulationValue, mod_masq_to_flag
+from .kids_calib import ModulationValue, mod_mask_to_flag
 from .ftsdata import FTSData
 
 
@@ -324,7 +324,7 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        The modulation and flagged from mod_masq are used to mask the interferograms,
+        The modulation and flagged from mod_mask are used to mask the interferograms,
         glitches are optionnaly removed with a simple median absolute deviation threshold
 
         Class properties which can change its behavior :
@@ -340,23 +340,23 @@ class KissSpectroscopy(KissRawData):
 
         self.__log.info("Masking modulation phases")
 
-        mod_masq = self.mod_masq
+        mod_mask = self.mod_mask
 
-        # Make sure we have no issues with mod_masq
+        # Make sure we have no issues with mod_mask
         structure = np.zeros((3, 3), np.bool)
         structure[1] = True
 
-        # mod_masq has problems when != (0,1,3), binary_closing opening,
+        # mod_mask has problems when != (0,1,3), binary_closing opening,
         # up to 6 iterations (see scan 800 iint=7)
-        mod_masq = binary_opening(mod_masq * 4, structure, iterations=4)
+        mod_mask = binary_opening(mod_mask * 4, structure, iterations=4)
 
-        # Remove a bit more from mod_masq, will also remove some good data : TBC
-        mod_masq = binary_dilation(mod_masq, structure, iterations=2)
+        # Remove a bit more from mod_mask, will also remove some good data : TBC
+        mod_mask = binary_dilation(mod_mask, structure, iterations=2)
 
         # Make kidfreq into a masked array (copy data just in case here, should not be needed)
         # TODO: This copy the data...
         interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(mod_masq, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
+            self.kidfreq, mask=np.tile(mod_mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
 
         # Mask nans if present
@@ -944,10 +944,10 @@ class KissSpectroscopy(KissRawData):
         if isinstance(interferograms, np.ma.MaskedArray):
             interferograms = interferograms.data
 
-        mod_masq = self.mod_masq
+        mod_mask = self.mod_mask
 
-        A_high = mod_masq_to_flag(mod_masq, ModulationValue.high)
-        A_low = mod_masq_to_flag(mod_masq, ModulationValue.low)
+        A_high = mod_mask_to_flag(mod_mask, ModulationValue.high)
+        A_low = mod_mask_to_flag(mod_mask, ModulationValue.low)
 
         # Compute median standard deviation in the modulation points
         mad_stds = []

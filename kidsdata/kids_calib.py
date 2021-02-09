@@ -212,7 +212,7 @@ class ModulationValue(Enum):
     high = 1
 
 
-def mod_masq_to_flag(A_masq, modulation):
+def mod_mask_to_flag(A_masq, modulation):
     """Transform A_masq to clean flag value depending on the modulation value
 
     Parameters
@@ -246,7 +246,7 @@ def mod_masq_to_flag(A_masq, modulation):
 def get_calfact_3pts(
     dataI,
     dataQ,
-    mod_masq,
+    mod_mask,
     fmod=1,
     mod_factor=0.5,
     method=("per", "3tps"),
@@ -264,7 +264,7 @@ def get_calfact_3pts(
     ----------
     dataI, dataQ : array_like, shape (ndet, nint, nptint)
         the raw KIDS I & Q data
-    mod_masq : array_like, shape (nint, nptint)
+    mod_mask : array_like, shape (nint, nptint)
         the corresponding modulation flags
     fmod : float
         the modulation frequency in Hz
@@ -312,10 +312,10 @@ def get_calfact_3pts(
     # shape = dataI.shape
     # ndet, nint, nptint = shape
 
-    A_low = mod_masq_to_flag(mod_masq, ModulationValue.low) if fix_masq else mod_masq == ModulationValue.low.value
-    A_high = mod_masq_to_flag(mod_masq, ModulationValue.high) if fix_masq else mod_masq == ModulationValue.high.value
+    A_low = mod_mask_to_flag(mod_mask, ModulationValue.low) if fix_masq else mod_mask == ModulationValue.low.value
+    A_high = mod_mask_to_flag(mod_mask, ModulationValue.high) if fix_masq else mod_mask == ModulationValue.high.value
     A_normal = (
-        mod_masq_to_flag(mod_masq, ModulationValue.normal) if fix_masq else mod_masq == ModulationValue.normal.value
+        mod_mask_to_flag(mod_mask, ModulationValue.normal) if fix_masq else mod_mask == ModulationValue.normal.value
     )
 
     # Selection of the good data for each mask and reduction of the data to one point with `_reduc`
