@@ -239,7 +239,7 @@ def mod_mask_to_flag(A_masq, modulation):
         _masq = binary_erosion(_masq, structure, output=_masq, iterations=2)
     else:
         # Bug in CONCERTO : Remove one point of the normal mask
-        _masq = binary_erosion(_masq, structure, output=_masq, iterations=1)
+        _masq = binary_erosion(_masq, structure, output=_masq, iterations=2)
         # Bug in KISS : remove the first 6 points of the normal mask
         _masq[:, :6] = False
 
