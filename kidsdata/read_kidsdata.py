@@ -20,6 +20,8 @@ from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
 from .utils import _import_from, sizeof_fmt, pprint_list
 
+logger = logging.getLogger(__name__)
+
 # import line_profiler
 # import atexit
 # profile = line_profiler.LineProfiler()
@@ -620,9 +622,9 @@ def clean_namedet(namedet, fix=True):
     if np.any(namedet[:, 6:]):
         if fix:
             namedet[:, 6:] = 0
-            warnings.warn("Corrupted namedet truncated to 6 characters")
+            logger.warning("Corrupted namedet truncated to 6 characters")
         else:
-            warnings.warn("Corrupted namedet")
+            logger.warning("Corrupted namedet")
     return [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
 
 

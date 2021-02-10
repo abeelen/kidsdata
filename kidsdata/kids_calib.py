@@ -16,6 +16,7 @@ from .utils import fit_circle_3pts, fit_circle_algebraic, fit_circle_leastsq, ra
 
 import logging
 
+logger = logging.getLogger(__name__)
 
 """
 Module for KIDs calibration a la KISS
@@ -85,7 +86,7 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
 
         # Check for cases with missing data in one of the modulation (all flagged)
         if np.all(~l1) or np.all(~l2) or np.all(~l3):
-            warnings.warn("Interferogram {} could not be calibrated".format(iint))
+            logger.warning("Interferogram {} could not be calibrated".format(iint))
             continue
 
         x1 = np.median(Icurrent[:, l1], axis=1)
@@ -426,7 +427,7 @@ def get_calfact_3pts(
 
         bad_interferograms = np.isnan(Icc) | np.isnan(Qcc)
         if np.any(bad_interferograms):
-            warnings.warn("Interferogram {} could not be calibrated".format(np.unique(np.where(bad_interferograms)[1])))
+            logger.warning("Interferogram {} could not be calibrated".format(np.unique(np.where(bad_interferograms)[1])))
 
         # filtering
         if nfilt is not None:

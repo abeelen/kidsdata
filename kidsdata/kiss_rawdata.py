@@ -1,6 +1,7 @@
 import warnings
 import numpy as np
 import datetime
+import logging
 
 from functools import lru_cache
 
@@ -26,15 +27,17 @@ from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
 from .utils import _import_from, pprint_list
 
+logger = logging.getLogger(__name__)
+
 try:
     from .kiss_pointing_model import KISSPmodel
 
 except ModuleNotFoundError:
-    warnings.warn("kiss_pointing_model not installed", Warning)
+    logger.warning("kiss_pointing_model not installed")
 
     class KISSPmodel(object):
         def __init__(self, *args, **kwargs):
-            warnings.warn("No pointing correction", Warning)
+            logger.warning("No pointing correction")
             pass
 
         def telescope2sky(self, *args):
@@ -287,7 +290,7 @@ class KissRawData(KidsRawData):
     def plot_pointing(self, *args, coord="tl", **kwargs):
         """Plot azimuth and elevation to check pointing."""
         # TODO: Generalize that function
-        warnings.warn("Deprecated function needs update.", DeprecationWarning)
+        logger.warning("Deprecated function needs update.", DeprecationWarning)
         self.__check_attributes(["F_{}_az".format(coord), " F_{}_el".format(coord)])
         return kids_plots.checkPointing(self, *args, **kwargs)
 
@@ -351,11 +354,11 @@ class KissRawData(KidsRawData):
 
         # Support for old parameters
         if "F_azimuth" in self.__dict__ and "F_elevation" in self.__dict__:
-            warnings.warn("F_azimuth and F_elevation are deprecated", DeprecationWarning)
+            logger.warning("F_azimuth and F_elevation are deprecated", DeprecationWarning)
 
             # Pointing have changed... from Interpolated in Sc to real sampling in Uc
             if self.F_azimuth.shape == (self.nint * self.nptint,):
-                warnings.warn("Interpolated positions", PendingDeprecationWarning)
+                logger.warning("Interpolated positions", PendingDeprecationWarning)
                 self.F_tl_Az = np.median(self.F_azimuth.reshape((self.nint, self.nptint)), axis=1)
                 self.F_tl_El = np.median(self.F_elevation.reshape((self.nint, self.nptint)), axis=1)
             elif self.F_azimuth.shape == (self.nint,):
