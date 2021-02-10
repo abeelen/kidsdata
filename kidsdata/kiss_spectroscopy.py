@@ -340,23 +340,12 @@ class KissSpectroscopy(KissRawData):
 
         self.__log.info("Masking modulation phases")
 
-        mod_mask = self.mod_mask
-
-        # Make sure we have no issues with mod_mask
-        structure = np.zeros((3, 3), np.bool)
-        structure[1] = True
-
-        # mod_mask has problems when != (0,1,3), binary_closing opening,
-        # up to 6 iterations (see scan 800 iint=7)
-        mod_mask = binary_opening(mod_mask * 4, structure, iterations=4)
-
-        # Remove a bit more from mod_mask, will also remove some good data : TBC
-        mod_mask = binary_dilation(mod_mask, structure, iterations=2)
+        mask = mod_mask_to_flag(self.mod_mask, ModulationValue.normal)
 
         # Make kidfreq into a masked array (copy data just in case here, should not be needed)
         # TODO: This copy the data...
         interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(mod_mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
+            self.kidfreq, mask=np.tile(mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
 
         # Mask nans if present
@@ -748,22 +737,22 @@ class KissSpectroscopy(KissRawData):
             ikid = np.asarray(ikid)
 
         # KIDs selection : this copy the data
-        interferograms = self.interferograms[ikid]
+        interferograms = self.interferograms[ikid].copy()
 
         self.__log.debug("Applying flatfield : {}".format(flatfield))
         # FlatField normalization
-        if flatfield is None:
-            flatfield = np.ones(interferograms.shape[0])
-        elif flatfield in ["amplitude", "interferogram", "specFF"] and flatfield in self.kidpar.keys():
+        if flatfield in ["amplitude", "interferogram", "specFF"] and flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             flatfield = _kidpar[flatfield].data
-        else:
+        elif flatfield is not None:
             raise ValueError("Can not use this flat field : {}".format(flatfield))
 
         if isinstance(flatfield, MaskedColumn):
             flatfield = flatfield.filled(np.nan)
 
-        interferograms /= flatfield[:, np.newaxis, np.newaxis]
+        if flatfield is not None:
+            interferograms /= flatfield[:, np.newaxis, np.newaxis]
+
         shape = interferograms.shape
 
         if cm_func is not None:
@@ -805,7 +794,7 @@ class KissSpectroscopy(KissRawData):
             interferograms -= np.array(baselines).swapaxes(0, 1)
 
         elif baseline_opd is not None:
-            self.__log.debug("Polynomial baseline per block on laser position of deg {}".format(baseline_opd))
+            self.__log.debug("Polynomial baseline per block on laser position ({})".format(baseline_opd))
             baselines = []
             # Mean weight, to avoid masked region
             _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
@@ -818,7 +807,7 @@ class KissSpectroscopy(KissRawData):
             interferograms -= np.array(baselines).swapaxes(0, 1)
 
         elif baseline_time is not None:
-            self.__log.debug("Polynomial baseline per block on time position of deg {}".format(baseline_time))
+            self.__log.debug("Polynomial baseline per block on time position ({})".format(baseline_time))
             baselines = []
             _time = np.arange(self.nptint)
             # Mean weight, to avoid masked region

@@ -231,13 +231,16 @@ def mod_mask_to_flag(A_masq, modulation):
 
     # A_masq has problems when != (0,1,3), binary_closing opening,
     # up to 6 iterations (see scan 800 iint=7)
-    _masq = binary_opening(_masq * 4, structure, output=_masq, iterations=4)
+    # binary_opening remove 6-singletons
+    _masq = binary_opening(_masq, structure, output=_masq, iterations=6)
 
-    # Remove 2 samples at the edges of _low and _high to insure proper values
     if modulation is not modulation.normal:
-        _masq = binary_erosion(_masq * 2, structure, output=_masq, iterations=2)
+        # Remove 2 samples at the edges of _low and _high to insure proper values
+        _masq = binary_erosion(_masq, structure, output=_masq, iterations=2)
     else:
-        # remove the first 6 points of the normal mask
+        # Bug in CONCERTO : Remove one point of the normal mask
+        _masq = binary_erosion(_masq, structure, output=_masq, iterations=1)
+        # Bug in KISS : remove the first 6 points of the normal mask
         _masq[:, :6] = False
 
     return _masq

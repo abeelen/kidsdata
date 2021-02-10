@@ -185,18 +185,17 @@ class KissContinuum(KissRawData):
 
         # FlatField normalization
         self.__log.info("Applying flatfield : {}".format(flatfield))
-        if flatfield is None:
-            flatfield = np.ones(bgrd.shape[0])
-        elif flatfield in self.kidpar.keys():
+        if flatfield in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             flatfield = _kidpar[flatfield].data
-        else:
+        elif flatfield is not None:
             raise ValueError("Can not use this flatfield : {}".format(flatfield))
 
         if isinstance(flatfield, (MaskedColumn, np.ma.MaskedArray)):
             flatfield = flatfield.filled(np.nan)
 
-        bgrd /= flatfield[:, np.newaxis]
+        if flatfield is not None:
+            bgrd /= flatfield[:, np.newaxis]
 
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
