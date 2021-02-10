@@ -474,6 +474,8 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
                 unit_keys.append(key)
         for key in unit_keys:
             _key, exp = key.split(":")
+            if exp[0] == "e":
+                exp = exp[1:]
             dataSc[_key] = np.float32(dataSc.pop(key) / 10 ** int(exp))
 
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
