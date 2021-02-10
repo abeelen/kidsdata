@@ -25,7 +25,7 @@ DB_KIDPAR_FILE = CALIB_DIR / "kidpardb.fits"
 
 __all__ = ["list_scan", "get_scan", "list_extra", "get_extra", "list_table", "get_filename", "get_kidpar"]
 
-def get_scan(scan=None):
+def get_scan(scan=None): # TODO -- DONE
     """Get filename of corresponding scan number.
 
     Parameters
@@ -54,7 +54,7 @@ def get_scan(scan=None):
     return DB_SCAN[mask]["filename"].data[0]
 
 
-def get_extra(start=None, end=None):
+def get_extra(start=None, end=None): # TODO - - DONE
     """Get path for extra scans (typically skydips or dome observation) between two timestamp.
 
     Parameters
@@ -74,7 +74,7 @@ def get_extra(start=None, end=None):
     return DB_EXTRA[mask]["filename"].data
 
 
-def get_filename(filename=None):
+def get_filename(filename=None): # TODO DONE
     """Get path base on filenames.
 
     Parameters
@@ -110,7 +110,7 @@ def get_filename(filename=None):
     return result
 
 
-def list_data(database=None, pprint_columns=None, output=False, **kwargs):
+def list_data(database=None, pprint_columns=None, output=False, **kwargs): # TODO
     """List (with filtering) all data in the database.
 
     Notes
