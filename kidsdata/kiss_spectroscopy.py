@@ -345,7 +345,7 @@ class KissSpectroscopy(KissRawData):
         # Make kidfreq into a masked array (copy data just in case here, should not be needed)
         # TODO: This copy the data...
         interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
+            self.kidfreq, mask=np.tile(~mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
         )
 
         # Mask nans if present
