@@ -35,6 +35,7 @@ if not CACHE_DIR.exists():
     logging.warning("Cache dir do not exist : {}".format(CACHE_DIR))
 
 
+@logged
 class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_methods=True)):
     """Class dealing with KIDS raw data.
 
