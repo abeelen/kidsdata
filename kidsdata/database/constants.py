@@ -19,6 +19,8 @@ RE_TABLE = re.compile(r"X(\d{2,2})_(\d{2,2})_Tablebt_scanStarted_(\d*)$")
 # for kidpar files
 RE_KIDPAR = re.compile(r"^e_kidpar")
 
+DB_URI = os.getenv("DB_URI", None)
+
 
 # { kd field : mapping }
 # mapping being :
