@@ -15,7 +15,7 @@ from astropy.wcs import WCS
 from astropy.table import Table
 from astropy.io import fits
 
-from .db import get_scan
+from .database.api import get_scan
 from .kiss_data import KissData
 from .kids_plots import show_contmap
 

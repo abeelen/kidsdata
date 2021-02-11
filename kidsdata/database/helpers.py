@@ -1,24 +1,23 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
 import logging
 
 import numpy as np
+from astropy.io import fits
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, union_all, case
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, scoped_session, sessionmaker
+from sqlalchemy.orm import Session, scoped_session, sessionmaker, aliased
 from sqlalchemy.orm.exc import NoResultFound
 
 from kidsdata.database.constants import RE_DIR, param_colums_key_mapping
-from kidsdata.database.models import Scan, Extra, Table, Param
+from kidsdata.database.models import Scan, Extra, Table, Param, Kidpar
 
 logger = logging.getLogger(__name__)
-
-session = None
 
 
 def one(session, model, **filters):
@@ -53,16 +52,6 @@ def get_or_create(session, model, create_method="", create_method_kwargs=None, o
             return one(session, model, **kwargs)
 
 
-def stat_filename(file_path):
-    # return file stats
-    stat = file_path.stat()
-    return {
-        "size": stat.st_size,
-        "ctime": datetime.fromtimestamp(stat.st_ctime),
-        "mtime": datetime.fromtimestamp(stat.st_mtime),
-    }
-
-
 def create_row(file_path, re_pattern, extract_func=None):
     stat = file_path.stat()
     row = {
@@ -73,8 +62,6 @@ def create_row(file_path, re_pattern, extract_func=None):
         "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
         # "comment": " " * 128
     }
-
-    row.update(stat_filename(file_path))
 
     if extract_func is not None:
         row.update(extract_func(file_path, re_pattern))
@@ -128,29 +115,14 @@ def table_columns(file_path, re_pattern=None):
     return {"date": dtime, "scan": scan}
 
 
-def get_session() -> Session:
-    """Initialize a module level global session
-
-    This is useful when using kidsdata outside an outflow pipeline
-    """
-    global session
-    if session is None:
-        uri = os.getenv("DB_URI", None)
-
-        if uri is None:
-            raise ValueError('Cannot initialize session, environment variable "DB_URI" not found')
-        else:
-            session = scoped_session(sessionmaker((create_engine(uri))))
-
-    return session
-
-
-
-def create_param_rows(session, path):
+def create_param_row(session, path):
     """ Read a scan file header and create a row in the Param table
 
-    IMPORTANT: this function does not commit the changes to database because it
-    is made for parallelization
+    - creates a row in the table Param if not exists already
+    - update the foreign key on the row of Scan/Extra/Table table
+
+    IMPORTANT: this function adds rows to the session but does not commit the
+    changes to database because it is made for parallelization
     """
     logger.debug(f"populating params for scan {path}")
     from ..kids_rawdata import KidsRawData  # To avoid import loop
@@ -191,3 +163,45 @@ def create_param_rows(session, path):
     row.param_id = param_row.id
     del kd
 
+
+def create_kidpar_row(session, file_path):
+    """Creates a Kidpar object (sqlalchmy model object) from a file and returns it
+
+    Raises
+    ------
+    AttributeError :
+    """
+
+    header = fits.getheader(file_path, 1)
+    db_start = header.get("DB-START")
+    db_end = header.get("DB-END")
+    if not db_start and not db_end:
+        raise AttributeError("Could not find fields DB-START or DB-END")
+
+    row = {
+        "file_path": file_path.as_posix(),
+        "name": file_path.name,
+        "start": header.get("DB-START"),
+        "end": header.get("DB-END"),
+    }
+
+    return Kidpar(**row)
+
+
+# https://stackoverflow.com/questions/42552696/sqlalchemy-nearest-datetime
+def get_closest(session, cls, col, the_time):
+    greater = session.query(cls).filter(col > the_time). \
+        order_by(col.asc()).limit(1).subquery().select()
+
+    lesser = session.query(cls).filter(col <= the_time). \
+        order_by(col.desc()).limit(1).subquery().select()
+
+    the_union = union_all(lesser, greater).alias()
+    the_alias = aliased(cls, the_union)
+    the_diff = getattr(the_alias, col.name) - the_time
+    abs_diff = case([(the_diff < timedelta(0), -the_diff)],
+                    else_=the_diff)
+
+    return session.query(the_alias). \
+        order_by(abs_diff.asc()). \
+        first()

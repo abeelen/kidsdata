@@ -53,7 +53,7 @@ class KidparBase:
     __tablename__ = "kidpar"
 
     id = Column(Integer, primary_key=True)
-    filename = Column(String(PATH_MAX), unique=True, nullable=False)
+    file_path = Column(String(PATH_MAX), unique=True, nullable=False)
     name = Column(String(NAME_MAX), nullable=False)
     start = Column(DateTime)
     end = Column(DateTime)

@@ -26,8 +26,8 @@ from .read_kidsdata import info_to_hdf5, data_to_hdf5
 
 from .utils import roll_fft, interp1d_nan
 
-from .db import RE_SCAN, RE_EXTRA, RE_INLAB, RE_DIR
-from .db import get_kidpar
+from .database.constants import RE_SCAN, RE_EXTRA, RE_TABLE, RE_DIR
+from .database.api import get_kidpar
 
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
 
@@ -35,7 +35,6 @@ if not CACHE_DIR.exists():
     logging.warning("Cache dir do not exist : {}".format(CACHE_DIR))
 
 
-@logged
 class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_methods=True)):
     """Class dealing with KIDS raw data.
 
@@ -144,7 +143,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             the object initialized with the header informations
         """
         if isinstance(filename, (int, np.int)):
-            from .db import get_scan  # To avoid circular import
+            from .database.api import get_scan  # To avoid circular import
 
             filename = get_scan(filename)
 
@@ -236,7 +235,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         """Return the obsdate of the observation, based on filename."""
         re_scan = RE_SCAN.match(self.filename.name)
         re_extra = RE_EXTRA.match(self.filename.name)
-        re_inlab = RE_INLAB.match(self.filename.name)
+        RE_TABLE = RE_TABLE.match(self.filename.name)
         re_dir = RE_DIR.match(self.filename.parent.name)
         if re_scan:
             date = re_scan.groups()[0]
@@ -244,7 +243,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         elif re_extra:
             date = "".join(re_extra.groups()[0:3])
             return Time(parse(date), scale="utc")  # UTC ?
-        elif (re_inlab is not None) & (re_dir is not None):
+        elif (RE_TABLE is not None) & (re_dir is not None):
             date = "".join(re_dir.groups()[1:])
             return Time(parse(date), scale="utc")  # UTC ?
         else:
@@ -287,11 +286,11 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     def scan(self):
         """Return the scan number, based on filename."""
         re_scan = RE_SCAN.match(self.filename.name)
-        re_inlab = RE_INLAB.match(self.filename.name)
+        RE_TABLE = RE_TABLE.match(self.filename.name)
         if re_scan:
             return int(re_scan.groups()[2])
-        elif re_inlab:
-            return int(re_inlab.groups()[2])
+        elif RE_TABLE:
+            return int(RE_TABLE.groups()[2])
         else:
             self.__log.warning("No scan from filename")
             return None
@@ -313,12 +312,12 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         """Return the observation type, based on filename."""
         re_scan = RE_SCAN.match(self.filename.name)
         re_extra = RE_EXTRA.match(self.filename.name)
-        re_inlab = RE_INLAB.match(self.filename.name)
+        RE_TABLE = RE_TABLE.match(self.filename.name)
         if re_scan:
             return re_scan.groups()[4]
         elif re_extra:
             return "ManualScan"
-        elif re_inlab:
+        elif RE_TABLE:
             return "TableScan"
         else:
             return "Unknown"
