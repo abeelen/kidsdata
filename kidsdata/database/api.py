@@ -7,7 +7,7 @@ from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingC
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
 
-from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR
+from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR, DB_URI
 from kidsdata.database.helpers import create_param_row, create_kidpar_row, get_closest
 from kidsdata.database.models import Scan, Extra, Table, Kidpar
 
@@ -23,12 +23,11 @@ def get_session() -> Session:
     """
     global global_session
     if global_session is None:
-        uri = os.getenv("DB_URI", None)
 
-        if uri is None:
+        if DB_URI is None:
             raise ValueError('Cannot initialize session, environment variable "DB_URI" not found')
         else:
-            global_session = scoped_session(sessionmaker((create_engine(uri))))
+            global_session = scoped_session(sessionmaker((create_engine(DB_URI))))
 
     return global_session
 
