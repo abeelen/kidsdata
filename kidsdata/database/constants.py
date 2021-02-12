@@ -21,7 +21,7 @@ RE_KIDPAR = re.compile(r"^e_kidpar")
 
 DB_DIR = Path(os.getenv("DB_DIR", "."))
 
-DB_URI = os.getenv("DB_URI", "sqlite:///" + DB_DIR / "kids_data.db")
+DB_URI = os.getenv("DB_URI", "sqlite:///" + str(DB_DIR / "kids_data.db"))
 
 # { kd field : mapping }
 # mapping being :
