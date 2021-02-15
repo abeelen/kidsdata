@@ -1,6 +1,5 @@
 from ._version import get_versions
 
-from .db import *
 from .rta import *
 from .kiss_data import KissData
 from .inlab_data import InLabData

@@ -296,10 +296,10 @@ def skydip(scans):
 
     Notes
     -----
-    One has to give a list of filename, which can be obtained with `get_extra`
+    One has to give a list of filename, which can be obtained with `get_manual`
     >>> from datetime import datetime
-    >>> from kidsdata import get_extra
-    >>> scans = get_extra(start=datetime(2019, 5, 1, 19, 14, 24),
+    >>> from kidsdata import get_manual
+    >>> scans = get_manual(start=datetime(2019, 5, 1, 19, 14, 24),
                           end=datetime(2019, 5, 1, 19, 52, 53))
 
     >>> skydip(scans)

@@ -21,7 +21,6 @@ from .utils import _import_from, cpu_count
 from .utils import psd_cal
 
 from . import kids_plots
-from .db import RE_SCAN
 
 from .continuumdata import ContinuumData
 from astropy.nddata import InverseVariance
