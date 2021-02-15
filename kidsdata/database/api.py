@@ -7,9 +7,9 @@ from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingC
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
 
-from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR, DB_URI
-from kidsdata.database.helpers import create_param_row, create_kidpar_row, get_closest
-from kidsdata.database.models import Scan, Extra, Table, Kidpar
+from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR, DB_URI, BASE_DIRS, RE_ASTRO, RE_MANUAL, RE_TABLEBT
+from kidsdata.database.helpers import create_param_row, create_kidpar_row, get_closest, populate_func, astro_columns, manual_columns, tablebt_columns
+from kidsdata.database.models import Astro, Manual, Tablebt, Kidpar
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +44,23 @@ def get_scan(scan, session=None) -> List[str]:  # TODO
     -------
     file_path : the full path of the file
     """
+
+    # update à chaque fois
+
     if session is None:
         session = get_session()
 
-    file_paths = [file_path for file_path, in session.query(Scan.file_path).filter_by(scan=scan)]
+    populate_astros(session)
+
+    file_paths = [file_path for file_path, in session.query(Astro.file_path).filter_by(scan=scan)]
+
+    # renvoyer 1 file path si il y en a qu'un
 
     return file_paths
 
 
-def get_extra(start, end, session=None) -> List[str]:  # TODO
-    """Get path for extra scans (typically skydips or dome observation) between two timestamp.
+def get_manual(start, end, session=None) -> List[str]:  # TODO
+    """Get path for manual scans (typically skydips or dome observation) between two timestamp.
 
     Parameters
     ----------
@@ -72,9 +79,11 @@ def get_extra(start, end, session=None) -> List[str]:  # TODO
     if session is None:
         session = get_session()
 
+    populate_scans(session)
+
     file_paths = [
         file_path
-        for file_path, in session.query(Extra.file_path).filter(start < Extra.date).filter(Extra.date < end).all()
+        for file_path, in session.query(Manual.file_path).filter(start < Manual.date).filter(Manual.date < end).all()
     ]
 
     return file_paths
@@ -94,8 +103,11 @@ def get_file_path(filename: str, session=None) -> List[str]:
     """
     if session is None:
         session = get_session()
+
+    populate_scans(session)
+
     rows = []
-    for Model in [Scan, Extra, Table]:
+    for Model in [Astro, Manual, Tablebt]:
         rows.extend([file_path for file_path, in session.query(Model.file_path).filter_by(name=filename).all()])
 
     return rows
@@ -111,7 +123,7 @@ def populate_params(session=None):
 
     rows = []
 
-    for Model in [Scan, Extra, Table]:
+    for Model in [Astro, Manual, Tablebt]:
         rows.extend(session.query(Model).filter_by(param_id=None).all())
 
     with Progress(
@@ -163,6 +175,9 @@ def get_kidpar(time: datetime, session=None) -> str:
     if session is None:
         session = get_session()
 
+    # update db before querying
+    populate_kidpar(session)
+
     kidpars = session.query(Kidpar).filter(Kidpar.start < time).filter(Kidpar.end > time).all()
 
     if kidpars:
@@ -180,7 +195,6 @@ def get_kidpar(time: datetime, session=None) -> str:
 
         if time > last_kidpar_time.end:
             logger.warning("No kidpar for this late date, using the latest one in Kidpar table")
-
             return last_kidpar_time
 
         closest_start = get_closest(session, Kidpar, Kidpar.start, time)
@@ -192,3 +206,15 @@ def get_kidpar(time: datetime, session=None) -> str:
         else:
             logger.warning("No kidpar for this date, using the closest one in Kidpar table")
             return closest_end.file_path
+
+
+def populate_scans(session=None):
+
+    if session is None:
+        session = get_session()
+
+    dirs = BASE_DIRS
+
+    populate_func(session, dirs, RE_ASTRO, astro_columns, Astro)
+    populate_func(session, dirs, RE_MANUAL, manual_columns, Manual)
+    populate_func(session, dirs, RE_TABLEBT, tablebt_columns, Tablebt)

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, scoped_session, sessionmaker, aliased
 from sqlalchemy.orm.exc import NoResultFound
 
 from kidsdata.database.constants import RE_DIR, param_colums_key_mapping
-from kidsdata.database.models import Scan, Extra, Table, Param, Kidpar
+from kidsdata.database.models import Astro, Manual, Tablebt, Param, Kidpar
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +89,8 @@ def populate_func(session, dirs, re_pattern=None, extract_func=None, Model=None)
     session.commit()
 
 
-def scan_columns(file_path, re_pattern=None):
-    """Extract func for Scan table"""
+def astro_columns(file_path, re_pattern=None):
+    """Extract func for Astro table"""
     date, hour, scan, source, obsmode = re_pattern.match(file_path.name).groups()
     dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
     scan = int(scan)
@@ -102,13 +102,13 @@ def scan_columns(file_path, re_pattern=None):
     }
 
 
-def extra_columns(file_path, re_pattern=None):
-    """Extract func for Extra table"""
+def manual_columns(file_path, re_pattern=None):
+    """Extract func for Manual table"""
     time_data = [int(item) for item in re_pattern.match(file_path.name).groups()]
     return {"date": datetime(*time_data)}
 
 
-def table_columns(file_path, re_pattern=None):
+def tablebt_columns(file_path, re_pattern=None):
     hour, minute, scan = re_pattern.match(file_path.name).groups()
     _, year, month, day = RE_DIR.match(file_path.parent.name).groups()
     dtime = datetime.strptime(" ".join([year, month, day, hour, minute]), "%Y %m %d %H %M")
@@ -119,7 +119,7 @@ def create_param_row(session, path):
     """ Read a scan file header and create a row in the Param table
 
     - creates a row in the table Param if not exists already
-    - update the foreign key on the row of Scan/Extra/Table table
+    - update the foreign key on the row of Scan/Manual/Tablebt table
 
     IMPORTANT: this function adds rows to the session but does not commit the
     changes to database because it is made for parallelization
@@ -127,7 +127,7 @@ def create_param_row(session, path):
     logger.debug(f"populating params for scan {path}")
     from ..kids_rawdata import KidsRawData  # To avoid import loop
 
-    for Model in [Scan, Extra, Table]:
+    for Model in [Astro, Manual, Tablebt]:
         row = session.query(Model).filter_by(file_path=path).first()
         if row is not None:
             break

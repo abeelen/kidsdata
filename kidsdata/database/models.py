@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from . import Base
 
@@ -7,12 +8,12 @@ NAME_MAX = 255  # /* # chars in a file name */
 PATH_MAX = 4096  # /* # chars in a path name including nul */
 
 
-class Kids:
+class Scan:
     id = Column(Integer, primary_key=True)
     file_path = Column(String(PATH_MAX), unique=True, nullable=False)
     name = Column(String(NAME_MAX), nullable=False)
     # cache filename
-    # instrument name
+    # run enum, vient du 2e dossier parent du fichier
 
     size = Column(Float)
     date = Column(DateTime, nullable=False)
@@ -29,35 +30,56 @@ class Kids:
     # ~7000-15000 fichiers
 
 
-class ScanBase(Kids):
+class AstroBase(Scan):
     """Regular scans"""
-    __tablename__ = "scan"
+    __tablename__ = "astro"
     scan = Column(Integer, nullable=False)
     source = Column(String(128), nullable=False)
     obsmode = Column(String(128), nullable=False)
     # mbfits fichier du téléscope
 
 
-class ExtraBase(Kids):
-    """Extra files"""
-    __tablename__ = "extra"
+class ManualBase(Scan):
+    """Manual files
+    renommer Manual
+    """
+    __tablename__ = "manual"
 
 
-class TableBase(Kids):
-    """Table test file"""
-    __tablename__ = "table"
+class TablebtBase(Scan):
+    """Tablebt test file
+
+    """
+    __tablename__ = "tablebt"
     scan = Column(Integer, nullable=False)
 
 
-class KidparBase:
-    __tablename__ = "kidpar"
-
+class Product:
     id = Column(Integer, primary_key=True)
-    file_path = Column(String(PATH_MAX), unique=True, nullable=False)
-    name = Column(String(NAME_MAX), nullable=False)
     start = Column(DateTime)
     end = Column(DateTime)
+    # foreign key one to many vers astro ou manual ou tablebt
+    valid = Column(Boolean, nullable=False, default=True)
+
+    # @declared_attr
+    @hybrid_property
+    def scans_id(self):
+        return self.astro_id or self.manual_id or self.tablebt_id
+
     # string uuid nullable pour l'id du run qui l'a produite
+
+
+class Shifts(Product):
+    position_shift = Column(Float)
+    laser_shift = Column(Float)
+    zpd = Column(Float)
+
+
+class KidparBase(Product):
+    __tablename__ = "kidpar"
+
+    file_path = Column(String(PATH_MAX), unique=True, nullable=False)
+    name = Column(String(NAME_MAX), nullable=False)
 
 
 class ParamBase:
@@ -82,15 +104,15 @@ class StatsBase:
     id = Column(Integer, primary_key=True)
 
 
-class Extra(ExtraBase, Base):
+class Manual(ManualBase, Base):
     pass
 
 
-class Scan(ScanBase, Base):
+class Astro(AstroBase, Base):
     pass
 
 
-class Table(TableBase, Base):
+class Tablebt(TablebtBase, Base):
     pass
 
 
@@ -104,6 +126,5 @@ class Stats(StatsBase, Base):
 
 class Param(ParamBase, Base):
     pass
-
 
 # chemin de base (dir name)
