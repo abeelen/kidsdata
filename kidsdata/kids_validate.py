@@ -6,7 +6,8 @@ Validate kids_raw_data, fix/flag the bad if necessary
 Created on Tue May 21 15:00:37 2019
 @author: yixiancao
 """
-
+# pylint: skip-file
+# flake8: noqa
 import numpy as np
 from scipy.interpolate import interp1d
 
@@ -38,15 +39,15 @@ def kids_time_validate(kiss):
 
 
 def kids_itp_time(kiss, t_type="A_hours"):
-    """ Replace bad time data by interpolated data.
-    
+    """Replace bad time data by interpolated data.
+
     Parameters
     ----------
     kiss: :obj: KissRawData
-        Kiss Raw Data read from data files. 
+        Kiss Raw Data read from data files.
     t_type: str
-        Time to be interpolated. 
-    
+        Time to be interpolated.
+
     """
 
     t_orig = kiss.__dict__[t_type]  # .reshape(kiss.nint, kiss.nptint)
@@ -73,13 +74,13 @@ def kids_itp_time(kiss, t_type="A_hours"):
 
 
 def kids_pfit_time(kiss):
-    """ Replace bad time data by polynomial linear fitting. 
-    
+    """Replace bad time data by polynomial linear fitting.
+
     Parameters
     ----------
     kiss: :obj: KissRawData
         Kiss Raw data read from data files.
-    
+
     """
     try:
         pps = kiss.A_time

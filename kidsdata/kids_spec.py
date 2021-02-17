@@ -4,7 +4,8 @@
 
 Created on Fri May 24 14:12:42 2019
 """
-
+# pylint: skip-file
+# flake8: noqa
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.ndimage.filters import uniform_filter1d as smooth
@@ -63,7 +64,7 @@ dlaser2_neg = laser2_pos[:, nneg:]
 
 
 def diffm(dlaser, appendv=None, appendi=None, prependv=None, prependi=None, **kwargs):
-    """ Calculate the differences between laser positions at adjacent time sample
+    """Calculate the differences between laser positions at adjacent time sample
 
     Parameters:
     dlaser:
@@ -90,7 +91,7 @@ def diffm(dlaser, appendv=None, appendi=None, prependv=None, prependi=None, **kw
 
 
 def kids_itp_flag(data, x=None, flag=None, replace=False, **kwargs):
-    """ Interpolate the flagged 1D data.
+    """Interpolate the flagged 1D data.
 
     Parameters
     ----------
