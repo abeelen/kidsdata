@@ -2,7 +2,7 @@ image: "python:3.8"
 
 before_script:
   - python --version
-  - pip install -r requirements.txt
+  - pip install -r requirements-dev.txt
 
 stages:
   - Static Analysis
@@ -17,12 +17,3 @@ pylint:
   allow_failure: true
   script:
   - pylint -d C0301 kidsdata
-
-unit_test:
-  stage: Test
-  script:
-  - pwd
-  - ls -l
-  - export PYTHONPATH="$PYTHONPATH:."
-  - python -c "import sys;print(sys.path)"
-  - pytest
