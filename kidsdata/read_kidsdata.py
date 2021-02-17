@@ -881,6 +881,7 @@ def read_raw(
     header = TconfigHeader(*np.ctypeslib.as_array(Tdata.headerPt, (22,))[4:22])
 
     # ParamC
+    logging.debug("ParamC")
     names = namept_to_names(Tdata.nameParamC, Tdata.nbParanC)
     values = np.ctypeslib.as_array(Tdata.ptParamC, (Tdata.nbParanC,))
     # TODO: Potentially make a copy here....
@@ -895,12 +896,14 @@ def read_raw(
     # Reglage
     # F_tone ??
     if "Rg" in list_data:
+        logging.debug("dataRg")
         bloc = np.ctypeslib.as_array(Tdata.numBlocRg, (Tdata.nbReglage,))
         values = np.ctypeslib.as_array(Tdata.ptDataRg, (Tdata.nbReglage, Tdata.nbDet)).astype(np.float32)
         dataRg = dict(zip(bloc, values))
         del (bloc, values)
 
     # ParamD
+    logging.debug("ParamD")
     names = namept_to_names(Tdata.nameParamD, Tdata.nbParanD)
     values = np.ctypeslib.as_array(Tdata.ptParamD, (Tdata.nbParanD, Tdata.nbDet))
     param_d = dict(zip(names, values))
@@ -922,6 +925,8 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataSc = namept_to_names(Tdata.nameDataSc, Tdata.nbDataSc)
     if "Sc" in list_data:
+        logging.debug("dataSc")
+
         values = np.ctypeslib.as_array(Tdata.ptDataSc, (Tdata.nbDataSc, Tdata.nbBloc, Tdata.nbpt)).astype(np.float32)
         dataSc = dict(zip(TName_dataSc, values))
         del values
@@ -932,6 +937,8 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataSd = namept_to_names(Tdata.nameDataSd, Tdata.nbDataSd)
     if "Sd" in list_data:
+        logging.debug("dataSd")
+
         values = np.ctypeslib.as_array(Tdata.ptDataSd, (Tdata.nbDataSd, Tdata.nbDet, Tdata.nbBloc, Tdata.nbpt)).astype(
             np.float32
         )
@@ -944,6 +951,8 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataUc = namept_to_names(Tdata.nameDataUc, Tdata.nbDataUc)
     if "Uc" in list_data:
+        logging.debug("dataUc")
+
         values = np.ctypeslib.as_array(Tdata.ptDataUc, (Tdata.nbDataUc, Tdata.nbBloc)).astype(np.float32)
         # TODO: Potentially make a copy here....
         dataUc = dict(zip(TName_dataUc, values))
@@ -954,6 +963,8 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataUd = namept_to_names(Tdata.nameDataUd, Tdata.nbDataUd)
     if "Ud" in list_data:
+        logging.debug("dataUd")
+
         values = np.ctypeslib.as_array(Tdata.ptDataUd, (Tdata.nbDataUd, Tdata.nbDet, Tdata.nbBloc)).astype(np.float32)
         # TODO: Potentially make a copy here
         dataUd = dict(zip(TName_dataUd, values))
@@ -1012,7 +1023,7 @@ def filename_or_h5py_file(func=None, mode="r"):
 
 
 @filename_or_h5py_file(mode="a")
-def _to_hdf5(parent_group, key, data, **kwargs):
+def _to_hdf5(parent_group, key, data, **kwargs):  # noqa: C901
     """Save data to hdf5
 
     Parameters
@@ -1031,7 +1042,8 @@ def _to_hdf5(parent_group, key, data, **kwargs):
     Any keyword supported by h5py.create_dataset can be passed, usually :
     kwargs={'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
     """
-    if isinstance(data, np.ndarray):
+
+    if isinstance(data, np.ndarray) and not isinstance(data, np.ma.MaskedArray):
         # numpy arrays
         if key in parent_group:
             del parent_group[key]
@@ -1069,7 +1081,7 @@ def _to_hdf5(parent_group, key, data, **kwargs):
             del parent_group.attrs[key]
         return parent_group.create_dataset(key, dtype="f")
 
-    if isinstance(data, (tuple, list, dict)):
+    if isinstance(data, (tuple, list, dict, np.ma.MaskedArray)):
         if key not in parent_group:
             sub_group = parent_group.create_group(key)
             sub_group.attrs["type"] = type(data).__name__
@@ -1087,6 +1099,10 @@ def _to_hdf5(parent_group, key, data, **kwargs):
     elif isinstance(data, dict):
         for _key in data:
             _to_hdf5(sub_group, _key, data[_key], **kwargs)
+    elif isinstance(data, np.ma.MaskedArray):
+        sub_group.attrs["fill_value"] = getattr(data, "fill_value")
+        for _key in ["data", "mask"]:
+            _to_hdf5(sub_group, _key, getattr(data, _key), **kwargs)
 
 
 @filename_or_h5py_file
@@ -1157,6 +1173,10 @@ def _from_hdf5(parent_group, key, array=None):
 
             class_ = _import_from(key)
             return class_(**data_asdict)
+        elif _type == "MaskedArray":
+            return np.ma.array(
+                _from_hdf5(item, "data"), mask=_from_hdf5(item, "mask"), fill_value=item.attrs["fill_value"]
+            )
         else:
             raise ValueError("Unknown type for {}: {}".format(item.name, _type))
 
