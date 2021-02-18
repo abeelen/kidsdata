@@ -147,16 +147,19 @@ class KissRawData(KidsRawData):
 
         if np.any(np.std(masqs, axis=0) != 0):
             self.__log.error("*_masq is varying -- Please check : {}".format(pprint_list(masq_names, "_masq")))
-        masq = masqs[0]
-        # masq are screwed somehow, should be on the first two bits only, third bit for blanking,
-        # but this does not work properly as bit 0 is set when bit 1 is set (ie working with 0 1 3 instead of 0 1 2)
-        # thus
+        # cast into 8 bit, is more than enough, only 3 bits used
+        masq = masqs[0].astype(np.int8)
+
         # AB (#CONCERTO_DAQ January 11 13:02)
         # _flag_balayage_en_cours & _flag_blanking_synthe
         # Ainsi on aura la modulation en bit0 et 1 et le flag blanking en bit
-        # Thus as a temporary fix, let's clear the 3rd bit
-        self.__log.warning("Temporary fix : clearing the 3rd bit of masq")
-        masq = masq.astype(np.int8) & ~(1 << 2)
+        # AB (#CONCERTO_DAQ February 11 11:07)
+        # bit 1 & 2 code the modulation as a signed integer -1 0 1 : 11 00 01 ie 3 0 1
+        # bit 3 is a blanking bit, which does not exist for KISS, but should not be taken into account for CONCERTO
+
+        # Thus as a temporary fix, let's clear the 3rd bit, actually a bad idea...
+        # self.__log.warning("Temporary fix : clearing the 3rd bit of masq")
+        # masq = masq & ~(1 << 2)
 
         return masq
 
@@ -183,12 +186,16 @@ class KissRawData(KidsRawData):
             fmod = self.fmod
             masq = self.mod_mask
 
+            # Check about the 3rd bit and the fix_masq keyword
+            if np.any(masq & (1 << 2)) and kwargs.get("fix_masq") is True:
+                self.__log.error("fix_masq should not be used when 3rd bit is set")
+
             self.__log.info("Calibrating with fmod={} and {}".format(fmod, kwargs))
             calib_func = _import_from(calib_func)
             self.__calib = calib_func(self.I, self.Q, masq, fmod=fmod, **kwargs)
 
         else:
-            self.__log.warning("calibrated data already present")
+            self.__log.error("calibrated data already present")
 
         # Expand keys :
         # Does not double memory, but it will not be possible to
@@ -208,7 +215,7 @@ class KissRawData(KidsRawData):
             # I & Q will need A_masq
             (["I", "Q"], ["I", "Q", "A_masq"]),
             # Calibration data depends on the I, Q & A_masq raw data
-            (["calfact", "Icc", "Qcc", "P0", "R0", "kidfreq", "continuum"], ["I", "Q", "A_masq"]),
+            (["calfact", "Icc", "Qcc", "P0", "R0", "interferograms", "continuum"], ["I", "Q", "A_masq"]),
             # For any requested telescope position, read them all
             (["F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El"], ["F_tl_Az", "F_tl_El"]),
         ]
@@ -262,7 +269,11 @@ class KissRawData(KidsRawData):
         super().info()
         print("No. of interfergrams:\t", self.nint)
         print("No. of points per interfergram:\t", self.nptint)
-        print("Typical size of undersampled data (MiB):\t{:3.1f}".format(self.nint * self.ndet * 32 / 8 / 1024 ** 2))
+        print(
+            "Typical size of undersampled data (MiB + mask):\t{:3.1f} (+{:3.1f})".format(
+                self.nint * self.ndet * 32 / 8 / 1024 ** 2, self.nint * self.ndet * 8 / 8 / 1024 ** 2
+            )
+        )
 
     def plot_kidpar(self, *args, **kwargs):
         fig_geometry = kids_plots.show_kidpar(self)
@@ -270,7 +281,7 @@ class KissRawData(KidsRawData):
         return fig_geometry, fig_fwhm
 
     def plot_calib(self, *args, **kwargs):
-        self.__check_attributes(["Icc", "Qcc", "calfact", "kidfreq"])
+        self.__check_attributes(["Icc", "Qcc", "calfact", "interferograms"])
         return kids_plots.calibPlot(self, *args, **kwargs)
 
     def plot_pointing(self, *args, coord="tl", **kwargs):

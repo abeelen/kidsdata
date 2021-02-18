@@ -14,7 +14,7 @@ from astropy.nddata import InverseVariance, StdDevUncertainty, VarianceUncertain
 
 
 def calibPlot(self, ikid=0):
-    """Plot Icc, Qcc, calfact, and kidfreq distributions for ikid detector;
+    """Plot Icc, Qcc, calfact, and interferograms distributions for ikid detector;
     show median calfact for all detectors in the last panel.
     """
     fig = plt.figure(figsize=(5 * 3, 4 * 2))
@@ -44,7 +44,7 @@ def calibPlot(self, ikid=0):
     ax.legend()
 
     ax = plt.subplot(2, 3, 4)
-    ax.plot(self.kidfreq[ikid, 4:12].ravel(), label="Detector:" + self.kidpar["namedet"][ikid])
+    ax.plot(self.interferograms[ikid, 4:12].ravel(), label="Detector:" + self.kidpar["namedet"][ikid])
     ax.grid()
     ax.set_ylabel("Signal [Hz]")
     ax.set_xlabel("Sample Number")
@@ -380,7 +380,7 @@ def default_range(value, threshold_limits=[-3, 3]):
 def show_kidpar(
     self,
     ikid=None,
-    to_plot=["fwhms", "ellipticities", "amplitudes"],
+    to_plot=["fwhms", "eccentricities", "amplitudes"],
     plot_hist=True,
     ranges=None,
     bins=None,
@@ -400,7 +400,7 @@ def show_kidpar(
     ikid : array_like, optionnal
         to plot a subsample of the `list_detector` list
     to_plot : list of str
-        list of item to plot within 'fwhms', 'major_axis, 'minor_axis', 'mean_fwhms', ellipticities', 'amplitudes', None
+        list of item to plot within 'fwhms', 'major_axis, 'minor_axis', 'mean_fwhms', eccentricities', 'amplitudes', None
     plot_hist: bool
         do we plot the histograms, default True
     ranges : dict, optionnal
@@ -443,9 +443,9 @@ def show_kidpar(
         "major_axis": {"value": np.nanmax(fwhms, axis=1), "label": "major axis [arcmin]"},  # fwhm in arcmin
         "minor_axis": {"value": np.nanmin(fwhms, axis=1), "label": "minor axis [arcmin]"},  # fwhm in arcmin
         "mean_fwhms": {"value": np.nanmean(fwhms, axis=1), "label": "mean fwhms [arcmin]"},  # fwhm in arcmin
-        "ellipticities": {
-            "value": (np.max(fwhms, axis=1) - np.min(fwhms, axis=1)) / np.max(fwhms, axis=1),
-            "label": "ellipticities",
+        "eccentricities": {
+            "value": np.sqrt(1 - np.min(fwhms, axis=1) ** 2 / np.max(fwhms, axis=1) ** 2),
+            "label": "eccentricities",
         },
         "amplitudes": {"value": np.array(popt["amplitude"]), "label": "amplitudes [rel.abu]"},
         None: {"value": np.ones(len(popt)), "label": ""},
@@ -601,7 +601,7 @@ def multi_im(xs, aspect_ratio=1, marging=1, n_pages=1, norm=None):
     return np.squeeze(pixels), (ncols, nrows)
 
 
-def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, ymin=None, **kwargs):
+def plot_psd(psds, freq, list_detector, xmin=None, xmax=None, ymax=None, ymin=None, **kwargs):
 
     fig = plt.figure(figsize=(10, 5))
     ax1 = fig.add_axes([0.04, 0.15, 0.4, 0.79])
@@ -632,12 +632,12 @@ def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, 
     ]
 
     im = ax1.imshow(np.log10(psds), aspect="auto", extent=(0.2, freq.max(), psds.shape[0], 0), vmin=ymin, vmax=ymax)
-    boxes = set(namedet[0:2] for namedet in list_detector[ikids])
+    boxes = set(namedet[0:2] for namedet in list_detector)
     boxes = np.sort(list(boxes))
     ticks = []
     ticklabels = []
     for box in boxes:
-        mask_box = np.char.startswith(list_detector[ikids], box)
+        mask_box = np.char.startswith(list_detector, box)
         _min, _max = np.where(mask_box)[0].min(), np.where(mask_box)[0].max()
         ticks.append((_min + _max) / 2)
         ticklabels.append(box)
@@ -647,9 +647,9 @@ def plot_psd(psds, freq, ikids, list_detector, xmin=None, xmax=None, ymax=None, 
     plt.colorbar(im, ax=ax1, cax=cax)
     ax1.set_xscale("log")
 
-    boxes = set(namedet[0:2] for namedet in list_detector[ikids])
+    boxes = set(namedet[0:2] for namedet in list_detector)
     for box in boxes:
-        mask_box = np.char.startswith(list_detector[ikids], box)
+        mask_box = np.char.startswith(list_detector, box)
         ax2.plot(freq, np.median(psds[mask_box], axis=0), color=color_sequence[list(boxes).index(box)], label=box)
 
     if ymin is None and ymax is None:

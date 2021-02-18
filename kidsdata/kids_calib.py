@@ -24,13 +24,13 @@ N_CPU = cpu_count()
 logging.debug("KidsCalib Working on {} core".format(N_CPU))
 
 
-def continuum(R0, P0, calfact):
+def compute_continuum(R0, P0, calfact):
     """Background based on calibration factors."""
     # In order to catch the potential RuntimeWarning which happens when some data can not be calibrated
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         bgrd = np.unwrap(R0 - P0, axis=1) * calfact
-    return bgrd
+    return np.ma.array(bgrd, mask=np.isnan(bgrd), fill_value=np.nan)
 
 
 def angle0(phi):
@@ -64,7 +64,7 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
     Icc, Qcc = np.zeros((ndet, nint), np.float32), np.zeros((ndet, nint), np.float32)
     P0 = np.zeros((ndet, nint), np.float32)
     R0 = np.zeros((ndet, nint), np.float32)
-    kidfreq = np.zeros_like(dataI)
+    interferograms = np.zeros_like(dataI)
 
     for iint in range(nint):  # single interferogram
 
@@ -159,9 +159,19 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
         ra = angle0(r - r0[:, np.newaxis])
 
         if docalib:
-            kidfreq[:, iint, :] = calfact[:, iint][:, np.newaxis] * ra
+            interferograms[:, iint, :] = calfact[:, iint][:, np.newaxis] * ra
         else:
-            kidfreq[:, iint, :] = ra
+            interferograms[:, iint, :] = ra
+
+    # selection mask for normal data
+    mask = A_masq == 0
+    mask[:, :6] = False
+    interferograms = np.ma.array(interferograms, mask=np.tile(~mask.flatten(), ndet), fill_value=0)
+
+    # Mask nans if present
+    nan_itg = np.isnan(interferograms.data)
+    if np.any(nan_itg):
+        interferograms.mask |= nan_itg
 
     output = {
         "Icc": Icc,
@@ -169,8 +179,8 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
         "P0": P0,
         "R0": R0,
         "calfact": calfact,
-        "continuum": continuum(R0, P0, calfact),
-        "kidfreq": kidfreq,
+        "continuum": compute_continuum(R0, P0, calfact),
+        "interferograms": interferograms,
     }
 
     return output
@@ -180,12 +190,12 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
 _pool_global = None
 
 
-def _pool_reducs_initializer(*args):
+def _pool_initializer(*args):
     global _pool_global
     _pool_global = args
 
 
-def _pool_reducs(iint, _reduc=np.median):
+def _to_3pts(iint, _reduc=np.median):
     # To be used with initialized pool
     global _pool_global
     _data, _low, _high, _normal = _pool_global
@@ -204,6 +214,22 @@ def _pool_reducs(iint, _reduc=np.median):
         )
 
     return result
+
+
+# Failed attempt : Not efficient
+def _calibrate_angle(ikids, do_calib=True):
+    global _pool_global
+    Icc, dataI, Qcc, dataQ, R0, calfact = _pool_global
+
+    _itg = np.arctan2(Icc[ikids, ..., np.newaxis] - dataI[ikids], Qcc[ikids, ..., np.newaxis] - dataQ[ikids])
+    _itg -= R0[ikids, ..., np.newaxis]
+
+    _itg = angle0(_itg)
+
+    if do_calib:
+        _itg *= calfact[ikids, ..., np.newaxis]
+
+    return _itg
 
 
 class ModulationValue(Enum):
@@ -238,21 +264,20 @@ def mod_mask_to_flag(A_masq, modulation):
         # Remove 2 samples at the edges of _low and _high to insure proper values
         _masq = binary_erosion(_masq, structure, output=_masq, iterations=2)
     else:
-        # Bug in CONCERTO : Remove one point of the normal mask
-        _masq = binary_erosion(_masq, structure, output=_masq, iterations=2)
         # Bug in KISS : remove the first 6 points of the normal mask
         _masq[:, :6] = False
 
     return _masq
 
 
+## TODO: This function is trivialy parallelisable per kid....
 def get_calfact_3pts(
     dataI,
     dataQ,
     mod_mask,
     fmod=1,
     mod_factor=0.5,
-    method=("per", "3tps"),
+    method=("per", "3pts"),
     nfilt=9,
     sigma=None,
     _reduc=np.median,
@@ -291,10 +316,10 @@ def get_calfact_3pts(
             * 'calfact'
             * 'Icc', 'Qcc' : array_like, shape (ndet, nint) or (ndet, )
             * 'R0', 'P0' : array_like, shape (ndet, nint) or (ndet, )
-            * 'kidfreq' : array_like, shape (ndet, nint, nptint)
+            * 'interferograms' : array_like, shape (ndet, nint, nptint)
                 the calibrated interferograms
-            * 'continuum' : array_like, shape(ndet, nint)
-                the calibrated continuum
+            * 'compute_continuum' : array_like, shape(ndet, nint)
+                the calibrated compute_continuum
 
     Notes
     -----
@@ -353,14 +378,14 @@ def get_calfact_3pts(
     # ).T.swapaxes(0, 1)
 
     # Switch to multiprocessing
-    _reducs = partial(_pool_reducs, _reduc=_reduc)
-    with Pool(N_CPU, _pool_reducs_initializer, (dataI, A_low, A_high, A_normal)) as pool:
+    _reducs = partial(_to_3pts, _reduc=_reduc)
+    with Pool(N_CPU, _pool_initializer, (dataI, A_low, A_high, A_normal)) as pool:
         x = np.vstack(pool.map(_reducs, grouper(range(nint), nint // N_CPU))).T.swapaxes(0, 1)
 
-    with Pool(N_CPU, _pool_reducs_initializer, (dataQ, A_low, A_high, A_normal)) as pool:
+    with Pool(N_CPU, _pool_initializer, (dataQ, A_low, A_high, A_normal)) as pool:
         y = np.vstack(pool.map(_reducs, grouper(range(nint), nint // N_CPU))).T.swapaxes(0, 1)
 
-    # Transform to dask array for later use
+    # Transform to dask array for later use, ditching dask for the moment
     dataI = da.from_array(dataI, name=False)
     dataQ = da.from_array(dataQ, name=False)
 
@@ -446,10 +471,23 @@ def get_calfact_3pts(
     # 42 s ± 410 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
     r = da.arctan2(Icc[..., np.newaxis] - dataI, Qcc[..., np.newaxis] - dataQ)
-    kidfreq = np.asarray(angle0(r - R0[..., np.newaxis]))
+    interferograms = angle0(r - R0[..., np.newaxis])
 
     if do_calib:
-        kidfreq *= calfact[..., np.newaxis]
+        interferograms *= calfact[..., np.newaxis]
+
+    # _calibrate = partial(_calibrate_angle, do_calib=do_calib)
+    # with Pool(N_CPU, _pool_initializer, (Icc, dataI, Qcc, dataQ, R0, calfact)) as pool:
+    #     interferograms = np.vstack(pool.map(_calibrate, np.array_split(range(ndet), N_CPU)))
+
+    # Transform interferograms into a masked array,
+    # Note that masks are store in one byte, consumming a lot of space here !!
+    interferograms = np.ma.array(interferograms, mask=np.tile(~A_normal.flatten(), ndet), fill_value=0)
+
+    # Mask nans if present
+    nan_itg = np.isnan(interferograms.data)
+    if np.any(nan_itg):
+        interferograms.mask |= nan_itg
 
     output = {
         "Icc": Icc,
@@ -457,8 +495,8 @@ def get_calfact_3pts(
         "P0": P0,
         "R0": R0,
         "calfact": calfact,
-        "continuum": continuum(R0, P0, calfact),
-        "kidfreq": kidfreq,
+        "continuum": compute_continuum(R0, P0, calfact),
+        "interferograms": interferograms,
     }
 
     if sigma is not None:

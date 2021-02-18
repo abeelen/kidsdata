@@ -25,6 +25,7 @@ from astropy.table import Table, Column, MaskedColumn
 from astropy.nddata import NDDataArray, StdDevUncertainty, VarianceUncertainty, InverseVariance
 from astropy.nddata.ccddata import _known_uncertainties, _unc_name_to_cls, _unc_cls_to_name
 from astropy.stats import mad_std
+from astropy.utils.console import ProgressBar
 
 from .kiss_data import KissRawData
 from .utils import cpu_count
@@ -54,6 +55,112 @@ _pool_global = None
 def _pool_initializer(*args):
     global _pool_global
     _pool_global = args
+
+
+def _remove_polynomial(ikids, idx=None, deg=None):
+    """Worker function to remove polynomial over interferograms
+
+    data is passed as a global parameter. this function works on data[ikids] only
+
+    Parameters
+    ----------
+    idx : ndarray or tuple of numpy.ndarray (nint, nptint)
+        the indexes on which we need to compute the polynomials
+    deg : int of tuple of int
+        the degree of polynomial degree
+
+    Returns
+    -------
+    output : ndarray (ikids.shape[0], nint, nptint)
+        the baseline removed array of a portion of the input data
+    coeff : ndarray (ikids.shape[0], nint, sum(deg))
+        the coefficients of the baselines
+
+    Notes
+    -----
+    the coefficient needs to be unpacked in the multi polynomial case.
+    """
+
+    global _pool_global
+    (data,) = _pool_global
+
+    # Output type:
+    otype = data.dtype.type
+
+    idx = np.array(idx)
+
+    # If using mulitple indexes, swap the first two axes for the loop on nint
+    if idx.ndim == 3:
+        idx = idx.swapaxes(0, 1)
+
+    multi = isinstance(deg, (tuple, list, np.ndarray))
+
+    _data = data[ikids]
+
+    baselines = []
+    coeff_s = []
+    # loop on nint, parallel for all kids
+    for _idx, _input in zip(idx, _data.swapaxes(0, 1)):
+        # Rough (0/1) mask to avoid fitting for the modulation 0s
+        _w = ~np.mean(_input.mask, axis=(0,)).astype(np.bool)
+
+        if multi:
+            coeff = multipolyfit(_idx, _input.filled(0).T, deg=deg, w=_w)
+            baselines.append(otype(multipolyval(_idx, coeff)))
+            coeff = np.vstack(coeff)  # for the returned values... needs to be unpacked if used
+        else:
+            coeff = np.polynomial.polynomial.polyfit(_idx, _input.filled(0).T, deg=deg, w=_w)
+            baselines.append(otype(np.polynomial.polynomial.polyval(_idx, coeff)))
+        coeff_s.append(coeff.T)
+
+    _data -= np.array(baselines).swapaxes(0, 1)
+    coeff_s = np.array(coeff_s).swapaxes(0, 1)
+
+    return _data, coeff_s
+
+
+def remove_polynomial(data, idx, deg):
+    """Remove polynomial over interferograms in paralllel.
+
+    parallelization is made on kids index
+
+    Parameters
+    ----------
+    data : numpy.ndarray (ndet, nint, nptint)
+        input array
+    idx : ndarray or tuple of numpy.ndarray (nint, nptint)
+        the indexes on which we need to compute the polynomials
+    deg : int of tuple of int
+        the degree of polynomial degree
+
+    Returns
+    -------
+    output : ndarray (ndet, nint, nptint)
+        the baseline removed array
+    coeff : ndarray (ikids.shape[0], nint, sum(deg))
+        the coefficients of the baselines
+
+    Notes
+    -----
+    the coefficient needs to be unpacked in the multi polynomial case.
+
+    """
+    # disable mkl parallelization, more efficient on kids for large number of kids
+    import mkl
+
+    mkl_threads = mkl.set_num_threads(2)
+
+    _this = partial(_remove_polynomial, idx=idx, deg=deg)
+    with Pool(N_CPU, initializer=_pool_initializer, initargs=(data,),) as pool:
+        outputs = pool.map(_this, np.array_split(range(data.shape[0]), N_CPU))
+
+    mkl.set_num_threads(mkl_threads)
+
+    # global _pool_global
+    # _pool_global = (data,)
+    # outputs = list(ProgressBar.map(_this, np.array_split(range(data.shape[0]), N_CPU)))
+
+    return np.ma.vstack([output[0] for output in outputs]), np.vstack([output[1] for output in outputs])
 
 
 def _pool_find_lasershifts_brute_worker(roll, _roll_func="numpy.roll"):
@@ -171,7 +278,7 @@ class KissSpectroscopy(KissRawData):
     -------
     find_lasershifts_brute(**kwargs)
         find potential shift between mirror position and interferograms timeline
-    interferograms_pipeline(**kwargs) (cached)
+    interferograms_pipeline(**kwargs)
         return the interferograms processed by given pipeline
     interferogram_cube(**kwargs)
         project the interferograms into one 3D cube
@@ -181,6 +288,8 @@ class KissSpectroscopy(KissRawData):
 
     __laser_shift = None
     __laser_keys = None
+    __laser_reduction = None
+
     __optical_flip = None
     __mask_glitches = None
     __glitches_threshold = None
@@ -189,6 +298,7 @@ class KissSpectroscopy(KissRawData):
         self,
         *args,
         laser_keys="auto",
+        laser_reduction="numpy.mean",
         laser_shift=None,
         optical_flip="auto",
         mask_glitches=True,
@@ -200,6 +310,8 @@ class KissSpectroscopy(KissRawData):
         ----------
         laser_keys : str
             list of keys to be used to derive laser position, default "auto"
+        laser_reduction : str
+            function to use to reduce the (potential) many laser position to one, by default "numpy.mean"
         laser_shift : float, optionnal
             the number or sample to shift the laser position wrt to interferograms
         optical_flip : str
@@ -217,6 +329,7 @@ class KissSpectroscopy(KissRawData):
 
         self.__log.debug("KissSpectroscopy specific kwargs")
         self.laser_keys = laser_keys
+        self.laser_reduction = laser_reduction
         self.laser_shift = laser_shift
         self.optical_flip = optical_flip
         self.__mask_glitches = mask_glitches
@@ -243,9 +356,7 @@ class KissSpectroscopy(KissRawData):
 
     @optical_flip.setter
     def optical_flip(self, value):
-        KissSpectroscopy.interferograms.fget.cache_clear()
         KissSpectroscopy.opds.cache_clear()
-        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
         if value == "auto":
             boxes = {name[0:2] for name in self._kidpar["namedet"] if name[0] == "K"}
@@ -253,8 +364,8 @@ class KissSpectroscopy(KissRawData):
                 self.__log.info("Found Kiss data, flipping KB")
                 self.__optical_flip = "KB"
             elif boxes == {"KA", "KB", "KC", "KD", "KE", "KF", "KG", "KH", "KI", "KJ", "KK", "KL"}:
-                self.__log.info("Found CONCERTO data, flipping Kx - Kx")
-                self.__optical_flip = "K(G|H|I|J|K|L)"  # or "K(A|B|C|D|EF)"
+                self.__log.info("Found CONCERTO data, flipping KG - KL")
+                self.__optical_flip = "K(G|H|I|J|K|L)"
             else:
                 self.__log.error("Can  not determine the instrument for optical flip : disabled")
                 self.__optical_flip = None
@@ -280,6 +391,16 @@ class KissSpectroscopy(KissRawData):
             if not isinstance(value, list):
                 value = list(value)
             self.__laser_keys = value
+        KissSpectroscopy.laser.fget.cache_clear()
+
+    @property
+    def laser_reduction(self):
+        return self.__laser_reduction
+
+    @laser_reduction.setter
+    def laser_reduction(self, value):
+        self.__laser_reduction = value
+        KissSpectroscopy.laser.fget.cache_clear()
 
     @property
     def mask_glitches(self):
@@ -288,9 +409,7 @@ class KissSpectroscopy(KissRawData):
     @mask_glitches.setter
     def mask_glitches(self, value):
         self.__mask_glitches = value
-        KissSpectroscopy.interferograms.fget.cache_clear()
         KissSpectroscopy.opds.cache_clear()
-        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
     def glitches_threshold(self):
@@ -299,9 +418,7 @@ class KissSpectroscopy(KissRawData):
     @glitches_threshold.setter
     def glitches_threshold(self, value):
         self.__glitches_threshold = value
-        KissSpectroscopy.interferograms.fget.cache_clear()
         KissSpectroscopy.opds.cache_clear()
-        KissSpectroscopy.interferograms_pipeline.cache_clear()
 
     @property
     def meta(self):
@@ -311,85 +428,6 @@ class KissSpectroscopy(KissRawData):
         meta["LASER_SHIFT"] = self.laser_shift or 0
 
         return meta
-
-    @property
-    @lru_cache(maxsize=1)
-    def interferograms(self):
-        """Retrieve the interferograms as a masked array.
-
-        Returns
-        -------
-        interferograms : ndarray
-            all the interferograms as (ndet, nint, nptint) masked array
-
-        Notes
-        -----
-        The modulation and flagged from mod_mask are used to mask the interferograms,
-        glitches are optionnaly removed with a simple median absolute deviation threshold
-
-        Class properties which can change its behavior :
-
-        optical_flip : bool
-            flip the B array to get the same sign in KA/KB
-        mask_glitches : bool
-            mask the glitches
-        glitches_threshold : float
-            fake detection threshold
-        """
-        self._KissRawData__check_attributes(["kidfreq"])
-
-        self.__log.info("Masking modulation phases")
-
-        mask = mod_mask_to_flag(self.mod_mask, ModulationValue.normal)
-
-        # Make kidfreq into a masked array (copy data just in case here, should not be needed)
-        # TODO: This copy the data...
-        interferograms = np.ma.array(
-            self.kidfreq, mask=np.tile(~mask, self.ndet).reshape(self.kidfreq.shape), fill_value=0, copy=True
-        )
-
-        # Mask nans if present
-        nan_itg = np.isnan(interferograms)
-        if np.any(nan_itg):
-            interferograms.mask = interferograms.mask | nan_itg
-
-        if self.optical_flip:
-            self.__log.info("Flipping {}".format(self.optical_flip))
-            p = re.compile(self.optical_flip)
-            vmatch = np.vectorize(lambda det: bool(p.match(det)))
-            to_flip = vmatch(self.list_detector)
-
-            interferograms[to_flip] *= -1
-
-        # MOVE this to interferogram_pipeline
-        if self.mask_glitches:
-            self.__log.info("Masking glitches")
-
-            # Tests -- Rough Deglitching
-            # Remove the mean value per interferogram index -> left with variations only
-            # BUT this do not work as there are jumps
-            # kidfreq_norm = kd.kidfreq - kd.kidfreq.mean(axis=1)[:, None, :]
-            # Use a gaussian filter with a width of 3 interferograms to get smooth variations along the interferograms indexes
-            # from scipy.ndimage import gaussian_filter1d, gaussian_laplace
-            # might flag real source
-            # # kidfreq_norm = kd.kidfreq - gaussian_filter1d(kd.kidfreq, 3, axis=1)
-
-            # Try something else on the modulation flagged interferograms
-            abs_interferograms = np.abs(interferograms)
-            max_abs_interferogram = abs_interferograms.max(axis=2)
-
-            # Threshold for gaussian statistic, along the interferogram axis only :
-            sigma = erfcinv(self.glitches_threshold / np.product(interferograms.shape[1])) * np.sqrt(2)
-
-            cutoffs = max_abs_interferogram.mean(axis=1) + sigma * max_abs_interferogram.std(axis=1)
-            glitches_mask = abs_interferograms > cutoffs[:, None, None]
-            del abs_interferograms
-
-            self.__log.warning("Masking {:3.1f}% of the data from glitches".format(np.mean(glitches_mask) * 100))
-
-            interferograms.mask = interferograms.mask | glitches_mask
-
-        return interferograms
 
     @property
     @lru_cache(maxsize=1)
@@ -403,28 +441,39 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        This depends on the `laser_shift` property.
+        This depends on the `laser_shift` and `laser_reduction` property.
         """
-        laser_keys = self.__laser_keys
+        laser_keys = self.laser_keys
         self._KissRawData__check_attributes(laser_keys)
 
-        self.__log.info("Computing mean laser position from {} with {} shift".format(laser_keys, self.laser_shift))
+        self.__log.info(
+            "Computing {} laser position from {} with {} shift".format(
+                self.laser_reduction, laser_keys, self.laser_shift
+            )
+        )
 
         laser = [getattr(self, key).flatten() for key in laser_keys]
 
         # Check laser consistancy:
-        if len(laser) > 1:
+        # TODO: should be made elsewhere...
+        if len(laser) > 1 and self.laser_reduction == "numpy.mean":
             # Differences between different laser measurements
             diff_laser = np.diff(laser, axis=0)
             std_diff_laser = np.std(diff_laser)
             if std_diff_laser > 1:  # More than 1mm variation in time between the two laser
                 self.__log.error("Varying differences between {} : {}".format(laser_keys, std_diff_laser))
 
-        # mean laser position
-        laser = np.mean(laser, axis=0)
+        # combine laser position(s)
+        red_fonction = _import_from(self.laser_reduction)
+        laser = red_fonction(laser, axis=0)
 
-        if np.all(laser[::2] == laser[1::2]):
+        # Check the
+        # If 99.99% of the data is similar....
+        same = np.mean(laser[::2] == laser[1::2])
+        if (1 - same) < 1e-5:
             self.__log.debug("Interpolating mirror positions")
+            if same != 1:
+                self.__log.warning("{:f} % of mirror positions differs".format((1 - same) * 100))
             # Mirror positions are acquired at half he acquisition frequency thus...
             # we can quadratictly interpolate the second position...
             laser[1::2] = interp1d(range(len(laser) // 2), laser[::2], kind="quadratic", fill_value="extrapolate")(
@@ -432,11 +481,11 @@ class KissSpectroscopy(KissRawData):
             )
 
         if self.laser_shift is not None:
-            self.__log.info("Shifting mirror positions by {} sample".format(self.laser_shift))
+            self.__log.debug("Shifting mirror positions by {} sample".format(self.laser_shift))
             ## TODO: different cases depending on the shape of laser_shift
             laser = roll_fft(laser, self.laser_shift)
 
-        # Same shape as kidfreq[0]
+        # Same shape as interferograms[0]
         laser = laser.reshape(self.nint, self.nptint)
 
         return laser
@@ -508,7 +557,7 @@ class KissSpectroscopy(KissRawData):
         plot : bool
             display so debugging plots
         mode : str (single|per_det|per_int|per_det_int)
-            return value mode (see Notes)
+            return value mode (see Notes), (default: single)
 
         Returns
         -------
@@ -520,18 +569,12 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
-        interferograms = self.interferograms[ikid].filled(0)
+        # TODO: Use self.interferograms_pipeline with baseline ?
+        interferograms = self.interferograms_pipeline(
+            ikid=tuple(ikid), flatfield=None, baseline_opd=3, baseline_time=3, cm_func=None
+        ).filled(0)
         lasers = self.laser
         laser_mask = self.laser_directions
-
-        # TODO: Remove polynomial baseline
-        # DO NOT WORK
-        # int_idx = np.arange(_interferograms.shape[-1])
-        # _this = partial(lambda x, p: np.polyval(p, x), int_idx)
-        # for _interferogram in _interferograms:
-        #     p = np.polyfit(int_idx, _interferogram.T, deg=2)
-        #     baseline = np.asarray(list(map(_this, p.T)))
-        #     _interferogram -= baseline
 
         if roll_func == "numpy.roll":
             rolls = np.linspace(start, stop, num, dtype=int)
@@ -687,7 +730,6 @@ class KissSpectroscopy(KissRawData):
 
         return opds, zlds
 
-    @lru_cache(maxsize=1)
     def interferograms_pipeline(
         self,
         ikid=None,
@@ -736,8 +778,48 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
+        self.__log.debug("Copy interferograms")
         # KIDs selection : this copy the data
-        interferograms = self.interferograms[ikid].copy()
+        interferograms = self.interferograms[ikid]
+
+        # Add the mask from the positions
+        # interferograms.mask |= self.mask_tel[None, :, None]
+        interferograms.mask[:, self.mask_tel, :] = True
+
+        if self.optical_flip:
+            self.__log.info("Flipping {}".format(self.optical_flip))
+            p = re.compile(self.optical_flip)
+            vmatch = np.vectorize(lambda det: bool(p.match(det)))
+            to_flip = vmatch(self.list_detector[ikid])
+
+            interferograms[to_flip] *= -1
+
+        if self.mask_glitches:
+            self.__log.info("Masking glitches")
+
+            # Tests -- Rough Deglitching
+            # Remove the mean value per interferogram index -> left with variations only
+            # BUT this do not work as there are jumps
+            # interferograms_norm = kd.interferograms - kd.interferograms.mean(axis=1)[:, None, :]
+            # Use a gaussian filter with a width of 3 interferograms to get smooth variations along the interferograms indexes
+            # from scipy.ndimage import gaussian_filter1d, gaussian_laplace
+            # might flag real source
+            # # interferograms  -= gaussian_filter1d(kd.interferograms, 3, axis=1)
+
+            # Try something else on the modulation flagged interferograms
+            abs_interferograms = np.abs(interferograms)
+            max_abs_interferogram = abs_interferograms.max(axis=2)
+
+            # Threshold for gaussian statistic, along the interferogram axis only :
+            sigma = erfcinv(self.glitches_threshold / np.product(interferograms.shape[1])) * np.sqrt(2)
+
+            cutoffs = max_abs_interferogram.mean(axis=1) + sigma * max_abs_interferogram.std(axis=1)
+            glitches_mask = abs_interferograms > cutoffs[:, None, None]
+            del abs_interferograms
+
+            self.__log.warning("Masking {:3.1f}% of the data from glitches".format(np.mean(glitches_mask) * 100))
+
+            interferograms.mask |= glitches_mask
 
         self.__log.debug("Applying flatfield : {}".format(flatfield))
         # FlatField normalization
@@ -776,49 +858,27 @@ class KissSpectroscopy(KissRawData):
                 baseline_time = baseline
 
         if baseline_opd is not None and baseline_time is not None:
-            self.__log.debug(
+            idx = (np.tile(np.arange(self.nptint), self.nint).reshape(self.nint, self.nptint), self.laser)
+
+            self.__log.info(
                 "Polynomial baseline per block on laser position ({}) and time position ({})".format(
                     baseline_opd, baseline_time
                 )
             )
-            baselines = []
-            _time = np.arange(self.nptint)
-            # Mean weight, to avoid masked region
-            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
-            # TODO: Can be parallalized like the continuum
-            for _laser, _output in zip(self.laser, interferograms.swapaxes(0, 1)):
-                # .filled is mandatory here...
-                p = multipolyfit((_time, _laser), _output.T.filled(0), deg=(baseline_time, baseline_opd), w=_w)
-                baselines.append(multipolyval((_time, _laser), p))
 
-            interferograms -= np.array(baselines).swapaxes(0, 1)
+            interferograms, _ = remove_polynomial(interferograms, idx, (baseline_time, baseline_opd))
 
         elif baseline_opd is not None:
-            self.__log.debug("Polynomial baseline per block on laser position ({})".format(baseline_opd))
-            baselines = []
-            # Mean weight, to avoid masked region
-            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
-            # TODO: Can be parallalized like the continuum
-            for _laser, _output in zip(self.laser, interferograms.swapaxes(0, 1)):
-                # .filled is mandatory here...
-                p = np.polynomial.polynomial.polyfit(_laser, _output.T.filled(0), deg=baseline_opd, w=_w)
-                baselines.append(np.polynomial.polynomial.polyval(_laser, p))
+            idx = self.laser
+            self.__log.info("Polynomial baseline per block on laser position ({})".format(baseline_opd))
 
-            interferograms -= np.array(baselines).swapaxes(0, 1)
+            interferograms, _ = remove_polynomial(interferograms, idx, baseline_opd)
 
         elif baseline_time is not None:
-            self.__log.debug("Polynomial baseline per block on time position ({})".format(baseline_time))
-            baselines = []
-            _time = np.arange(self.nptint)
-            # Mean weight, to avoid masked region
-            _w = ~np.mean(interferograms.mask, axis=(0, 1)).astype(np.bool)
-            # TODO: Can be parallalized like the continuum
-            for _output in interferograms.swapaxes(0, 1):
-                # .filled is mandatory here...
-                p = np.polynomial.polynomial.polyfit(_time, _output.T.filled(0), deg=baseline_time, w=_w)
-                baselines.append(np.polynomial.polynomial.polyval(_laser, p))
+            idx = np.tile(np.arange(self.nptint), self.nint).reshape(self.nint, self.nptint)
+            self.__log.info("Polynomial baseline per block on time position ({})".format(baseline_time))
 
-            interferograms -= np.array(baselines).swapaxes(0, 1)
+            interferograms, _ = remove_polynomial(interferograms, idx, baseline_time)
 
         return interferograms
 
@@ -1002,15 +1062,13 @@ class KissSpectroscopy(KissRawData):
             ikid = np.arange(len(self.list_detector))
 
         az, el, mask_tel = self.get_telescope_position(coord)
-        good_tel = ~mask_tel
-        az, el = az[good_tel], el[good_tel]
 
         # opds and #interferograms should be part of the object
         self.__log.info("Interferograms pipeline with {}".format(kwargs))
-        data = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, good_tel, :]
+        data = self.interferograms_pipeline(tuple(ikid), **kwargs)
 
         self.__log.info("Computing OPDs")
-        opds = self.opds(ikid=tuple(ikid), **kwargs)[0][:, good_tel, :]
+        opds = self.opds(ikid=tuple(ikid), **kwargs)[0]
 
         ## We do not have the telescope position at 4kHz, but we NEED it !
         self.__log.info("Computing projected quantities")
@@ -1037,15 +1095,13 @@ class KissSpectroscopy(KissRawData):
                 kid_weights = 1 / outputs.std(axis=(1, 2)) ** 2
         elif kid_weights == "continuum_std":
             with np.errstate(divide="ignore"):
-                kid_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel].std(axis=1) ** 2
+                kid_weights = 1 / self.continuum_pipeline(tuple(ikid), **kwargs).std(axis=1) ** 2
         elif kid_weights == "continuum_mad":
             with np.errstate(divide="ignore"):
-                kid_weights = 1 / mad_std(self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel], axis=1) ** 2
+                kid_weights = 1 / mad_std(self.continuum_pipeline(tuple(ikid), **kwargs), axis=1) ** 2
         elif kid_weights == "modulation_std":
             with np.errstate(divide="ignore"):
-                kid_weights = (
-                    1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None))[:, good_tel] ** 2
-                )
+                kid_weights = 1 / self._modulation_std(ikid=ikid, flatfield=kwargs.get("flatfield", None)) ** 2
         elif kid_weights in self.kidpar.keys():
             _kidpar = self.kidpar.loc[self.list_detector[ikid]]
             kid_weights = _kidpar[kid_weights].data
@@ -1135,16 +1191,14 @@ class KissSpectroscopy(KissRawData):
             cunit = cunit[0], cunit[0], cunit[1]
 
         az, el, mask_tel = self.get_telescope_position(coord)
-        good_tel = ~mask_tel
-        az, el = az[good_tel], el[good_tel]
 
         # opds and #interferograms should be part of the object
         self.__log.info("Interferograms pipeline")
         kwargs["flatfield"] = None
-        data = self.interferograms_pipeline(tuple(ikid), **kwargs)[:, good_tel, :]
+        data = self.interferograms_pipeline(tuple(ikid), **kwargs)
 
         self.__log.info("Computing opds")
-        opds = self.opds(ikid=tuple(ikid), **kwargs)[0][:, good_tel, :]
+        opds = self.opds(ikid=tuple(ikid), **kwargs)[0]
 
         ## We do not have the telescope position at 4kHz, but we NEED it !
         self.__log.info("Computing WCS")
@@ -1198,6 +1252,8 @@ class KissSpectroscopy(KissRawData):
 
         datas = self.interferograms_pipeline(ikid=tuple(ikid), **kwargs)
 
+        datas = datas.reshape(datas.shape[0], -1).filled(0)
+
         Fs = self.param_c["acqfreq"]
 
         freq, psds = psd_cal(datas, Fs, rebin)
@@ -1211,7 +1267,7 @@ class KissSpectroscopy(KissRawData):
         freq, psds = self.interferograms_psds(ikid=ikid, rebin=rebin, **kwargs)
 
         return (
-            kids_plots.plot_psd(psds, freq, ikid, self.list_detector[ikid], **kwargs),
+            kids_plots.plot_psd(psds, freq, self.list_detector[ikid], **kwargs),
             freq,
             psds,
         )

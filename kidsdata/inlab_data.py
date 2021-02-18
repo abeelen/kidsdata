@@ -51,7 +51,7 @@ def _to_continuum(ikids):
     return continuum
 
 
-def _to_kidfreq(ikids):
+def _to_interferograms(ikids):
 
     global _pool_global
     (ph_IQ,) = _pool_global
@@ -220,11 +220,13 @@ class InLabData(KissContinuum, KissSpectroscopy):
                     self.mask_tel.reshape(-1, self.nptint).mean(axis=1) > 0.8
                 )  # Allow for 80% flagged positional data
 
-            # kidfreq is fully sampled (copy is made here) remove first order continuum
+            # interferograms is fully sampled (copy is made here) remove first order continuum
             with Pool(N_CPU, initializer=_pool_initializer, initargs=(self.ph_IQ,),) as pool:
-                kidfreq = pool.map(_to_kidfreq, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
+                interferograms = pool.map(
+                    _to_interferograms, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU)
+                )
 
-            self.kidfreq = np.vstack(kidfreq)
+            self.interferograms = np.vstack(interferograms)
 
             self.A_masq = np.zeros(self.ph_IQ.shape[1:])
 
@@ -261,7 +263,6 @@ class InLabData(KissContinuum, KissSpectroscopy):
         self.nint = self.nint * self.nptint // nptint
         self.nptint = nptint
         self.__log.info("Clearing Cache")
-        KissSpectroscopy.interferograms.fget.cache_clear()
         KissSpectroscopy.opds.cache_clear()
         KissSpectroscopy.interferograms_pipeline.cache_clear()
         KissSpectroscopy.laser.fget.cache_clear()

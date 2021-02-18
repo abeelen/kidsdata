@@ -134,7 +134,7 @@ def process_scan(filename, output_dir=Path("."), laser_shift=None, **kwargs):
         kd.laser_shift = laser_shift
 
         # Check for sign of the interferograms :
-        # - flat kidfreq to remove modulation signal
+        # - flat interferograms to remove modulation signal
         # - regris each kids onto a common laser position
         # - find the symmetry of the resulting interferograms
         # - get the value at the point (will be the flatfield for dome or pure atmosphere observations)
@@ -158,10 +158,10 @@ def process_scan(filename, output_dir=Path("."), laser_shift=None, **kwargs):
 
         process_scan._log.info("Mask interferograms")
 
-        # Make kidfreq into a masked array (copy data just in case here, should not be needed)
+        # Make interferograms into a masked array (copy data just in case here, should not be needed)
         # TODO: This copy the data...
         interferograms = np.ma.array(
-            kd.kidfreq, mask=np.tile(A_masq, kd.ndet).reshape(kd.kidfreq.shape), fill_value=0, copy=True
+            kd.interferograms, mask=np.tile(A_masq, kd.ndet).reshape(kd.interferograms.shape), fill_value=0, copy=True
         )
 
         # Interferogram have nans sometimes.... CAN NOT proceed with that !!!

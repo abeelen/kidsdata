@@ -124,7 +124,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     __dataUd = None
     __dataRg = None
 
-    def __init__(self, filename, position_shift=None, e_kidpar="auto", raw=False):
+    def __init__(self, filename, position_shift=None, e_kidpar="auto", raw=True):
         """Initialize a KidsRawData object....
 
         Parameters
@@ -532,11 +532,12 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         kwargs={'chunks': True, 'compression': "gzip", 'compression_opts':9, 'shuffle':True}
 
         """
-        if self._cache:
-            self._cache.close()
-
         if filename is None:
+            if self._cache:
+                self._cache.close()
             filename = self._cache_filename
+
+        self.__log.info("Saving in {}".format(filename))
 
         _file_kwargs = {"mode": mode}
         if file_kwargs is not None:
@@ -574,7 +575,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
 
         Parameters
         ----------
-        key : str (dataSc|dataSd|dataUc|dataUd)
+        key : str _KidsRawData__(dataSc|dataSd|dataUc|dataUd)
             the data to clean
         """
         if isinstance(getattr(self, key, None), dict):

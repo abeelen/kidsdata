@@ -1047,6 +1047,9 @@ def _to_hdf5(parent_group, key, data, **kwargs):  # noqa: C901
         # numpy arrays
         if key in parent_group:
             del parent_group[key]
+        # Special case for unicode strings
+        if "U" in data.dtype.str:
+            data = data.astype("S")
         return parent_group.create_dataset(key, data=data, **kwargs)
 
     if isinstance(data, Table):
@@ -1067,7 +1070,7 @@ def _to_hdf5(parent_group, key, data, **kwargs):  # noqa: C901
 
     # list of same type
     if isinstance(data, list) and all([isinstance(_data, type(data[0])) for _data in data[1:]]):
-        if isinstance(data[0], str):
+        if isinstance(data[0], (str, np.str_)):
             # strings:
             dt = h5py.string_dtype()
             dset = parent_group.create_dataset(key, data=np.array(data, dtype="S"), dtype=dt)
@@ -1097,8 +1100,9 @@ def _to_hdf5(parent_group, key, data, **kwargs):  # noqa: C901
         for i, item in enumerate(data):
             _to_hdf5(sub_group, str(i), item, **kwargs)
     elif isinstance(data, dict):
+        # Force string keys.... will cause problem for KidsData__dataRg
         for _key in data:
-            _to_hdf5(sub_group, _key, data[_key], **kwargs)
+            _to_hdf5(sub_group, str(_key), data[_key], **kwargs)
     elif isinstance(data, np.ma.MaskedArray):
         sub_group.attrs["fill_value"] = getattr(data, "fill_value")
         for _key in ["data", "mask"]:

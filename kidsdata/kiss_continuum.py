@@ -38,23 +38,46 @@ def _pool_initializer(*args):
     _pool_global = args
 
 
-def _remove_polynomial(ikids, deg=None):
+def _remove_polynomial(ikids, deg=None, threshold=10, niter=2, **kwargs):
 
     global _pool_global
     (bgrd,) = _pool_global
 
     idx = np.arange(bgrd.shape[1])
-    p = np.polynomial.polynomial.polyfit(idx, bgrd[ikids].T, deg=deg)
-    return bgrd.dtype.type(bgrd[ikids] - np.polynomial.polynomial.polyval(idx, p))
+
+    _w = ~np.mean(bgrd[ikids].mask, axis=(0,)).astype(np.bool)  # mean axis mask for all kids (mostly pointing flag)
+
+    p = np.polynomial.polynomial.polyfit(idx, bgrd[ikids].T, deg=np.abs(deg), w=_w)
+    residuals = bgrd.dtype.type(bgrd[ikids] - np.polynomial.polynomial.polyval(idx, p))
+
+    if deg < 0:
+        for _ in range(niter):
+            # median absolute deviation threshold for source detection
+            med = np.ma.median(residuals, axis=1)
+            mad = np.ma.median(np.abs(residuals - med[:, None]), axis=1)
+            weights = np.abs(residuals - med[:, None]) / mad[:, None] < threshold
+            residuals = []
+            for _bgrd, _w in zip(bgrd[ikids], weights):
+                p = np.polynomial.polynomial.polyfit(idx, _bgrd, deg=np.abs(deg), w=_w)
+                residuals.append(bgrd.dtype.type(_bgrd - np.polynomial.polynomial.polyval(idx, p)))
+            residuals = np.ma.array(residuals)
+
+    return residuals
 
 
-def remove_polynomial(bgrds, deg):
+def remove_polynomial(bgrds, deg, **kwargs):
+    # disable mkl parallelization, more efficient on kids for large number of kids
+    import mkl
 
-    _this = partial(_remove_polynomial, deg=deg)
+    mkl_threads = mkl.set_num_threads(1)
+
+    _this = partial(_remove_polynomial, deg=deg, **kwargs)
     with Pool(cpu_count(), initializer=_pool_initializer, initargs=(bgrds,),) as pool:
         output = pool.map(_this, np.array_split(np.arange(bgrds.shape[0]), cpu_count()))
 
-    return np.vstack(output)
+    mkl.set_num_threads(mkl_threads)
+
+    return np.ma.vstack(output)
 
 
 def _sky_to_map(ikids):
@@ -145,13 +168,7 @@ class KissContinuum(KissRawData):
 
     @lru_cache(maxsize=3)
     def continuum_pipeline(
-        self,
-        ikid,
-        *args,
-        flatfield="amplitude",
-        baseline=None,
-        cm_func="kidsdata.common_mode.basic_continuum",
-        **kwargs
+        self, ikid=None, flatfield="amplitude", baseline=None, cm_func="kidsdata.common_mode.basic_continuum", **kwargs
     ):
         """Return the continuum data processed by given pipeline.
 
@@ -162,7 +179,7 @@ class KissContinuum(KissRawData):
         flatfield: str (None|'amplitude')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
         baseline : int, optionnal
-            the polynomial degree of scan wise baselines to be removed
+            the polynomial degree of scan wise baselines to be removed, see Notes
         cm_func : str
             Function to use for the common mode removal, by default 'kidsdata.common_mode.basic_continuum'
 
@@ -172,6 +189,8 @@ class KissContinuum(KissRawData):
         ikid *must* be a tuple when calling the function, for lru_cache to work
 
         The flatfield values are taken from columns of the kidpar
+
+        A negative baseline value, means a iterative median absolute deviation thresholding, which can be controled by `threshold` and `niter` keyword
         """
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -180,8 +199,13 @@ class KissContinuum(KissRawData):
 
         self._KissRawData__check_attributes(["continuum"])
 
+        self.__log.debug("Copy continuum")
         # KIDs selection, this copy the data
-        bgrd = self.continuum[ikid].copy()
+        bgrd = self.continuum[ikid]
+
+        # Add the mask from the positions
+        # bgrd.mask |= self.mask_tel[None, :]
+        bgrd.mask[:, self.mask_tel] = True
 
         # FlatField normalization
         self.__log.info("Applying flatfield : {}".format(flatfield))
@@ -200,11 +224,11 @@ class KissContinuum(KissRawData):
         if cm_func is not None:
             self.__log.info("Common mode removal ; {}, {}".format(cm_func, kwargs))
             cm_func = _import_from(cm_func)
-            bgrd = cm_func(bgrd, *args, **kwargs)
+            bgrd = cm_func(bgrd, **kwargs)
 
         if baseline is not None:
             self.__log.info("Polynomial baseline per kid  of deg {}".format(baseline))
-            bgrd = remove_polynomial(bgrd, baseline)
+            bgrd = remove_polynomial(bgrd, baseline, **kwargs)
 
         return bgrd
 
@@ -307,7 +331,7 @@ class KissContinuum(KissRawData):
             # Catching warning when nan are present
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                std_cont = np.std(self.continuum, axis=1)
+                std_cont = np.ma.std(self.continuum, axis=1)
                 kid_mask &= np.array(np.abs(std_cont / np.nanmedian(std_cont, axis=0) - 1) < std_dev)
 
         return kid_mask
@@ -348,9 +372,7 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        az, el, mask_tel = self.get_telescope_position(coord)
-        good_tel = ~mask_tel
-        az, el = az[good_tel], el[good_tel]
+        az, el, _ = self.get_telescope_position(coord)
 
         if wcs is None:
             self.__log.info("Computing WCS")
@@ -360,7 +382,8 @@ class KissContinuum(KissRawData):
             shape = _shape
 
         # Pipeline is here
-        data = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
+        self.__log.info("Continuum pipeline")
+        data = self.continuum_pipeline(tuple(ikid), **kwargs)
 
         # In case we project only one detector
         if len(data.shape) == 1:
@@ -438,12 +461,10 @@ class KissContinuum(KissRawData):
             ikid = np.arange(len(self.list_detector))
 
         az, el, mask_tel = self.get_telescope_position(coord)
-        good_tel = ~mask_tel
-        az, el = az[good_tel], el[good_tel]
 
-        # Pipeline is here : simple baseline for now
+        self.__log.info("Continuum pipeline without flatfield")
         kwargs["flatfield"] = None
-        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)[:, good_tel]
+        bgrds = self.continuum_pipeline(tuple(ikid), **kwargs)
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
@@ -451,9 +472,11 @@ class KissContinuum(KissRawData):
 
         self.__log.info("Computing WCS")
         if wcs is None:
-            wcs, x, y = build_celestial_wcs(az, el, ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), **kwargs)
+            wcs, x, y = build_celestial_wcs(
+                az[~mask_tel], el[~mask_tel], ctype=("OLON-SFL", "OLAT-SFL"), crval=(0, 0), **kwargs
+            )
         else:
-            x, y = wcs.all_world2pix(az, el, 0)
+            x, y = wcs.all_world2pix(az[~mask_tel], el[~mask_tel], 0)
 
         shape = (np.round(y.max()).astype(np.int) + 1, np.round(x.max()).astype(np.int) + 1)
 
@@ -546,6 +569,9 @@ class KissContinuum(KissRawData):
 
         datas = self.continuum_pipeline(ikid=ikid, **kwargs)
 
+        # TODO: datas is a masked array, needs to fill the blanck somehow
+        datas = datas.filled(0)
+
         Fs = self.param_c["acqfreq"]
 
         freq, psds = psd_cal(datas, Fs, rebin)
@@ -559,7 +585,69 @@ class KissContinuum(KissRawData):
         freq, psds = self.continuum_psds(ikid=ikid, rebin=rebin, **kwargs)
 
         return (
-            kids_plots.plot_psd(psds, freq, ikid, self.list_detector[ikid], **kwargs),
+            kids_plots.plot_psd(psds, freq, self.list_detector[ikid], **kwargs),
             freq,
             psds,
         )
+
+
+@logged
+def kidpar_fixup(
+    kidpar, amplitude=(0, 10), position=(-0.5, 0.5), fwhm=(0, 0.3), eccentricity=(0, 0.75), fixup=True, plot=False
+):
+
+    # Select based on the kidpar gaussian fit (Must be done on kidpar NOT kd.kidpar)
+    fwhms = np.array([np.abs(kidpar["fwhm_x"]), np.abs(kidpar["fwhm_y"])]).T
+    mean_fwhms = np.nanmean(fwhms, axis=1)
+
+    eccentricities = np.sqrt(1 - np.min(fwhms, axis=1) ** 2 / np.max(fwhms, axis=1) ** 2)
+    eccentricities[np.isnan(eccentricities)] = 1
+
+    select_amplitude = (kidpar["amplitude"] > amplitude[0]) & (kidpar["amplitude"] < amplitude[1])
+    select_positions = (
+        (kidpar["x0"] > position[0])
+        & (kidpar["x0"] < position[1])
+        & (kidpar["y0"] > position[0])
+        & (kidpar["y0"] < position[1])
+    )
+    select_fwhm = (mean_fwhms > fwhm[0]) & (mean_fwhms < fwhm[1])
+    select_ellipticities = (eccentricities > eccentricity[0]) & (eccentricities < eccentricity[1])
+    # 0.75, select bad beams, but low resolution planet maps produce bad beams
+
+    kidpar_fixup._log.info("amplitude select {:3.2f} %".format(np.mean(select_amplitude) * 100))
+    kidpar_fixup._log.info("positions select {:3.2f} %".format(np.mean(select_positions) * 100))
+    kidpar_fixup._log.info("fwhm select {:3.2f} %".format(np.mean(select_fwhm) * 100))
+    kidpar_fixup._log.info("eccentricity select {:3.2f} %".format(np.mean(select_ellipticities) * 100))
+
+    select_kids = select_amplitude & select_positions & select_fwhm & select_ellipticities
+
+    if fixup:
+        kidpar_fixup._log.info("Fixing positions and amplitudes")
+        # Recentering :
+        kidpar["x0"] -= np.median(kidpar[select_kids]["x0"])
+        kidpar["y0"] -= np.median(kidpar[select_kids]["y0"])
+        kidpar["amplitude"] /= np.nanmedian(kidpar[select_kids]["amplitude"])
+
+    if plot:
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(ncols=3)
+        axes[0].scatter(mean_fwhms, eccentricities)
+        axes[0].scatter(mean_fwhms[select_kids], eccentricities[select_kids])
+        axes[0].set_xlabel("mean fwhms")
+        axes[0].set_xlim(0, 0.5)
+
+        axes[0].set_ylabel("eccentricities")
+
+        axes[1].scatter(kidpar["amplitude"], eccentricities)
+        axes[1].scatter(kidpar["amplitude"][select_kids], eccentricities[select_kids])
+        axes[1].set_xlabel("amplitudes")
+        axes[1].set_xlim(0, 10)
+        axes[1].set_ylabel("ellipiticies")
+
+        axes[2].scatter(kidpar["x0"], kidpar["y0"])
+        axes[2].scatter(kidpar["x0"][select_kids], kidpar["y0"][select_kids])
+        axes[2].set_xlim(-0.5, 0.5)
+        axes[2].set_ylim(-0.5, 0.5)
+
+    return kidpar, select_kids

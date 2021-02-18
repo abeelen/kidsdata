@@ -123,7 +123,7 @@ def project(x, y, data, shape, weights=None):
     assert len(shape) == 2, "shape must be a int or have a length of 2"
 
     if weights is None:
-        weights = np.ones_like(data)
+        weights = np.ones(data.shape)
 
     if isinstance(data, np.ma.MaskedArray):
         # Put weights as 0 for masked data
@@ -819,7 +819,7 @@ def _import_from(attribute, module=None):
     return getattr(module, attribute)
 
 
-def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
+def interferograms_regrid(interferograms, laser, bins=10, weights=None, flatten=False):
     """Regrid a given set of interferograms into a common grid
 
     Parameters
@@ -828,8 +828,10 @@ def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
         the interferograms to be regrided
     laser : 2D array (n_blocks, n_points_per_block)
         the laser position
-    bins : int or sequence of scalars or str, optional
+    bins : int or sequence of scalars or str, optionnal
         the binning for the regrided interferograms (see `numpy.histogram` bins)
+    weights : 2D array (n_blocks, n_points_per_block), optionnal
+        an additionnal weights for the binning
     flatten : bool
         do we flatten the interferograms, by default False
 
@@ -841,18 +843,27 @@ def interferograms_regrid(interferograms, laser, bins=10, flatten=False):
         The corresponding binning
     """
 
+    _, binning = np.histogram(laser.flatten(), bins=bins)
+
+    if weights is None:
+        weights = np.ones(interferograms.shape)
+
+    if isinstance(interferograms, np.ma.MaskedArray):
+        # Put weights as 0 for masked data
+        weights = weights * ~interferograms.mask
+
     if flatten:
         laser = [laser.flatten()]
         interferograms = [interferograms.flatten()]
-
-    _, binning = np.histogram(laser, bins=bins)
+        weights = [weights.flatten()]
 
     output = []
-    for _laser, _interferograms in zip(laser, interferograms):
-        histo, _ = np.histogram(_laser, weights=_interferograms, bins=binning)
-        hits, _ = np.histogram(_laser, bins=binning)
+    for _laser, _interferograms, _weights in zip(laser, interferograms, weights):
+        _weight, _ = np.histogram(_laser, weights=_weights, bins=binning)
+        _histo, _ = np.histogram(_laser, weights=_weights * np.array(_interferograms), bins=binning)
         with np.errstate(divide="ignore", invalid="ignore"):
-            output.append(histo / hits)
+            output.append(_histo / _weight)
+
     return np.squeeze(output), binning
 
 
