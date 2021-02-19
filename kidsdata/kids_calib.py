@@ -455,10 +455,16 @@ def get_calfact_3pts(
     r2 = np.arctan2(Icc - x2, Qcc - y2)
     diffangle = angle0(r2 - r1)
 
+    if np.any(np.isnan(diffangle)):
+        warnings.warn("Some kid/block could not be calibrated, replacing with median calibration")
+        for i in range(diffangle.shape[0]):
+            bad = np.isnan(diffangle[i])
+            diffangle[i, bad] = np.median(diffangle[i, ~bad])
+
     # TODO: is it really needed....
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        diffangle[np.abs(diffangle) < 0.001] = 1
+    # with warnings.catch_warnings():
+    #     warnings.simplefilter("ignore")
+    #     diffangle[np.abs(diffangle) < 0.001] = 1
 
     # Get calibration factor
     calfact = 2 / diffangle * fmod * mod_factor
