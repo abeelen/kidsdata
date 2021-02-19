@@ -234,12 +234,12 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     @lru_cache(maxsize=1)
     def obsdate(self):
         """Return the obsdate of the observation, based on filename."""
-        re_scan = RE_SCAN.match(self.filename.name)
+        re_astro = RE_ASTRO.match(self.filename.name)
         re_manual = RE_MANUAL.match(self.filename.name)
         re_tablebt = RE_TABLEBT.match(self.filename.name)
         re_dir = RE_DIR.match(self.filename.parent.name)
-        if re_scan:
-            date = re_scan.groups()[0]
+        if re_astro:
+            date = re_astro.groups()[0]
             return Time(parse(date), scale="utc")  # UTC ?
         elif re_manual:
             date = "".join(re_manual.groups()[0:3])
@@ -286,10 +286,10 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     @lru_cache(maxsize=1)
     def scan(self):
         """Return the scan number, based on filename."""
-        re_scan = RE_SCAN.match(self.filename.name)
+        re_astro = RE_ASTRO.match(self.filename.name)
         re_tablebt = RE_TABLEBT.match(self.filename.name)
-        if re_scan:
-            return int(re_scan.groups()[2])
+        if re_astro:
+            return int(re_astro.groups()[2])
         elif re_tablebt:
             return int(re_tablebt.groups()[2])
         else:
@@ -301,8 +301,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     def source(self):
         """Return the source name, based on filename."""
         filename = self.filename.name
-        if RE_SCAN.match(filename):
-            return RE_SCAN.match(filename).groups()[3]
+        if RE_ASTRO.match(filename):
+            return RE_ASTRO.match(filename).groups()[3]
         else:
             self.__log.warning("No source name from filename")
             return None
@@ -311,11 +311,11 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     @lru_cache(maxsize=1)
     def obstype(self):
         """Return the observation type, based on filename."""
-        re_scan = RE_SCAN.match(self.filename.name)
+        re_astro = RE_ASTRO.match(self.filename.name)
         re_manual = RE_MANUAL.match(self.filename.name)
         re_tablebt = RE_TABLEBT.match(self.filename.name)
-        if re_scan:
-            return re_scan.groups()[4]
+        if re_astro:
+            return re_astro.groups()[4]
         elif re_manual:
             return "ManualScan"
         elif re_tablebt:

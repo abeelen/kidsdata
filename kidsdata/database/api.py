@@ -8,12 +8,22 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
 
 from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR, DB_URI, BASE_DIRS, RE_ASTRO, RE_MANUAL, RE_TABLEBT
-from kidsdata.database.helpers import create_param_row, create_kidpar_row, get_closest, populate_func, astro_columns, manual_columns, tablebt_columns
+from kidsdata.database.helpers import (
+    create_param_row,
+    create_kidpar_row,
+    get_closest,
+    populate_func,
+    astro_columns,
+    manual_columns,
+    tablebt_columns,
+)
 from kidsdata.database.models import Astro, Manual, Tablebt, Kidpar
 
 logger = logging.getLogger(__name__)
 
 global_session = None
+
+# TODO def list_scan():
 
 
 def get_session() -> Session:
@@ -50,7 +60,7 @@ def get_scan(scan, session=None) -> List[str]:  # TODO
     if session is None:
         session = get_session()
 
-    populate_astros(session)
+    populate_scans(session)
 
     file_paths = [file_path for file_path, in session.query(Astro.file_path).filter_by(scan=scan)]
 
@@ -127,13 +137,13 @@ def populate_params(session=None):
         rows.extend(session.query(Model).filter_by(param_id=None).all())
 
     with Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            TimeElapsedColumn(),
-            "Scan {task.completed}/{task.total}",
-            TimeRemainingColumn(),
-            refresh_per_second=1
+        "[progress.description]{task.description}",
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        "Scan {task.completed}/{task.total}",
+        TimeRemainingColumn(),
+        refresh_per_second=1,
     ) as progress:
 
         task1 = progress.add_task("Update table params...", total=len(rows))
@@ -163,7 +173,7 @@ def populate_kidpar(session=None):
         logger.debug(f"{file_path}")
         try:
             session.add(create_kidpar_row(session, file_path))
-        except AttributeError as ae:
+        except AttributeError:
             logger.error(f"Cannot insert kidpar {file_path} into database")
 
     session.commit()

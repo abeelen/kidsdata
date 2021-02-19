@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, scoped_session, sessionmaker, aliased
 from sqlalchemy.orm.exc import NoResultFound
 
 from kidsdata.database.constants import RE_DIR, param_colums_key_mapping
-from kidsdata.database.models import Astro, Manual, Tablebt, Param, Kidpar
+from kidsdata.database.models import Param, Kidpar, Scan
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +127,7 @@ def create_param_row(session, path):
     logger.debug(f"populating params for scan {path}")
     from ..kids_rawdata import KidsRawData  # To avoid import loop
 
-    for Model in [Astro, Manual, Tablebt]:
-        row = session.query(Model).filter_by(file_path=path).first()
-        if row is not None:
-            break
+    row = session.query(Scan).filter_by(file_path=path).first()
 
     file_path = row.file_path
     kd = KidsRawData(file_path)
@@ -153,9 +150,7 @@ def create_param_row(session, path):
             db_name: json.dumps(getattr(names, key_name, None))
             for key_name, db_name in param_colums_key_mapping["names"].items()
         }
-        new_param_row = Param(
-            **dict_values_names, **dict_values_params, param_hash=param_hash, parameters=parameters
-        )
+        new_param_row = Param(**dict_values_names, **dict_values_params, param_hash=param_hash, parameters=parameters)
         param_row = get_or_create(session, Param, obj=new_param_row, param_hash=param_hash)
     else:
         param_row = param_ids[0]
@@ -190,18 +185,13 @@ def create_kidpar_row(session, file_path):
 
 # https://stackoverflow.com/questions/42552696/sqlalchemy-nearest-datetime
 def get_closest(session, cls, col, the_time):
-    greater = session.query(cls).filter(col > the_time). \
-        order_by(col.asc()).limit(1).subquery().select()
+    greater = session.query(cls).filter(col > the_time).order_by(col.asc()).limit(1).subquery().select()
 
-    lesser = session.query(cls).filter(col <= the_time). \
-        order_by(col.desc()).limit(1).subquery().select()
+    lesser = session.query(cls).filter(col <= the_time).order_by(col.desc()).limit(1).subquery().select()
 
     the_union = union_all(lesser, greater).alias()
     the_alias = aliased(cls, the_union)
     the_diff = getattr(the_alias, col.name) - the_time
-    abs_diff = case([(the_diff < timedelta(0), -the_diff)],
-                    else_=the_diff)
+    abs_diff = case([(the_diff < timedelta(0), -the_diff)], else_=the_diff)
 
-    return session.query(the_alias). \
-        order_by(abs_diff.asc()). \
-        first()
+    return session.query(the_alias).order_by(abs_diff.asc()).first()
