@@ -1,16 +1,13 @@
 from logging.config import fileConfig
 
-from alembic.autogenerate import rewriter
-from alembic.operations import ops
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from kidsdata.database import Base
 
 from alembic import context
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
-from kidsdata.database.alembic.operations import GrantPermissionsOp
-
 config = context.config
 
 # Interpret the config file for Python logging.
@@ -19,23 +16,15 @@ fileConfig(config.config_file_name)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from kidsdata.database import Base
 target_metadata = Base.metadata
+
+
 # target_metadata = None
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-
-writer = rewriter.Rewriter()
-
-@writer.rewrites(ops.CreateTableOp)
-def create_table(context, revision, op):
-    return [
-        op,
-        GrantPermissionsOp(op.table_name, schema=op.schema),
-    ]
 
 
 def run_migrations_offline():
@@ -51,11 +40,9 @@ def run_migrations_offline():
 
     """
     from kidsdata.database.constants import DB_URI
+
     context.configure(
-        url=DB_URI,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        url=DB_URI, target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"},
     )
 
     with context.begin_transaction():
@@ -70,17 +57,11 @@ def run_migrations_online():
 
     """
     from kidsdata.database.constants import DB_URI
-    connectable = engine_from_config(
-        {},
-        url=DB_URI,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+
+    connectable = engine_from_config({}, url=DB_URI, prefix="sqlalchemy.", poolclass=pool.NullPool,)
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()
