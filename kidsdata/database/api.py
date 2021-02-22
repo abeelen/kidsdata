@@ -45,8 +45,8 @@ def get_session() -> Session:
     return global_session
 
 
-def get_scan(scan, session=None) -> List[str]:  # TODO
-    """Get filename of corresponding scan number.
+def get_scan(scan, session=None) -> str:
+    """Get file path of corresponding scan number.
 
     Parameters
     ----------
@@ -69,7 +69,46 @@ def get_scan(scan, session=None) -> List[str]:  # TODO
 
     # renvoyer 1 file path si il y en a qu'un
 
-    return file_paths
+    if len(file_paths) == 0:
+        raise IndexError(f"Scan {scan} not found")
+
+    if len(file_paths) > 1:
+        logger.warning(f"Found more than one scan with scan number {scan}")
+
+    return file_paths[0]
+
+
+def get_filename(filename, session=None) -> str:
+    """Get file path of corresponding filename
+
+    Parameters
+    ----------
+    filename : file name of the scan to get
+    session : optional, sqlalchemy session to query
+
+    Returns
+    -------
+    file_path : the full path of the file
+    """
+
+    # update à chaque fois
+
+    if session is None:
+        session = get_session()
+
+    populate_scans(session)
+
+    file_paths = [file_path for file_path, in session.query(Scan.file_path).filter_by(name=filename)]
+
+    if len(file_paths) == 0:
+        raise IndexError(f"Scan {filename} not found")
+
+    if len(file_paths) > 1:
+        logger.warning(f"Found more than one scan with filename = {filename}")
+
+    return file_paths[0]
+
+
 
 
 def get_manual(start, end, session=None) -> List[str]:  # TODO
