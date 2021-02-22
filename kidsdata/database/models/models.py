@@ -6,7 +6,7 @@ from kidsdata.database.models.param import ParamBase
 
 from kidsdata.database.models.product import KidparBase, ShiftsBase
 from kidsdata.database.models.scan import AstroBase, ManualBase, TablebtBase, ScanBase
-from kidsdata.database.models.scan_x_product import scan_x_product_base
+from kidsdata.database.models.scan_x_product import ScanXProductBase
 from kidsdata.database.models.stats import StatsBase
 from kidsdata.database.models.product import ProductBase
 
@@ -54,5 +54,6 @@ class Shifts(ShiftsBase, Product):
 
 # +  chemin de base (dir name)
 
+class ScanXProduct(Base, ScanXProductBase):
+    pass
 
-scan_x_product = Table("scan_x_product", Base.metadata, *copy.deepcopy(scan_x_product_base))
