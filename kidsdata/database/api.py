@@ -1,7 +1,9 @@
 import logging
 from datetime import datetime
+from functools import partial
 from typing import List
 
+from rich.console import Console
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
@@ -18,7 +20,7 @@ from kidsdata.database.helpers import (
     manual_columns,
     tablebt_columns,
 )
-from kidsdata.database.models import Astro, Manual, Tablebt, Kidpar
+from kidsdata.database.models import Astro, Manual, Tablebt, Kidpar, Scan
 
 logger = logging.getLogger(__name__)
 
@@ -229,3 +231,57 @@ def populate_scans(session=None):
     populate_func(session, dirs, RE_ASTRO, astro_columns, Astro)
     populate_func(session, dirs, RE_MANUAL, manual_columns, Manual)
     populate_func(session, dirs, RE_TABLEBT, tablebt_columns, Tablebt)
+
+
+def list_data(model=Scan, pprint_columns=None, output=False, session=None, **kwargs):
+    """List (with filtering) all data in the database.
+
+    Notes
+    -----
+    You can filter the list see `list_data`
+    """
+    if session is None:
+        session = get_session()
+
+    populate_scans(session)
+
+    scans_query = session.query(model)
+
+    # Filtering on all possible key from table
+    for key in kwargs.keys():
+        try:
+            if "__gt" in key:
+                scans_query = scans_query.filter(getattr(model, key.split("__")[0]) > kwargs[key])
+            elif "__lt" in key:
+                scans_query = scans_query.filter(getattr(model, key.split("__")[0]) < kwargs[key])
+            else:
+                scans_query = scans_query.filter(getattr(model, key.split("__")[0]) == kwargs[key])
+        except AttributeError:
+            logger.warning(f"Cannot filter on '{key}', row '{key}' does not exist in table {model.__tablename__}")
+
+    scans = scans_query.all()
+
+    if output:
+        return scans
+
+    from rich.table import Table
+
+    table = Table(title=f"Filtered content of table {model.__tablename__}")
+    if pprint_columns is None:
+        # print all columns (exclude private
+        pprint_columns = [col_name for col_name in scans[0].__dict__ if not col_name[0] == "_"]
+
+    logger.info(pprint_columns)
+
+    for col in pprint_columns:
+        table.add_column(col)
+
+    for scan in scans:
+        table.add_row(*[str(getattr(scan, col)) for col in pprint_columns])
+
+    Console().print(table)
+
+
+list_astro = partial(list_data, model=Astro, pprint_columns=["date", "scan", "source", "obsmode", "size"])
+list_manual = partial(list_data, model=Manual, pprint_columns=["name", "date", "size"])
+list_tablebt = partial(list_data, model=Tablebt, pprint_columns=["name", "date", "scan", "size"])
