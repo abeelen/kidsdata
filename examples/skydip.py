@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import matplotlib.pyplot as plt
 from src.kiss_data import KissRawData
-from src.db import get_extra
+from src.db import get_manual
 import numpy as np
 import warnings
 
@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 
 plt.ion()
 
-scans = get_extra(start=datetime(2019, 5, 1, 19, 14, 24), end=datetime(2019, 5, 1, 19, 52, 53))
+scans = get_manual(start=datetime(2019, 5, 1, 19, 14, 24), end=datetime(2019, 5, 1, 19, 52, 53))
 
 title = Path(scans[0]).name + " ".join([Path(scan).name.split("_")[4] for scan in scans[1:]])
 
