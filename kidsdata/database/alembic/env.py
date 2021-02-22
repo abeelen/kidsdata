@@ -39,7 +39,7 @@ def run_migrations_offline():
     script output.
 
     """
-    from kidsdata.database.constants import DB_URI
+    from kidsdata.settings import DB_URI
 
     context.configure(
         url=DB_URI, target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"},
@@ -56,7 +56,7 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    from kidsdata.database.constants import DB_URI
+    from kidsdata.settings import DB_URI
 
     connectable = engine_from_config({}, url=DB_URI, prefix="sqlalchemy.", poolclass=pool.NullPool,)
 
