@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 global_session = None
 
+
 # TODO def list_scan():
 
 
@@ -109,8 +110,6 @@ def get_filename(filename, session=None) -> str:
     return file_paths[0]
 
 
-
-
 def get_manual(start, end, session=None) -> List[str]:  # TODO
     """Get path for manual scans (typically skydips or dome observation) between two timestamp.
 
@@ -179,13 +178,13 @@ def populate_params(session=None):
         rows.extend(session.query(Model).filter_by(param_id=None).all())
 
     with Progress(
-        "[progress.description]{task.description}",
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        "Scan {task.completed}/{task.total}",
-        TimeRemainingColumn(),
-        refresh_per_second=1,
+            "[progress.description]{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeElapsedColumn(),
+            "Scan {task.completed}/{task.total}",
+            TimeRemainingColumn(),
+            refresh_per_second=1,
     ) as progress:
 
         task1 = progress.add_task("Update table params...", total=len(rows))
@@ -261,7 +260,6 @@ def get_kidpar(time: datetime, session=None) -> str:
 
 
 def populate_scans(session=None):
-
     if session is None:
         session = get_session()
 
@@ -324,3 +322,26 @@ def list_data(model=Scan, pprint_columns=None, output=False, session=None, **kwa
 list_astro = partial(list_data, model=Astro, pprint_columns=["date", "scan", "source", "obsmode", "size"])
 list_manual = partial(list_data, model=Manual, pprint_columns=["name", "date", "size"])
 list_tablebt = partial(list_data, model=Tablebt, pprint_columns=["name", "date", "scan", "size"])
+
+
+def edit_comment(scan=None, filename=None, comment="", session=None):
+    if session is None:
+        session = get_session()
+
+    populate_scans(session)
+    filter = None
+
+    if scan is not None:
+        filter = {"scan", scan}
+
+    if filename is not None:
+        filter = {"name": filename}
+
+    if filter is None:
+        raise KeyError("Please call with either a scan number or a filename")
+
+    scan = session.query(Scan).filter_by(**filter).one()
+
+    scan.comment = comment
+
+    session.commit()
