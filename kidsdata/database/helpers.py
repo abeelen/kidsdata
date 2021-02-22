@@ -58,8 +58,8 @@ def create_row(file_path, re_pattern, extract_func=None):
         "file_path": file_path.as_posix(),
         "name": file_path.name,
         "size": stat.st_size,
-        "ctime": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-        "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "ctime": datetime.fromtimestamp(stat.st_ctime),
+        "mtime": datetime.fromtimestamp(stat.st_mtime),
         # "comment": " " * 128
     }
 
