@@ -3,7 +3,6 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import relationship
 
 from kidsdata.database.constants import PATH_MAX, NAME_MAX
-from kidsdata.database.models.scan_x_product import scan_x_product
 
 
 class ScanBase:
@@ -28,7 +27,7 @@ class ScanBase:
 
     @declared_attr
     def products(self):
-        return relationship("Product", secondary=scan_x_product, back_populates="scans")
+        return relationship("Product", secondary="scan_x_product", back_populates="scans")
 
     __mapper_args__ = {"polymorphic_identity": "scan", "polymorphic_on": type}
     # voir pour éventuellement un dump/partage de la table param car long à charger

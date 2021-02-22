@@ -1,7 +1,12 @@
+import copy
+
+from sqlalchemy import Table
+
 from kidsdata.database.models.param import ParamBase
 
 from kidsdata.database.models.product import KidparBase, ShiftsBase
 from kidsdata.database.models.scan import AstroBase, ManualBase, TablebtBase, ScanBase
+from kidsdata.database.models.scan_x_product import scan_x_product_base
 from kidsdata.database.models.stats import StatsBase
 from kidsdata.database.models.product import ProductBase
 
@@ -22,15 +27,15 @@ class Scan(ScanBase, Base):
     pass
 
 
-class Manual(ManualBase, ScanBase, Base):
+class Manual(ManualBase, Scan):
     pass
 
 
-class Astro(AstroBase, ScanBase, Base):
+class Astro(AstroBase, Scan):
     pass
 
 
-class Tablebt(TablebtBase, ScanBase, Base):
+class Tablebt(TablebtBase, Scan):
     pass
 
 
@@ -39,12 +44,15 @@ class Product(ProductBase, Base):
     pass
 
 
-class Kidpar(KidparBase, ProductBase, Base):
+class Kidpar(KidparBase, Product):
     pass
 
 
-class Shifts(ShiftsBase, ProductBase, Base):
+class Shifts(ShiftsBase, Product):
     pass
 
 
 # +  chemin de base (dir name)
+
+
+scan_x_product = Table("scan_x_product", Base.metadata, *copy.deepcopy(scan_x_product_base))

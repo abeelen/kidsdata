@@ -3,7 +3,6 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import relationship
 
 from kidsdata.database.constants import PATH_MAX, NAME_MAX
-from kidsdata.database.models.scan_x_product import scan_x_product
 
 
 class ProductBase:
@@ -17,7 +16,7 @@ class ProductBase:
 
     @declared_attr
     def scans(self):
-        return relationship("Scan", secondary=scan_x_product, back_populates="products")
+        return relationship("Scan", secondary="scan_x_product", back_populates="products")
 
     type = Column(String(40))
 
