@@ -6,7 +6,7 @@ from functools import partial, wraps
 from enum import IntEnum
 
 import logging
-import warnings
+from autologging import logged
 import ctypes
 from pathlib import Path
 from collections import namedtuple
@@ -248,6 +248,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
     return header, param_c, kidpar, names, nb_read_samples
 
 
+@logged
 def read_all(
     filename,
     list_data=None,
@@ -318,9 +319,7 @@ def read_all(
         str_data = " ".join(list_data)
 
     # Read the basic header from the file and the name of the data
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        header, param_c, kidpar, names, nb_read_info = read_info(filename, list_data=list_data, silent=silent)
+    header, param_c, kidpar, names, nb_read_info = read_info(filename, list_data=list_data, silent=silent)
 
     if list_detector is None:
         list_detector = np.where(~kidpar["index"].mask)[0]
@@ -367,12 +366,12 @@ def read_all(
     buffer_dataS = np.zeros(nb_to_read * _sample_S, dtype=np.float32)
     buffer_dataU = np.zeros(nb_to_read // np_pt_bloc * _sample_U, dtype=np.float32)
 
-    logging.info(
+    read_all._log.info(
         "buffer allocated : \n    - buffer_dataS  {}\n    - buffer_dataU  {}".format(
             sizeof_fmt(buffer_dataS.nbytes), sizeof_fmt(buffer_dataU.nbytes)
         )
     )
-    logging.debug("before read_nika_all")
+    read_all._log.debug("before read_nika_all")
     nb_samples_read = read_nika_all(
         bytes(str(filename), "ascii"),
         buffer_dataS.ctypes.data_as(p_float),
@@ -383,10 +382,10 @@ def read_all(
         nb_to_read,
         silent,
     )
-    logging.debug("after read_nika_all")
+    read_all._log.debug("after read_nika_all")
 
     if nb_samples_read != nb_to_read:
-        logging.warning("Did not read all requested data")
+        read_all._log.warning("Did not read all requested data")
 
         buffer_dataS = buffer_dataS[0 : nb_samples_read * _sample_S]
         buffer_dataU = buffer_dataU[0 : nb_samples_read // np_pt_bloc * _sample_U]
@@ -455,6 +454,7 @@ def read_all(
     return nb_samples_read, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
 
+@logged
 def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_time=True, raw=False):
 
     if raw:
@@ -480,7 +480,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
 
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
     if pps_keys:
-        logging.debug("Using {} to compute median pps time".format(pprint_list(pps_keys, "_time_pps")))
+        clean_dataSc._log.debug("Using {} to compute median pps time".format(pprint_list(pps_keys, "_time_pps")))
         shape = dataSc.get(pps_keys[0]).shape
         times = [dataSc.get(key).flatten() for key in pps_keys]
         pps = np.nanmedian(times, axis=0)
@@ -493,7 +493,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
 
         # Fake pps time if necessary,
         if correct_pps:
-            logging.info("Correcting pps time")
+            clean_dataSc._log.info("Correcting pps time")
 
             dummy = np.append(np.diff(pps), 0)
             good = np.abs(dummy - 1 / acqfreq) < 0.02
@@ -506,7 +506,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
     # Compute median hours
     hours_keys = [key for key in dataSc if key.endswith("_hours")]
     if hours_keys:
-        logging.debug("Using {} to compute median hours".format(pprint_list(hours_keys, "_hours")))
+        clean_dataSc._log.debug("Using {} to compute median hours".format(pprint_list(hours_keys, "_hours")))
         shape = dataSc.get(hours_keys[0]).shape
         hours = [dataSc.get(key).flatten() for key in hours_keys]
         hours = np.nanmedian(hours, axis=0).reshape(shape)
@@ -525,7 +525,7 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
 
         # Correct jumps in time
         if correct_time:
-            logging.info("Correcting time differences greather than {} s".format(float(correct_time)))
+            clean_dataSc._log.info("Correcting time differences greather than {} s".format(float(correct_time)))
             bad = (np.append(np.diff(np.unwrap(time)), 0) > correct_time) | time.mask
             if any(bad) and any(~bad):
                 # Interpolate bad values
@@ -538,12 +538,13 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
     return dataSc
 
 
+@logged
 def clean_param_c(param_c, flat=False):
 
     # Decode the name
     nomexp_keys = sorted([key for key in param_c.keys() if "nomexp" in key], key=lambda x: int(x[6:]))
     param_c["nomexp"] = ""
-    logging.debug("Merging {} nomexp field".format(len(nomexp_keys)))
+    clean_param_c._log.debug("Merging {} nomexp field".format(len(nomexp_keys)))
     for key in nomexp_keys:
         param_c["nomexp"] += param_c[key].tobytes().strip(b"\x00").decode("ascii")
         del param_c[key]
@@ -614,15 +615,16 @@ def clean_dataSd(dataSd, shift_rf_didq=-49):
     return dataSd
 
 
+@logged
 def clean_namedet(namedet, fix=True):
     # In principle the last 2 bytes should be always 0, ie we code up to 6 character, instead of 8/16, but sometimes....
     namedet = namedet.view(np.byte)
     if np.any(namedet[:, 6:]):
         if fix:
             namedet[:, 6:] = 0
-            warnings.warn("Corrupted namedet truncated to 6 characters")
+            clean_namedet._log.warning("Corrupted namedet truncated to 6 characters")
         else:
-            warnings.warn("Corrupted namedet")
+            clean_namedet._log.warning("Corrupted namedet")
     return [name.tobytes().strip(b"\x00").decode("ascii") for name in namedet]
 
 
@@ -744,6 +746,7 @@ def list_detector_to_codedet(list_detector=None):
     return codeDet, list_detector
 
 
+@logged
 def read_raw(
     filename,
     list_data=None,
@@ -838,8 +841,8 @@ def read_raw(
     start = start or 0
     nb_to_read = end - start if (end is not None) and (end > start) else -1  # read all
 
-    read_raw = READRAW.readraw_c
-    read_raw.argtype = [
+    c_read_raw = READRAW.readraw_c
+    c_read_raw.argtype = [
         ctypes.c_char_p,
         ctypes.c_int32,
         ctypes.c_int32,
@@ -852,13 +855,13 @@ def read_raw(
         P_INT32,
         ctypes.c_int,
     ]
-    read_raw.restype = TdataPt
+    c_read_raw.restype = TdataPt
 
-    read_raw_free = READRAW.readrawFree_c
-    read_raw_free.argtype = [TdataPt]
+    c_read_raw_free = READRAW.readrawFree_c
+    c_read_raw_free.argtype = [TdataPt]
 
-    logging.debug("before read_raw")
-    Tdata = read_raw(
+    read_raw._log.debug("before read_raw")
+    Tdata = c_read_raw(
         bytes(str(filename), "ascii"),
         start,
         nb_to_read,
@@ -871,17 +874,26 @@ def read_raw(
         list_detector.ctypes.data_as(P_INT32),
         silent,
     )
-    logging.debug("after read_raw")
+    read_raw._log.debug("after read_raw")
 
     if Tdata.nbDet == 0:
-        logging.error("No kid read, check list_detector")
+        read_raw._log.error("No kid read, check list_detector")
         return None
+
+    if nb_to_read == -1:
+        nb_to_read = Tdata.nbBlocInFile
+
+    if Tdata.nbBlocRead != nb_to_read:
+        read_raw._log.warning("{} missing blocks, truncating".format(nb_to_read - Tdata.nbBlocRead))
+
+    nb_read_samples = Tdata.nbBlocRead * Tdata.nbpt
+    good_blocs = slice(0, Tdata.nbBlocRead)
 
     # See Acquisition/Library/configNika/TconfigNika.h
     header = TconfigHeader(*np.ctypeslib.as_array(Tdata.headerPt, (22,))[4:22])
 
     # ParamC
-    logging.debug("ParamC")
+    read_raw._log.debug("ParamC")
     names = namept_to_names(Tdata.nameParamC, Tdata.nbParanC)
     values = np.ctypeslib.as_array(Tdata.ptParamC, (Tdata.nbParanC,))
     # TODO: Potentially make a copy here....
@@ -896,14 +908,14 @@ def read_raw(
     # Reglage
     # F_tone ??
     if "Rg" in list_data:
-        logging.debug("dataRg")
+        read_raw._log.debug("dataRg")
         bloc = np.ctypeslib.as_array(Tdata.numBlocRg, (Tdata.nbReglage,))
         values = np.ctypeslib.as_array(Tdata.ptDataRg, (Tdata.nbReglage, Tdata.nbDet)).astype(np.float32)
         dataRg = dict(zip(bloc, values))
         del (bloc, values)
 
     # ParamD
-    logging.debug("ParamD")
+    read_raw._log.debug("ParamD")
     names = namept_to_names(Tdata.nameParamD, Tdata.nbParanD)
     values = np.ctypeslib.as_array(Tdata.ptParamD, (Tdata.nbParanD, Tdata.nbDet))
     param_d = dict(zip(names, values))
@@ -925,9 +937,10 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataSc = namept_to_names(Tdata.nameDataSc, Tdata.nbDataSc)
     if "Sc" in list_data:
-        logging.debug("dataSc")
+        read_raw._log.debug("dataSc")
 
-        values = np.ctypeslib.as_array(Tdata.ptDataSc, (Tdata.nbDataSc, Tdata.nbBloc, Tdata.nbpt)).astype(np.float32)
+        shape = (Tdata.nbDataSc, Tdata.nbBloc, Tdata.nbpt)
+        values = np.ctypeslib.as_array(Tdata.ptDataSc, shape)[:, good_blocs, :].astype(np.float32)
         dataSc = dict(zip(TName_dataSc, values))
         del values
         dataSc = clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time, raw=True)
@@ -937,11 +950,9 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataSd = namept_to_names(Tdata.nameDataSd, Tdata.nbDataSd)
     if "Sd" in list_data:
-        logging.debug("dataSd")
-
-        values = np.ctypeslib.as_array(Tdata.ptDataSd, (Tdata.nbDataSd, Tdata.nbDet, Tdata.nbBloc, Tdata.nbpt)).astype(
-            np.float32
-        )
+        read_raw._log.debug("dataSd")
+        shape = (Tdata.nbDataSd, Tdata.nbDet, Tdata.nbBloc, Tdata.nbpt)
+        values = np.ctypeslib.as_array(Tdata.ptDataSd, shape)[:, :, good_blocs, :].astype(np.float32)
         dataSd = dict(zip(TName_dataSd, values))
         del values
         dataSd = clean_dataSd(dataSd)
@@ -951,10 +962,9 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataUc = namept_to_names(Tdata.nameDataUc, Tdata.nbDataUc)
     if "Uc" in list_data:
-        logging.debug("dataUc")
-
-        values = np.ctypeslib.as_array(Tdata.ptDataUc, (Tdata.nbDataUc, Tdata.nbBloc)).astype(np.float32)
-        # TODO: Potentially make a copy here....
+        read_raw._log.debug("dataUc")
+        shape = (Tdata.nbDataUc, Tdata.nbBloc)
+        values = np.ctypeslib.as_array(Tdata.ptDataUc, shape)[:, good_blocs].astype(np.float32)
         dataUc = dict(zip(TName_dataUc, values))
         del values
 
@@ -963,19 +973,18 @@ def read_raw(
     # the values need to be freed together if one want to free one
     TName_dataUd = namept_to_names(Tdata.nameDataUd, Tdata.nbDataUd)
     if "Ud" in list_data:
-        logging.debug("dataUd")
-
-        values = np.ctypeslib.as_array(Tdata.ptDataUd, (Tdata.nbDataUd, Tdata.nbDet, Tdata.nbBloc)).astype(np.float32)
-        # TODO: Potentially make a copy here
+        read_raw._log.debug("dataUd")
+        shape = (Tdata.nbDataUd, Tdata.nbDet, Tdata.nbBloc)
+        values = np.ctypeslib.as_array(Tdata.ptDataUd, shape)[:, :, good_blocs].astype(np.float32)
         dataUd = dict(zip(TName_dataUd, values))
         del values
 
     names = TName(TName_dataSc, TName_dataSd, TName_dataUc, TName_dataUd, namedet)
 
     # Release C memory
-    read_raw_free(Tdata)
+    c_read_raw_free(Tdata)
 
-    return header, param_c, kidpar, names, Tdata.nbSample, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
+    return header, param_c, kidpar, names, nb_read_samples, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
 
 # https://stackoverflow.com/questions/2166818/how-to-check-if-an-object-is-an-instance-of-a-namedtuple
