@@ -6,8 +6,8 @@ from astropy.coordinates import get_body, solar_system_ephemeris, EarthLocation
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.coordinates.name_resolve import NameResolveError
+from kidsdata.settings import NIKA_LIB_PATH
 
-NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/")
 KISS_CAT_FILENAME = (
     Path(NIKA_LIB_PATH).parent.parent
     / "Acquisition"

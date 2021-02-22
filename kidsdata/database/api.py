@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime
 from typing import List
 
@@ -7,7 +6,9 @@ from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingC
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
 
-from kidsdata.database.constants import CALIB_DIR, RE_KIDPAR, DB_URI, BASE_DIRS, RE_ASTRO, RE_MANUAL, RE_TABLEBT
+from kidsdata.database.constants import RE_KIDPAR, RE_ASTRO, RE_MANUAL, RE_TABLEBT
+from kidsdata.settings import CALIB_DIR, DB_URI, BASE_DIRS
+
 from kidsdata.database.helpers import (
     create_param_row,
     create_kidpar_row,

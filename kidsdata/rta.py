@@ -19,11 +19,9 @@ from .database.api import get_scan
 from .kiss_data import KissData
 from .kids_plots import show_contmap
 
+from kidsdata.settings import CALIB_DIR
+
 plt.ion()
-
-
-KISS_CALIB_DIR = os.getenv("KISS_CALIB_DIR", "/data/KISS/Calib/")
-
 
 __all__ = ["beammap", "contmap", "contmap_coadd", "check_pointing", "skydip"]
 
@@ -80,7 +78,6 @@ def kd_or_scan(func=None, array=None, extra_data=None):
     def wrapper(scan, *args, **kwargs):
         # If scan number given, read the scan into the object and pass it to function
         if isinstance(scan, (int, np.int, np.int64)):
-
             scan = read_scan(scan, array=array, extra_data=extra_data)
 
         return func(scan, *args, **kwargs)
@@ -146,7 +143,7 @@ def contmap(kd, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.common_mode.p
     kd._KissRawData__check_attributes(
         ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
     )
-    kd._extended_kidpar = Table.read(Path(KISS_CALIB_DIR) / e_kidpar)
+    kd._extended_kidpar = Table.read(Path(CALIB_DIR) / e_kidpar)
 
     # kids selection
     kid_mask = kd._kids_selection(std_dev=0.3)
@@ -209,7 +206,7 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.comm
         kd._KissRawData__check_attributes(
             ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
         )
-        kd._extended_kidpar = Table.read(Path(KISS_CALIB_DIR) / e_kidpar)
+        kd._extended_kidpar = Table.read(Path(CALIB_DIR) / e_kidpar)
 
         # kids selection
         kid_mask = kd._kids_selection(std_dev=0.3)
@@ -312,7 +309,6 @@ def skydip(scans):
     elevation = []
 
     for scan in scans:
-
         kd = KissData(scan)
         kd.read_data(list_data=["A_masq", "I", "Q", "F_tone", "F_tl_Az", "F_tl_El"])
 
@@ -335,14 +331,13 @@ def skydip(scans):
     air_mass = 1.0 / np.sin(np.radians(elevation))
 
     def T(
-        airm, const, fact, tau_f
+            airm, const, fact, tau_f
     ):  # signal definition for skydip model: there is -1 before B to take into account the increasing resonance to lower optical load
         return const + 270.0 * fact * (1.0 - np.exp(-tau_f * airm))
 
     popts = []
     pcovs = []
     for _sig, _std in zip(signal_new.T, std.T):
-
         P0 = (4e8, 1e8, 1.0)
         popt, pcov = curve_fit(T, air_mass, _sig, sigma=_sig, p0=P0, maxfev=100000)
 

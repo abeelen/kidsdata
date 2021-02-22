@@ -9,3 +9,5 @@ dask
 custom_inherit
 sqlalchemy
 rich
+alembic
+python-decouple

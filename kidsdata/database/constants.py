@@ -1,6 +1,4 @@
-import os
 import re
-from pathlib import Path
 
 
 NAME_MAX = 255  # /* # chars in a file name */
@@ -20,15 +18,6 @@ RE_TABLEBT = re.compile(r"X(\d{2,2})_(\d{2,2})_Tablebt_scanStarted_(\d*)$")
 # for kidpar files
 RE_KIDPAR = re.compile(r"^e_kidpar")
 
-
-##### settings
-
-BASE_DIRS = [Path(directory) for directory in os.getenv("DATA_DIR", "/data/KISS/Raw/nika2c-data3/KISS").split(";")]
-CALIB_DIR = Path(os.getenv("CALIB_DIR", "/data/KISS/Calib/"))
-
-DB_DIR = Path(os.getenv("DB_DIR", "."))
-
-DB_URI = os.getenv("DB_URI", "sqlite:///" + str(DB_DIR / "kids_data.db"))
 
 # { kd field : mapping }
 # mapping being :
