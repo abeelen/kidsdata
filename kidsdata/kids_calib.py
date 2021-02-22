@@ -15,8 +15,7 @@ from .utils import cpu_count, grouper, interp1d_nan
 from .utils import fit_circle_3pts, fit_circle_algebraic, fit_circle_leastsq, radii
 
 import logging
-
-logger = logging.getLogger(__name__)
+from autologging import logged
 
 """
 Module for KIDs calibration a la KISS
@@ -38,6 +37,7 @@ def angle0(phi):
     return np.mod((phi + np.pi), (2 * np.pi)) - np.pi
 
 
+@logged
 def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docalib=True):
     """
     Compute calibration to convert into frequency shift in Hz
@@ -86,7 +86,7 @@ def get_calfact(dataI, dataQ, A_masq, fmod=1, mod_factor=0.5, wsample=[], docali
 
         # Check for cases with missing data in one of the modulation (all flagged)
         if np.all(~l1) or np.all(~l2) or np.all(~l3):
-            logger.warning("Interferogram {} could not be calibrated".format(iint))
+            get_calfact._log.warning("Interferogram {} could not be calibrated".format(iint))
             continue
 
         x1 = np.median(Icurrent[:, l1], axis=1)
@@ -271,7 +271,8 @@ def mod_mask_to_flag(A_masq, modulation):
     return _masq
 
 
-## TODO: This function is trivialy parallelisable per kid....
+## TODO: This function is trivialy parallelisable per kid from the beginning...
+@logged
 def get_calfact_3pts(
     dataI,
     dataQ,
@@ -379,6 +380,7 @@ def get_calfact_3pts(
     # ).T.swapaxes(0, 1)
 
     # Switch to multiprocessing
+    get_calfact_3pts._log.debug("Reducing modulation to 3 points")
     _reducs = partial(_to_3pts, _reduc=_reduc)
     with Pool(N_CPU, _pool_initializer, (dataI, A_low, A_high, A_normal)) as pool:
         x = np.vstack(pool.map(_reducs, grouper(range(nint), nint // N_CPU))).T.swapaxes(0, 1)
@@ -387,9 +389,10 @@ def get_calfact_3pts(
         y = np.vstack(pool.map(_reducs, grouper(range(nint), nint // N_CPU))).T.swapaxes(0, 1)
 
     # Transform to dask array for later use, ditching dask for the moment
-    dataI = da.from_array(dataI, name=False)
-    dataQ = da.from_array(dataQ, name=False)
+    dataI = da.from_array(dataI, name=False, chunks=(1, nint, nptint))
+    dataQ = da.from_array(dataQ, name=False, chunks=(1, nint, nptint))
 
+    get_calfact_3pts._log.debug("Fitting circle")
     data_method, fit_method = method
     if data_method.lower() == "all":
         # Fit circles on the full dataset
@@ -427,7 +430,9 @@ def get_calfact_3pts(
 
         bad_interferograms = np.isnan(Icc) | np.isnan(Qcc)
         if np.any(bad_interferograms):
-            logger.warning("Interferogram {} could not be calibrated".format(np.unique(np.where(bad_interferograms)[1])))
+            get_calfact_3pts._log.warning(
+                "Interferogram {} could not be calibrated".format(np.unique(np.where(bad_interferograms)[1]))
+            )
 
         # filtering
         if nfilt is not None:
@@ -445,6 +450,8 @@ def get_calfact_3pts(
             # R will be shaped (ndet, nint*nptint)
             R = radii((dataI, dataQ), (Icc[..., np.newaxis], Qcc[..., np.newaxis])).reshape(ndet, -1)
 
+    get_calfact_3pts._log.debug("Calibrating")
+
     P0 = np.arctan2(Icc, Qcc)
 
     x1, x2, x3 = x
@@ -456,7 +463,7 @@ def get_calfact_3pts(
     diffangle = angle0(r2 - r1)
 
     if np.any(np.isnan(diffangle)):
-        warnings.warn("Some kid/block could not be calibrated, replacing with median calibration")
+        get_calfact_3pts._log.warning("Some blocks could not be calibrated, replacing with median calibration")
         for i in range(diffangle.shape[0]):
             bad = np.isnan(diffangle[i])
             diffangle[i, bad] = np.median(diffangle[i, ~bad])
@@ -469,7 +476,7 @@ def get_calfact_3pts(
     # Get calibration factor
     calfact = 2 / diffangle * fmod * mod_factor
 
-    # %timeit r = angle0(da.arctan2(Icc[..., np.newaxis] - da.from_array(dataI), Qcc[..., np.newaxis] - da.from_array(dataQ)) - da.from_array(R0)[..., np.newaxis]).compute()
+    # %timeit r = angle0(da.arctan2(Icc[...,rechnuck np.newaxis] - da.from_array(dataI), Qcc[..., np.newaxis] - da.from_array(dataQ)) - da.from_array(R0)[..., np.newaxis]).compute()
     # 19.8 s ± 173 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
     # or... if dataI and dataQ are already dask arrays
     # 6.6 s ± 74.7 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
@@ -488,8 +495,19 @@ def get_calfact_3pts(
     #     interferograms = np.vstack(pool.map(_calibrate, np.array_split(range(ndet), N_CPU)))
 
     # Transform interferograms into a masked array,
-    # Note that masks are store in one byte, consumming a lot of space here !!
-    interferograms = np.ma.array(interferograms, mask=np.tile(~A_normal.flatten(), ndet), fill_value=0)
+    # Note that masks are store in one byte instead of one bit consumming a lot of space here !!
+    get_calfact_3pts._log.debug("Computing interferograms")
+    interferograms = interferograms.persist()
+
+    get_calfact_3pts._log.debug("Creating interferograms mask")
+    bad_blocks = np.repeat((da.std(interferograms, 2) == 0).compute(), nptint, -1).flatten()
+    bad_blocks |= np.tile(~A_normal.flatten(), ndet)
+    bad_blocks = bad_blocks.reshape(ndet, nint, nptint)
+
+    interferograms = np.ma.array(interferograms, mask=bad_blocks, fill_value=0)
+
+    get_calfact_3pts._log.debug("Computing continuum")
+    continuum = compute_continuum(R0, P0, calfact)
 
     # Mask nans if present
     nan_itg = np.isnan(interferograms.data)
@@ -502,7 +520,7 @@ def get_calfact_3pts(
         "P0": P0,
         "R0": R0,
         "calfact": calfact,
-        "continuum": compute_continuum(R0, P0, calfact),
+        "continuum": continuum,
         "interferograms": interferograms,
     }
 
