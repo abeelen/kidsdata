@@ -65,7 +65,7 @@ from autologging import logged, TRACE
 from astropy.utils.exceptions import AstropyWarning
 from astropy.table import Table, Column, vstack
 
-from kidsdata import KissData, get_scan, list_scan, list_extra
+from kidsdata import KissData, get_scan, list_scan, list_manual
 from kidsdata.utils import interferograms_regrid
 
 CALIB_PATH = Path("/data/KISS/Calib")
