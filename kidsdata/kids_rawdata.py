@@ -28,8 +28,7 @@ from .utils import roll_fft, interp1d_nan
 
 from .database.constants import RE_ASTRO, RE_MANUAL, RE_DIR, RE_TABLEBT
 from .database.api import get_kidpar
-
-CACHE_DIR = Path(os.getenv("CACHE_DIR", "/data/KISS/Cache"))
+from kidsdata.settings import CACHE_DIR
 
 if not CACHE_DIR.exists():
     logging.warning("Cache dir do not exist : {}".format(CACHE_DIR))
