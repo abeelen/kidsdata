@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey
-from sqlalchemy.ext.declarative.base import declared_attr
+from sqlalchemy.ext.declarative import declared_attr
 
 
 class ScanXProductBase:
