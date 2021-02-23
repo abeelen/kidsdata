@@ -2,14 +2,36 @@
 Database
 ========
 
-Introduction
-------------
-The kidsdata database stores metadata on the files processed by the library. Kidsdata uses sqlalchemy as ORM to query the database and the `Declarative style mapping <https://docs.sqlalchemy.org/en/13/orm/mapping_styles.html#declarative-mapping>`_ to describe the database tables and their columns. `Alembic <https://alembic.sqlalchemy.org/en/latest/>`_ can use these models to (auto)generate and apply migrations on the database.
+Usage
+-----
 
-Kidsdata database should support both postgresql for cluster usage and sqlite for manual/acquisition usage.
+For default configuration, simply call :
+
+    $ kidsdata-migrate upgrade heads
+
+This will create an sqlite database in the current directory.
+
+-----------
+
+If you want to use another database file, you can override the DB_DIR variable, either with a regular environment variable or in a .env file in the current directory:
+
+Content of the .env file :
+
+    DB_DIR=/database/path/database.db
+
+
+If you want to use another database engine, override the DB_URI variable. For example with the shared postgresql database on cmaster:
+
+    DB_URI=postgresql://db_user:\*******@cmaster.lam.fr:5432/pipeline
 
 Design
 ------
+
+Introduction
+************
+The kidsdata database stores metadata on the files processed by the library. Kidsdata uses sqlalchemy as ORM to query the database and the `Declarative style mapping <https://docs.sqlalchemy.org/en/13/orm/mapping_styles.html#declarative-mapping>`_ to describe the database tables and their columns. `Alembic <https://alembic.sqlalchemy.org/en/latest/>`_ can use these models to (auto)generate and apply migrations on the database.
+
+Kidsdata database should support both postgresql for cluster usage and sqlite for manual/acquisition usage.
 
 The kidsdata database stores mostly metadata on both inputs (scans) and outputs (products) of the data pipeline, and the relations between them.
 
