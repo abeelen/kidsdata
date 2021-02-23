@@ -17,7 +17,7 @@ If you want to use another database file, you can override the DB_DIR variable, 
 
 Content of the .env file :
 
-    DB_DIR=/database/path/database.db
+    DB_DIR=/database/path
 
 
 If you want to use another database engine, override the DB_URI variable. For example with the shared postgresql database on cmaster:
