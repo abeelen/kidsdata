@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 global_session = None
 
+__all__ = ["get_session", "get_scan", "get_filename", "get_manual", "get_file_path", "populate_params",
+           "populate_kidpar", "get_kidpar", "populate_scans", "list_data", "list_manual", "list_astro", "list_tablebt",
+           "edit_comment"]
+
 
 # TODO def list_scan():
 

@@ -4,6 +4,7 @@ from .rta import *
 from .kiss_data import KissData
 from .inlab_data import InLabData
 from .ftsdata import FTSData
+from .database import *
 
 __version__ = get_versions()["version"]
 del get_versions
