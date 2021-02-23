@@ -46,7 +46,7 @@ setup(
     packages=find_packages(exclude=['docs', 'tests']),
     entry_points={
         'console_scripts': [
-            # 'command = some.module:some_function',
+            'kidsdata-migrate = kidsdata.database.migrate_entrypoint:call_alembic',
         ],
     },
     include_package_data=True,
