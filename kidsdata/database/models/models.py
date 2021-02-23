@@ -1,7 +1,3 @@
-import copy
-
-from sqlalchemy import Table
-
 from kidsdata.database.models.param import ParamBase
 
 from kidsdata.database.models.product import KidparBase, ShiftsBase
