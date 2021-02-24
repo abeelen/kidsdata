@@ -972,7 +972,11 @@ def psd_cal(datas, Fs, rebin):
 
     _, freq = mlab.psd(datas[0], Fs=Fs, NFFT=datas.shape[1] // rebin)
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(datas, Fs, rebin),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(datas, Fs, rebin),
+    ) as pool:
         items = pool.map(_psd_cal, np.array_split(np.arange(datas.shape[0]), cpu_count()))
 
     return freq, np.vstack(items)
