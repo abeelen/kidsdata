@@ -5,6 +5,7 @@ from typing import List
 
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.filesize import _to_str
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker, Session
 
@@ -286,7 +287,7 @@ def list_data(model=Scan, pprint_columns=None, output=False, session=None, **kwa
 
     populate_scans(session)
 
-    scans_query = session.query(model)
+    scans_query = session.query(model).order_by(model.date.asc())
 
     # Filtering on all possible key from table
     for key in kwargs.keys():
@@ -309,16 +310,22 @@ def list_data(model=Scan, pprint_columns=None, output=False, session=None, **kwa
 
     table = Table(title=f"Filtered content of table {model.__tablename__}")
     if pprint_columns is None:
-        # print all columns (exclude private
-        pprint_columns = [col_name for col_name in scans[0].__dict__ if not col_name[0] == "_"]
+        # print all columns (exclude private attributes)
+        pprint_columns = set(col_name.key for table in [Astro, Manual, Tablebt, Scan] for col_name in table.__table__.c)
 
     logger.info(pprint_columns)
 
     for col in pprint_columns:
-        table.add_column(col)
+        table.add_column(col, justify="right" if col == "size" else "left")
 
     for scan in scans:
-        table.add_row(*[str(getattr(scan, col)) for col in pprint_columns])
+        data = []
+        for col in pprint_columns:
+            if col == "size":
+                data.append(_to_str(scan.size, ("kiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"), 1024))
+            else:
+                data.append(str(getattr(scan, col, "")))
+        table.add_row(*data)
 
     Console().print(table)
 
