@@ -1,5 +1,4 @@
 # pylint: disable=C0301,C0103
-import os
 import gc
 import h5py
 from functools import partial, wraps
@@ -18,6 +17,7 @@ from scipy.interpolate import interp1d
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
 
+from . import settings
 from .utils import _import_from, sizeof_fmt, pprint_list
 
 # import line_profiler
@@ -25,24 +25,23 @@ from .utils import _import_from, sizeof_fmt, pprint_list
 # profile = line_profiler.LineProfiler()
 # atexit.register(profile.print_stats)
 
-NIKA_LIB_PATH = os.getenv("NIKA_LIB_PATH", "/data/CONCERTO/Processing/kid-all-sw/Readdata/C")
-READRAW_LIB_PATH = os.getenv("READRAW_LIB_PATH", "/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readRaw")
-
-NIKA_LIB_SO = Path(NIKA_LIB_PATH) / "libreadnikadata.so"
-READRAW_LIB_SO = Path(READRAW_LIB_PATH) / "libreadraw.so"
+NIKA_LIB_SO = Path(settings.NIKA_LIB_PATH) / "libreadnikadata.so"
+READRAW_LIB_SO = Path(settings.READRAW_LIB_PATH) / "libreadraw.so"
 
 if NIKA_LIB_SO.exists():
     READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
 else:
     READNIKADATA = None
-    logging.error("Could not find {} : Please check $NIKA_LIB_PATH ({})".format(NIKA_LIB_SO.name, NIKA_LIB_PATH))
+    logging.error(
+        "Could not find {} : Please check $NIKA_LIB_PATH ({})".format(NIKA_LIB_SO.name, settings.NIKA_LIB_PATH)
+    )
 
 if READRAW_LIB_SO.exists():
     READRAW = ctypes.cdll.LoadLibrary(str(READRAW_LIB_SO))
 else:
     READRAW = None
     logging.error(
-        "Could not find {} : Please check $READRAW_LIB_PATH ({})".format(READRAW_LIB_SO.name, READRAW_LIB_PATH)
+        "Could not find {} : Please check $READRAW_LIB_PATH ({})".format(READRAW_LIB_SO.name, settings.READRAW_LIB_PATH)
     )
 
 
@@ -635,7 +634,16 @@ def clean_position_unit(dataXc):
 
 
 def namept_to_names(name, nbname):
-    return [item.tobytes().strip(b"\x00").decode() for item in np.ctypeslib.as_array(name, shape=(nbname, 16,),)]
+    return [
+        item.tobytes().strip(b"\x00").decode()
+        for item in np.ctypeslib.as_array(
+            name,
+            shape=(
+                nbname,
+                16,
+            ),
+        )
+    ]
 
 
 P_INT32 = ctypes.POINTER(ctypes.c_int32)
@@ -902,7 +910,13 @@ def read_raw(
     param_c = clean_param_c(param_c, flat=flat)
 
     # Special treatment for namedet as some character are ill placed
-    namedet = np.ctypeslib.as_array(Tdata.nameDet, shape=(Tdata.nbDet, 16,),)
+    namedet = np.ctypeslib.as_array(
+        Tdata.nameDet,
+        shape=(
+            Tdata.nbDet,
+            16,
+        ),
+    )
     namedet = clean_namedet(namedet, fix=fix)
 
     # Reglage
