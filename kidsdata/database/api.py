@@ -1,8 +1,9 @@
 import logging
 from datetime import datetime
 from functools import partial
-from typing import List
+from typing import List, Union
 
+import astropy
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.filesize import _to_str
@@ -225,7 +226,7 @@ def populate_kidpar(session=None):
     session.commit()
 
 
-def get_kidpar(time: datetime, session=None) -> str:
+def get_kidpar(time: Union[datetime, astropy.time.Time], session=None) -> str:
     """Returns the file path of the kidpar valid for the given time"""
 
     if session is None:
@@ -233,6 +234,9 @@ def get_kidpar(time: datetime, session=None) -> str:
 
     # update db before querying
     populate_kidpar(session)
+
+    if isinstance(time, astropy.time.Time):
+        time = time.to_datetime()
 
     kidpars = session.query(Kidpar).filter(Kidpar.start < time).filter(Kidpar.end > time).all()
 
@@ -244,6 +248,9 @@ def get_kidpar(time: datetime, session=None) -> str:
 
         first_kidpar_time = session.query(Kidpar).order_by(Kidpar.start).first()
         last_kidpar_time = session.query(Kidpar).order_by(Kidpar.end.desc()).first()
+
+        if not first_kidpar_time and not last_kidpar_time:
+            raise ValueError("No kidpar found in database")
 
         if time < first_kidpar_time.start:
             logger.warning("No kidpar for this early date, using the earliest one in Kidpar table")
