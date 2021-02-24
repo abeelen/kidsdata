@@ -577,16 +577,21 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         key : str _KidsRawData__(dataSc|dataSd|dataUc|dataUd)
             the data to clean
         """
-        if isinstance(getattr(self, key, None), dict):
-            self.__log.debug("Cleaning top level {}".format(key))
-            # delete from the top level dictionnary
-            for _key in getattr(self, key).keys():
-                delattr(self, _key)
-            del _key
-            # delete the dictionnary itself
-            self.__log.debug("Cleaning {}".format(key))
-            delattr(self, key)
-            # all references should be freed !!
+        if not isinstance(getattr(self, key, None), dict):
+            self.__log.warning("{} is not present or is not a dict".format(key))
+            return None
+
+        self.__log.debug("Cleaning top level {}".format(key))
+        # delete from the top level dictionnary
+        for _key in getattr(self, key).keys():
+            delattr(self, _key)
+        del _key
+        # delete the dictionnary itself
+        self.__log.debug("Cleaning {}".format(key))
+        delattr(self, key)
+        # all references should be freed !!
+        # default value, if read again :
+        setattr(self, key, dict())
 
     # Check if we can merge that with the asserions in other functions
     # Beware that some are read some are computed...

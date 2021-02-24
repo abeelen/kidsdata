@@ -184,15 +184,15 @@ class KissRawData(KidsRawData):
             self.__check_attributes(["I", "Q"], read_missing=False)
 
             fmod = self.fmod
-            masq = self.mod_mask
+            mod_mask = self.mod_mask
 
             # Check about the 3rd bit and the fix_masq keyword
-            if np.any(masq & (1 << 2)) and kwargs.get("fix_masq") is True:
+            if np.any(mod_mask & (1 << 2)) and kwargs.get("fix_masq") is True:
                 self.__log.error("fix_masq should not be used when 3rd bit is set")
 
             self.__log.info("Calibrating with fmod={} and {}".format(fmod, kwargs))
             calib_func = _import_from(calib_func)
-            self.__calib = calib_func(self.I, self.Q, masq, fmod=fmod, **kwargs)
+            self.__calib = calib_func(self.I, self.Q, mod_mask, fmod=fmod, **kwargs)
 
         else:
             self.__log.error("calibrated data already present")

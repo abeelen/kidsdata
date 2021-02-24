@@ -71,7 +71,11 @@ def remove_polynomial(bgrds, deg, **kwargs):
     mkl_threads = mkl.set_num_threads(1)
 
     _this = partial(_remove_polynomial, deg=deg, **kwargs)
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(bgrds,),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(bgrds,),
+    ) as pool:
         output = pool.map(_this, np.array_split(np.arange(bgrds.shape[0]), cpu_count()))
 
     mkl.set_num_threads(mkl_threads)
@@ -103,7 +107,11 @@ def _sky_to_map(ikids):
 
 def sky_to_map(data, az, el, offsets, wcs, shape):
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, az, el, offsets, wcs, shape),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(data, az, el, offsets, wcs, shape),
+    ) as pool:
         items = pool.map(_sky_to_map, np.array_split(np.arange(data.shape[0]), cpu_count()))
 
     outputs = np.vstack([item[0] for item in items if len(item[0]) != 0])
@@ -165,7 +173,7 @@ class KissContinuum(KissRawData):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    @lru_cache(maxsize=3)
+    @lru_cache(maxsize=2)
     def continuum_pipeline(
         self, ikid=None, flatfield="amplitude", baseline=None, cm_func="kidsdata.common_mode.basic_continuum", **kwargs
     ):
