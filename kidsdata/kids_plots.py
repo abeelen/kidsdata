@@ -408,7 +408,7 @@ def show_kidpar(
     bins : dict, optionnal
         bins of the histogram as {item: bins} with item within the to_plot list
     limits : array_like
-        limits in x & y in arcmin for the geometry,
+        limits in x & y in degree for the geometry,
     group_key : str
         the kidpar key to use to identify arrays, default 'acqbox',
     group_list : dict, optionnal
