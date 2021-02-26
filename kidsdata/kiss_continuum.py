@@ -621,12 +621,22 @@ def kidpar_fixup(
     select_ellipticities = (eccentricities > eccentricity[0]) & (eccentricities < eccentricity[1])
     # 0.75, select bad beams, but low resolution planet maps produce bad beams
 
-    kidpar_fixup._log.info("amplitude select {:3.2f} %".format(np.mean(select_amplitude) * 100))
-    kidpar_fixup._log.info("positions select {:3.2f} %".format(np.mean(select_positions) * 100))
-    kidpar_fixup._log.info("fwhm select {:3.2f} %".format(np.mean(select_fwhm) * 100))
-    kidpar_fixup._log.info("eccentricity select {:3.2f} %".format(np.mean(select_ellipticities) * 100))
+    select_kids = select_amplitude
+    kidpar_fixup._log.info("amplitude select {:3.2f} %".format(select_amplitude.mean() * 100))
+    select_kids &= select_positions
+    kidpar_fixup._log.info(
+        "positions select {:3.2f} % ({:3.2f} %)".format(select_positions.mean() * 100, select_kids.mean() * 100)
+    )
+    select_kids &= select_fwhm
+    kidpar_fixup._log.info(
+        "fwhm select {:3.2f} % ({:3.2f} %)".format(select_fwhm.mean() * 100, select_kids.mean() * 100)
+    )
+    select_kids &= select_ellipticities
+    kidpar_fixup._log.info(
+        "eccentricity select {:3.2f} % ({:3.2f} %)".format(select_ellipticities.mean() * 100, select_kids.mean() * 100)
+    )
 
-    select_kids = select_amplitude & select_positions & select_fwhm & select_ellipticities
+    # select_kids = select_amplitude & select_positions & select_fwhm & select_ellipticities
 
     if fixup:
         kidpar_fixup._log.info("Fixing positions and amplitudes")
