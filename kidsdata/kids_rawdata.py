@@ -181,7 +181,10 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         self._extended_kidpar = None
         if e_kidpar == "auto":
             # Beware self.obsdate is based on the filename.....
-            e_kidpar = get_kidpar(self.obsdate)
+            try:
+                e_kidpar = get_kidpar(self.obsdate)
+            except ValueError:
+                e_kidpar = None
         if e_kidpar is not None:
             e_kidpar_name = Path(e_kidpar).name
             self.__log.info("Using extended kidpar {}".format(e_kidpar_name))
