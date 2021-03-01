@@ -381,9 +381,8 @@ class KissContinuum(KissRawData):
 
         az, el, _ = self.get_telescope_position(coord)
 
-        if wcs is None:
-            self.__log.info("Computing WCS")
-            wcs, _shape = self._build_2d_wcs(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
+        self.__log.info("Computing WCS & shape")
+        wcs, _shape = self._build_2d_wcs(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
 
         if shape is None:
             shape = _shape
@@ -544,23 +543,74 @@ class KissContinuum(KissRawData):
         outputs, wcs, kidpar, pointing_offset = self.continuum_beammaps(*args, **kwargs)
         return kids_plots.show_beammaps(self, outputs[0], wcs, kidpar, pointing_offset), (outputs, wcs, kidpar)
 
-    def plot_contmap(self, *args, ikid=None, label=None, snr=False, **kwargs):
-        """Plot continuum map(s), potentially with several KIDs selections."""
-        if ikid is None or isinstance(ikid[0], (int, np.int, np.int64)):
+    def plot_contmap(self, ikid=None, label=None, snr=False, group_key=None, group_list=None, **kwargs):
+        """Plot continuum map(s), potentially with several KIDs selections.
+
+        Parameters
+        ----------
+        ikid : array, optional
+            the selected kids index to consider, by default all (see Notes)
+        label : array of str, optionnal
+            the corresponding label for the plot
+        snr : bool, optionnal
+            plot the snr instead of signal, default False
+        group_key : str, optionnal
+            the kidpar key to use to identify arrays, default None (see Notes),
+        group_list : dict, optionnal
+            to regroup the group_key as {label: [group_key_values]},
+        **kwargs : dict
+            additionnal keyword for `kiss_continuum.continuum_map`
+
+        Returns
+        -------
+        fig : astropy.Figure
+            the returning figure
+        datas : array or list of array
+            the corresponding `ContinuumData` object
+
+        Notes
+        -----
+        By default `plot_contmap` combine all kids present. There are several possibility to select which kid will be projected :
+
+        - `ikid` keyword can be a array/list or a list of array/list to select detectors to project
+        - `group_key` and `group_list` can be used to select kids base on their kidpar properties
+        - both `ikid` (single list) and `group_key` can be used to pre-select a list and group it with kidpar properties
+        """
+
+        if ikid is None:
+            ikid = np.arange(len(self.list_detector))
+
+        # We request to group kids with some kidpar keys
+        if group_key is not None:
+            if group_list is None:
+                group_list = {"{} {}".format(group_key, group): [group] for group in np.unique(self.kidpar[group_key])}
+
+            _ikid = []
+            _label = []
+            for group_label, group in group_list.items():
+                mask_box = [self.kidpar[ikid][group_key] == item for item in group]
+                mask_box = np.bitwise_or.reduce(mask_box, axis=0)
+                if np.all(~mask_box):
+                    # No kid in the group
+                    continue
+                _ikid.append(ikid[mask_box])
+                _label.append(group_label)
+            ikid = _ikid
+            if label is None:
+                label = _label
+
+        if isinstance(ikid[0], (int, np.int, np.int64)):
             # Default to a list of list to be able to plot several maps
             ikid = [ikid]
 
         if kwargs.get("wcs", None) is None and kwargs.get("shape", None) is None:
-            # Need to compute the global wcs here...
-            if ikid[0] is None:
-                ikid[0] = np.arange(len(self.list_detector))
             wcs, shape = self._build_2d_wcs(ikid=np.concatenate(ikid), **kwargs)
             kwargs["wcs"] = wcs
             kwargs["shape"] = shape
 
         datas = []
         for _ikid, _label in zip(ikid, label or [None] * len(ikid)):
-            datas.append(self.continuum_map(*args, ikid=_ikid, label=_label, **kwargs))
+            datas.append(self.continuum_map(ikid=_ikid, label=_label, **kwargs))
 
         fig = kids_plots.show_contmap(datas, label, snr=snr)
         fig.suptitle(self.filename)
