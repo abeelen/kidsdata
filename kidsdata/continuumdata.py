@@ -153,7 +153,7 @@ class ContinuumData(NDDataRef):
             # sensible way...
             dummy_data = ContinuumData([1], meta=fits.Header(), unit="")
             for k, v in self.header.items():
-                dummy_data._insert_in_metadata_fits_safe(k, v)
+                dummy_data._insert_in_metadata_fits_safe(k, str(v))
             header = dummy_data.header
         if self.unit is not u.dimensionless_unscaled:
             header["bunit"] = self.unit.to_string()
