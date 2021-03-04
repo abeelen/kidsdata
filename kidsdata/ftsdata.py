@@ -719,7 +719,9 @@ zero and Nyquist frequency.
             opd -= opd[zpd_idx]
 
         dpd = np.diff(opd)
-        assert np.all(np.median(dpd) - dpd == 0), "Problem on opd differences"
+        np.testing.assert_almost_equal(
+            np.median(dpd).to(dpd.unit).value, dpd.value, err_msg="Problem on opd differences"
+        )
 
         wcs.wcs.ctype[naxis - 1] = "OPD"
         wcs.wcs.cunit[naxis - 1] = opd.unit
