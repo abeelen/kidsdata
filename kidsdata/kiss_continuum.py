@@ -42,6 +42,9 @@ def _remove_polynomial(ikids, deg=None, threshold=10, niter=2, **kwargs):
     global _pool_global
     (bgrd,) = _pool_global
 
+    if len(ikids) == 0:
+        return None
+
     idx = np.arange(bgrd.shape[1])
 
     _w = ~np.mean(bgrd[ikids].mask, axis=(0,)).astype(np.bool)  # mean axis mask for all kids (mostly pointing flag)
@@ -80,7 +83,7 @@ def remove_polynomial(bgrds, deg, **kwargs):
 
     mkl.set_num_threads(mkl_threads)
 
-    return np.ma.vstack(output)
+    return np.ma.vstack([item for item in output if item is not None])
 
 
 def _sky_to_map(ikids):
