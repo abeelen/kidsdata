@@ -474,7 +474,9 @@ def get_calfact_3pts(
     #     diffangle[np.abs(diffangle) < 0.001] = 1
 
     # Get calibration factor
-    calfact = 2 / diffangle * fmod * mod_factor
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        calfact = 2 / diffangle * fmod * mod_factor
 
     # %timeit r = angle0(da.arctan2(Icc[...,rechnuck np.newaxis] - da.from_array(dataI), Qcc[..., np.newaxis] - da.from_array(dataQ)) - da.from_array(R0)[..., np.newaxis]).compute()
     # 19.8 s ± 173 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
