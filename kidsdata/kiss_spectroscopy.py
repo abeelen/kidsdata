@@ -90,6 +90,9 @@ def _remove_polynomial(ikids, idx=None, deg=None):
     # Output type:
     otype = data.dtype.type
 
+    if len(ikids) == 0:
+        return None
+
     idx = np.array(idx)
 
     # If using mulitple indexes, swap the first two axes for the loop on nint
@@ -154,7 +157,11 @@ def remove_polynomial(data, idx, deg):
     mkl_threads = mkl.set_num_threads(2)
 
     _this = partial(_remove_polynomial, idx=idx, deg=deg)
-    with Pool(N_CPU, initializer=_pool_initializer, initargs=(data,),) as pool:
+    with Pool(
+        N_CPU,
+        initializer=_pool_initializer,
+        initargs=(data,),
+    ) as pool:
         outputs = pool.map(_this, np.array_split(range(data.shape[0]), N_CPU))
 
     mkl.set_num_threads(mkl_threads)
@@ -163,7 +170,9 @@ def remove_polynomial(data, idx, deg):
     # _pool_global = (data,)
     # outputs = list(ProgressBar.map(_this, np.array_split(range(data.shape[0]), N_CPU)))
 
-    return np.ma.vstack([output[0] for output in outputs]), np.vstack([output[1] for output in outputs])
+    return np.ma.vstack([output[0] for output in outputs if output is not None]), np.vstack(
+        [output[1] for output in outputs if output is not None]
+    )
 
 
 def _pool_find_lasershifts_brute_worker(roll, _roll_func="numpy.roll"):
@@ -248,7 +257,11 @@ def _sky_to_cube(ikids):
 
 def sky_to_cube(data, opds, az, el, offsets, wcs, shape):
 
-    with Pool(cpu_count(), initializer=_pool_initializer, initargs=(data, opds, az, el, offsets, wcs, shape),) as pool:
+    with Pool(
+        cpu_count(),
+        initializer=_pool_initializer,
+        initargs=(data, opds, az, el, offsets, wcs, shape),
+    ) as pool:
         items = pool.map(_sky_to_cube, np.array_split(np.arange(data.shape[0]), cpu_count()))
 
     outputs = np.vstack([item[0] for item in items if len(item[0]) != 0])
@@ -479,9 +492,13 @@ class KissSpectroscopy(KissRawData):
                 self.__log.warning("{:f} % of mirror positions differs".format((1 - same) * 100))
             # Mirror positions are acquired at half he acquisition frequency thus...
             # we can quadratictly interpolate the second position...
-            laser[1::2] = interp1d(range(len(laser) // 2), laser[::2], kind="quadratic", fill_value="extrapolate")(
-                np.arange(len(laser) // 2) + 0.5
-            )
+            # laser[1::2] = interp1d(range(len(laser) // 2), laser[::2], kind="quadratic", fill_value="extrapolate")(
+            #     np.arange(len(laser) // 2) + 0.5
+            # )
+            # Middle of the two points
+            ref_index = np.arange(len(laser) // 2) * 2 + 0.5
+            ref_laser = laser[::2]
+            laser = interp1d(ref_index, ref_laser, kind="quadratic", fill_value="extrapolate")(np.arange(len(laser)))
 
         if self.laser_shift is not None:
             self.__log.debug("Shifting mirror positions by {} sample".format(self.laser_shift))
@@ -572,7 +589,6 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
-        # TODO: Use self.interferograms_pipeline with baseline ?
         interferograms = self.interferograms_pipeline(
             ikid=tuple(ikid), flatfield=None, baseline_opd=3, baseline_time=3, cm_func=None
         ).filled(0)
@@ -939,7 +955,12 @@ class KissSpectroscopy(KissRawData):
         if wcs is None:
             # Project only the telescope position
             wcs, _, _ = build_celestial_wcs(
-                az, el, crval=(0, 0), ctype=("OLON-SFL", "OLAT-SFL"), cdelt=cdelt[0:2], cunit=cunit[0:2],
+                az,
+                el,
+                crval=(0, 0),
+                ctype=("OLON-SFL", "OLAT-SFL"),
+                cdelt=cdelt[0:2],
+                cunit=cunit[0:2],
             )
 
             # Add marging from the kidpar offsets
