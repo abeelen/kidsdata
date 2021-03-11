@@ -601,12 +601,18 @@ def multi_im(xs, aspect_ratio=1, marging=1, n_pages=1, norm=None):
     return np.squeeze(pixels), (ncols, nrows)
 
 
-def plot_psd(psds, freq, list_detector, xmin=None, xmax=None, ymax=None, ymin=None, **kwargs):
+def plot_psd(psds, freq, list_detector, square=True, xmin=None, xmax=None, ymax=None, ymin=None, **kwargs):
 
     fig = plt.figure(figsize=(10, 5))
     ax1 = fig.add_axes([0.04, 0.15, 0.4, 0.79])
-    ax2 = fig.add_axes([0.58, 0.15, 0.4, 0.79])
+    ax2 = fig.add_axes([0.59, 0.15, 0.4, 0.79])
     cax = fig.add_axes([0.45, 0.15, 0.006, 0.79])
+
+    if square is not True:
+        psds = np.sqrt(psds)
+        ax2.set_ylabel(r"PSD [Hz/ $\sqrt{Hz}$]", labelpad=-2)
+    else:
+        ax2.set_ylabel(r"PSD [$Hz^{2}/Hz$]", labelpad=-2)
 
     color_sequence = [
         "#1f77b4",
@@ -641,10 +647,12 @@ def plot_psd(psds, freq, list_detector, xmin=None, xmax=None, ymax=None, ymin=No
         _min, _max = np.where(mask_box)[0].min(), np.where(mask_box)[0].max()
         ticks.append((_min + _max) / 2)
         ticklabels.append(box)
+
     ax1.yaxis.set_ticks(ticks)
     ax1.yaxis.set_ticklabels(ticklabels)
     ax1.set_xlabel("Freq [Hz]")
-    plt.colorbar(im, ax=ax1, cax=cax)
+    cb = plt.colorbar(im, ax=ax1, cax=cax)
+    cb.set_label("log10(PSD)")
     ax1.set_xscale("log")
 
     boxes = set(namedet[0:2] for namedet in list_detector)
@@ -655,17 +663,18 @@ def plot_psd(psds, freq, list_detector, xmin=None, xmax=None, ymax=None, ymin=No
     if ymin is None and ymax is None:
         pass
     else:
+        im.set_norm(Normalize(np.log10(ymin), np.log10(ymax)))
         ax2.set_ylim(ymin, ymax)
 
     if xmin is None and xmax is None:
         pass
     else:
+        ax1.set_xlim(xmin, xmax)
         ax2.set_xlim(xmin, xmax)
 
     ax2.set_xlabel("Freq [Hz]")
-    ax2.set_ylabel("PSD")
     ax2.set_yscale("log")
     ax2.set_xscale("log")
-    ax2.legend()
+    ax2.legend(ncol=3)
 
     return fig

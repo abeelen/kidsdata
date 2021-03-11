@@ -7,6 +7,9 @@ import re
 from enum import Enum
 from copy import deepcopy
 
+import scipy.signal as signal
+from scipy import interpolate
+
 from functools import lru_cache, partial
 
 import matplotlib.pyplot as plt
@@ -1245,14 +1248,32 @@ class KissSpectroscopy(KissRawData):
 
         return (outputs, weights, hits), wcs
 
-    def interferograms_psds(self, ikid=None, rebin=1, **kwargs):
+    def interferograms_psds(self, ikid=None, rebin=1, interpolation=False, **kwargs):
 
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
         datas = self.interferograms_pipeline(ikid=tuple(ikid), **kwargs)
 
-        datas = datas.reshape(datas.shape[0], -1).filled(0)
+        if interpolation is False:
+            datas = datas.reshape(datas.shape[0], -1).filled(0)
+        else:
+            mask = datas.mask.reshape(datas.mask.shape[0], -1)
+            datas = np.array(datas)
+            datas = datas.reshape(datas.shape[0], -1)
+
+            for ndet in np.arange(np.shape(datas)[0]):
+                x_all = np.arange(np.shape(datas)[-1])
+                x_fit = x_all[mask[ndet] == 0]
+
+                interp = 0.01
+                b, a = signal.butter(3, interp)
+
+                data_original = datas[ndet, mask[ndet] == 0]
+                data_fit = signal.filtfilt(b, a, data_original, method="gust")
+                f = interpolate.interp1d(x_fit, data_fit, fill_value="extrapolate")
+
+                datas[ndet, mask[ndet] > 0] = f(x_all[mask[ndet] > 0])
 
         Fs = self.param_c["acqfreq"]
 
