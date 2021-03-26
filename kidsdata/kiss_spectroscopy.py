@@ -808,7 +808,7 @@ class KissSpectroscopy(KissRawData):
         # interferograms.mask |= self.mask_tel[None, :, None]
         if coord is not None:
             _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
-            interferograms.mask[:, self.mask_tel] = True
+            interferograms.mask[:, mask_tel] = True
 
         if self.optical_flip:
             self.__log.info("Flipping {}".format(self.optical_flip))

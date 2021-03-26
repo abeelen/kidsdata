@@ -100,9 +100,7 @@ def beammap(kd: KissData):
         return the read  `kissdata.KissRawData`, as well as the beammap and geometry figures
 
     """
-    kd._KissRawData__check_attributes(
-        ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
-    )
+    kd._KissRawData__check_attributes(["R0", "P0", "calfact", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"])
     # Compute & plot beammap
     fig_beammap, (_, _, kidpar) = kd.plot_beammap(coord="pdiff", flatfield=None)
 
@@ -203,9 +201,7 @@ def contmap_coadd(scans, e_kidpar="e_kidpar_median.fits", cm_func="kidsdata.comm
     results = []
     for scan in scans:
         kd = read_scan(scan, extra_data=["I", "Q"])
-        kd._KissRawData__check_attributes(
-            ["R0", "P0", "calfact", "mask_tel", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"]
-        )
+        kd._KissRawData__check_attributes(["R0", "P0", "calfact", "F_sky_Az", "F_sky_El", "A_hours", "A_time_pps"])
         kd._extended_kidpar = Table.read(Path(CALIB_DIR) / e_kidpar)
 
         # kids selection
@@ -256,12 +252,10 @@ def check_pointing(kd):
     """
     # from .kiss_pointing_model import KISSPmodel
 
-    kd._KissRawData__check_attributes(
-        ["mask_tel", "F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El", "A_hours", "A_time_pps"]
-    )
+    kd._KissRawData__check_attributes(["F_sky_Az", "F_sky_El", "F_tl_Az", "F_tl_El", "A_hours", "A_time_pps"])
 
     fig_pointing, ax = plt.subplots()
-    mask = kd.mask_tel
+    mask = kd.telescope_position.mask
     ax.plot(kd.F_sky_Az[~mask], kd.F_sky_El[~mask], label="F_sky")
     ax.plot(kd.F_tl_Az[~mask], kd.F_tl_El[~mask], label="F_tl")
     # ax.plot(*KISSPmodel().telescope2sky(kd.F_tl_Az[mask], kd.F_tl_El[mask]), label="F_sky computed")
@@ -331,7 +325,7 @@ def skydip(scans):
     air_mass = 1.0 / np.sin(np.radians(elevation))
 
     def T(
-            airm, const, fact, tau_f
+        airm, const, fact, tau_f
     ):  # signal definition for skydip model: there is -1 before B to take into account the increasing resonance to lower optical load
         return const + 270.0 * fact * (1.0 - np.exp(-tau_f * airm))
 

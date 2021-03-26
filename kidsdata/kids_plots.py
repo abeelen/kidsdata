@@ -1,3 +1,4 @@
+import warnings
 from itertools import product
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ def calibPlot(self, ikid=0):
     """Plot Icc, Qcc, calfact, and interferograms distributions for ikid detector;
     show median calfact for all detectors in the last panel.
     """
+    warnings.warn("This needs to be updated", DeprecationWarning)
     fig = plt.figure(figsize=(5 * 3, 4 * 2))
 
     ax = plt.subplot(2, 3, 1)
@@ -72,6 +74,7 @@ def checkPointing(self):
     4. Medians of poitnings for each interferogram,
     compared with pointing models.
     """
+    warnings.warn("This needs to be updated", DeprecationWarning)
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2))
     fig.suptitle(self.filename)
 
@@ -115,6 +118,8 @@ def checkPointing(self):
 
 # %%
 def photometry(self):
+    warnings.warn("This needs to be updated", DeprecationWarning)
+
     fig = plt.figure(figsize=(5 * 2 + 1, 4 * 2 + 0.5))
     fig.suptitle(self.filename)
 

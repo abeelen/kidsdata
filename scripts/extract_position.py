@@ -74,9 +74,11 @@ def process_scan(scan, output_dir=Path("."), **kwargs):
         kd = KissData(get_scan(scan))
         kd.read_data(list_data=["F_tl_El", "F_tl_Az", "A_hours", "A_time_pps"])
 
+        lon, lat, mask = kd.get_telescope_position(coord="pdiff", undersamped=True)
+
         pdiff = {
-            "F_pdiff_Az": kd.F_pdiff_Az[~kd.mask_tel],
-            "F_pdiff_El": kd.F_pdiff_El[~kd.mask_tel],
+            "F_pdiff_Az": lon[~mask],
+            "F_pdiff_El": lat[~mask],
         }
 
         filename = output_dir / kd.filename.with_suffix(".hdf5").name
