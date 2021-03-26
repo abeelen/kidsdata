@@ -752,6 +752,7 @@ class KissSpectroscopy(KissRawData):
     def interferograms_pipeline(
         self,
         ikid=None,
+        coord=None,
         flatfield="amplitude",
         baseline=None,
         baseline_opd=None,
@@ -765,6 +766,8 @@ class KissSpectroscopy(KissRawData):
         ----------
         ikid : tuple
             the list of kid index in self.list_detector to use (default: all)
+        coord : str, optional
+            coordinate type to retrieve additionnal mask, by default None
         flatfield: str (None|'amplitude'|'interferograms'|'specFF')
             the flatfield applied to the data prior to common mode removal (default: amplitude)
         baseline : int, optionnal
@@ -803,7 +806,9 @@ class KissSpectroscopy(KissRawData):
 
         # Add the mask from the positions
         # interferograms.mask |= self.mask_tel[None, :, None]
-        interferograms.mask[:, self.mask_tel, :] = True
+        if coord is not None:
+            _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
+            interferograms.mask[:, self.mask_tel] = True
 
         if self.optical_flip:
             self.__log.info("Flipping {}".format(self.optical_flip))
@@ -940,7 +945,8 @@ class KissSpectroscopy(KissRawData):
         if len(cunit) == 2:
             cunit = (cunit[0], cunit[0], cunit[1])
 
-        az, el, mask_tel = self.get_telescope_position(coord)
+        # TODO: Undersampled for the moment... swith to fully sampled ??
+        az, el, mask_tel = self.get_telescope_positions(coord)
         good_tel = ~mask_tel
         az, el = az[good_tel], el[good_tel]
 
@@ -1072,7 +1078,7 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        Any keyword arguments from `KissSpectroscopy.opds` or `KissSpectroscopy.interferogram_pipeline` can be used
+        Any keyword arguments from `KissSpectroscopy.opds` or `KissSpectroscopy.interferograms_pipeline` can be used
 
         The kid weights are used to combine different kids together :
         - None : do not apply weights
@@ -1085,11 +1091,12 @@ class KissSpectroscopy(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        az, el, mask_tel = self.get_telescope_position(coord)
+        # TODO: Undersampled for the moment... swith to fully sampled !!
+        az, el, mask_tel = self.get_telescope_positions(coord)
 
         # opds and #interferograms should be part of the object
         self.__log.info("Interferograms pipeline with {}".format(kwargs))
-        data = self.interferograms_pipeline(tuple(ikid), **kwargs)
+        data = self.interferograms_pipeline(tuple(ikid), coord=coord, **kwargs)
 
         self.__log.info("Computing OPDs")
         opds = self.opds(ikid=tuple(ikid), **kwargs)[0]
@@ -1148,6 +1155,7 @@ class KissSpectroscopy(KissRawData):
         hits = np.nansum(hits, axis=0)
 
         # Add standard keyword to header
+        self._update_meta()
         meta = self.meta
         meta["N_KIDS"] = len(ikid)
 
@@ -1203,7 +1211,7 @@ class KissSpectroscopy(KissRawData):
 
         Notes
         -----
-        Any keyword arguments from `KissSpectroscopy.opds` or `KissSpectroscopy.interferogram_pipeline` can be used
+        Any keyword arguments from `KissSpectroscopy.opds` or `KissSpectroscopy.interferograms_pipeline` can be used
         """
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
@@ -1214,12 +1222,13 @@ class KissSpectroscopy(KissRawData):
         if len(cunit) == 2:
             cunit = cunit[0], cunit[0], cunit[1]
 
-        az, el, mask_tel = self.get_telescope_position(coord)
+        # TODO: Undersampled for the moment... swith to fully sampled !!
+        az, el, mask_tel = self.get_telescope_positions(coord)
 
         # opds and #interferograms should be part of the object
         self.__log.info("Interferograms pipeline")
         kwargs["flatfield"] = None
-        data = self.interferograms_pipeline(tuple(ikid), **kwargs)
+        data = self.interferograms_pipeline(tuple(ikid), coord=coord, **kwargs)
 
         self.__log.info("Computing opds")
         opds = self.opds(ikid=tuple(ikid), **kwargs)[0]

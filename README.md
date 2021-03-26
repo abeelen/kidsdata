@@ -38,11 +38,11 @@ pip3 install -e .
 ```
 
 Before using the package, you must setup two environment variables :
-You must have the `libreadnika` compiled and setup a environement variable `NIKA_LIB_PATH` to point the directory containing the `libreadnikadata.so` file. And to use the database, give the location of KISS data
+You must have the `libreadnika` compiled and setup a environement variable `READDATA_LIB_PATH` to point the directory containing the `libREADDATA.so` file. And to use the database, give the location of KISS data
 
 
 ```bash
-export NIKA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
+export READDATA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
 export DATA_DIR=/data/KISS/Raw/nika2c-data3/KISS
 export CALIB_DIR=/data/KISS/Calib
 ```

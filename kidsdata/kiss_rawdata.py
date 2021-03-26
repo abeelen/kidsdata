@@ -25,6 +25,7 @@ from .kids_rawdata import KidsRawData
 from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
 from .utils import _import_from, pprint_list
+from .telescope_positions import KissPositions
 
 try:
     from .kiss_pointing_model import KISSPmodel
@@ -50,16 +51,12 @@ class KissRawData(KidsRawData):
 
     Attributes
     ----------
-    pointing_model : str
-        the name of the pointing model to use
     f_mod : float, cached
         the modulation frequency to be used for calibration
     mod_mask : array_like, cached
         the modulation mask to be used for calibration
     __calib : dict
         The calibrated data
-    _pdiff_Az _pdiff_El : array_like
-        The proper position offset from the observed source
 
     Methods
     -------
@@ -75,8 +72,6 @@ class KissRawData(KidsRawData):
         Deprecated -- Plot the pointing
     """
 
-    pointing_model = None
-
     __calib = None
 
     def __init__(self, *args, pointing_model="KISSMateoNov2020", **kwargs):
@@ -88,11 +83,8 @@ class KissRawData(KidsRawData):
         """
         super().__init__(*args, **kwargs)
 
-        self.pointing_model = pointing_model
+        self.meta["pointing_model"] = pointing_model
         self.__calib = dict()
-
-        # Add special position keys :
-        self._KidsRawData__position_keys["pdiff"] = ("_pdiff_Az", "_pdiff_El")
 
     def _write_data(self, filename=None, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
@@ -129,7 +121,7 @@ class KissRawData(KidsRawData):
 
             if self.pointing_model:
                 self.__log.debug("Saving pointing model")
-                _to_hdf5(f, "pointing_model", self.pointing_model, **kwargs)
+                _to_hdf5(f, "pointing_model", self.meta["pointing_model"], **kwargs)
             if self.__calib:
                 self.__log.debug("Saving calibrated data")
                 _to_hdf5(f, "calib", self.__calib, **kwargs)
@@ -137,6 +129,7 @@ class KissRawData(KidsRawData):
     @property
     @lru_cache(maxsize=1)
     def mod_mask(self):
+        """Retrieve one modulation mask for all kids."""
         # Check the *_masq values
         self.__log.debug("Checking the *_masq arrays")
         # Retrieve the kid boxes
@@ -147,8 +140,11 @@ class KissRawData(KidsRawData):
 
         if np.any(np.std(masqs, axis=0) != 0):
             self.__log.error("*_masq is varying -- Please check : {}".format(pprint_list(masq_names, "_masq")))
-        # cast into 8 bit, is more than enough, only 3 bits used
-        masq = masqs[0].astype(np.int8)
+
+        # AB private comm) main_flag should be the bitwise_or of all boxes
+        # Well not exactly....
+        # cast into 8 bit, is more than enough, only 3 bits used anyway...
+        masq = np.bitwise_or.reduce(masqs, axis=0).astype(np.int8)
 
         # AB (#CONCERTO_DAQ January 11 13:02)
         # _flag_balayage_en_cours & _flag_blanking_synthe
@@ -165,6 +161,19 @@ class KissRawData(KidsRawData):
 
     @property
     @lru_cache(maxsize=1)
+    def u_obstime(self):
+        """Compute undersampled obstime.
+
+        Properly compute the undersampled timestamp at the middle of the observed bloc
+        """
+        mask = self.mod_mask == 0
+        obstime = self.obstime
+
+        _u_mjd = [np.mean(_mjd[_mask]) for _mjd, _mask in zip(obstime.mjd, mask)]
+        return Time(_u_mjd, format="mjd", scale=obstime.scale)
+
+    @property
+    @lru_cache(maxsize=1)
     def fmod(self):
         # Check on frequency modulation values, in principle one should use the one corresponding on the array/crate, but depending on the files this could lead to wrong result
         self.__log.debug("Checking the *-modulFreq values")
@@ -174,9 +183,10 @@ class KissRawData(KidsRawData):
         fmods = [self.param_c[key] for key in fmod_names if self.param_c[key] != 0]
         if np.std(fmods) != 0:
             self.__log.warning("modulFreq are varying over crates  {}".format(dict(zip(fmod_names, fmods))))
+        # TODO: make an _or_ of all or use main_flag
         return fmods[0]
 
-    def calib_raw(self, calib_func="kidsdata.kids__calib.get_calfact", clean_raw=False, **kwargs):
+    def calib_raw(self, calib_func="kidsdata.kids_calib.get_calfact", clean_raw=False, **kwargs):
         """Calibrate the KIDS timeline."""
 
         if getattr(self, "__calib", None) is None:
@@ -225,45 +235,6 @@ class KissRawData(KidsRawData):
         if _dependancies is not None:
             self.calib_raw()
 
-    @lru_cache(maxsize=2)
-    def get_object_altaz(self, npoints=None):
-        """Get object position interpolator."""
-        if npoints is None:
-            anchor_time = self.obstime
-        else:
-            # Find npoints between first and last observing time
-            anchor_time = Time(np.linspace(*self.obstime[[0, -1]].mjd, npoints), format="mjd", scale="utc")
-
-        frames = AltAz(obstime=anchor_time, location=EarthLocation.of_site("KISS"))
-
-        coords = get_coords(self.source, anchor_time).transform_to(frames)
-
-        alts_deg, azs_deg = Latitude(coords.alt).to(u.deg).value, Longitude(coords.az).to(u.deg).value
-
-        return interp1d(anchor_time.mjd, azs_deg), interp1d(anchor_time.mjd, alts_deg)
-
-    @property
-    @lru_cache(maxsize=1)
-    def _pdiff_Az(self):
-        """Return corrected diff Azimuths."""
-        self.__check_attributes(["F_sky_Az", "F_sky_El"])
-
-        # Fast interpolation
-        obstime = self.obstime
-        interp_az, _ = self.get_object_altaz(npoints=100)
-        return (self.F_sky_Az - interp_az(obstime.mjd)) * np.cos(np.radians(self.F_sky_El))
-
-    @property
-    @lru_cache(maxsize=1)
-    def _pdiff_El(self):
-        """Return corrected diff Elevation."""
-        self.__check_attributes(["F_sky_El"])
-
-        # Fast interpolation
-        obstime = self.obstime
-        _, interp_el = self.get_object_altaz(npoints=100)
-        return self.F_sky_El - interp_el(obstime.mjd)
-
     # Move most of that to __repr__ or __str__
     def info(self):
         super().info()
@@ -290,17 +261,6 @@ class KissRawData(KidsRawData):
         warnings.warn("Deprecated function needs update.", DeprecationWarning)
         self.__check_attributes(["F_{}_az".format(coord), " F_{}_el".format(coord)])
         return kids_plots.checkPointing(self, *args, **kwargs)
-
-    @property
-    def meta(self):
-        """Default meta data for products."""
-
-        meta = super().meta
-
-        # Specific cases
-        meta["POINTING"] = self.pointing_model
-
-        return meta
 
     def read_data(self, *args, cache=False, array=np.array, **kwargs):
         """Read raw data.
@@ -339,11 +299,9 @@ class KissRawData(KidsRawData):
 
             # TODO: list_detectors and nsamples
 
-        # In case we do not read the full file, nsamples has changed
-        self.nint = self.nsamples // self.nptint
-
-        # Default telescope mask : keep all/undersampled position per block
-        self.mask_tel = np.zeros(self.nint, dtype=np.bool)
+        # TODO: Check on NIKA data, if this can be moved here
+        # self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
+        # self.nint = self.nsamples // self.nptint  # Number of interferograms
 
         if hasattr(self, "indice"):
             indice = self.indice
@@ -362,16 +320,43 @@ class KissRawData(KidsRawData):
                 self.F_tl_Az = self.F_azimuth
                 self.F_tl_El = self.F_elevation
 
-        # This is for KISS only, compute pointing model corrected values
-        if (
-            "F_sky_Az" not in self.__dict__
-            and "F_sky_El" not in self.__dict__
-            and "F_tl_Az" in self.__dict__
-            and "F_tl_El" in self.__dict__
-        ):
-            self.F_sky_Az, self.F_sky_El = KISSPmodel(model=self.pointing_model).telescope2sky(
-                np.array(self.F_tl_Az), np.array(self.F_tl_El)
-            )
+            del (self.F_azimuth, self.F_elevation)
 
-        if "F_tl_Az" in self.__dict__ and "F_tl_El" in self.__dict__:
-            self.mask_tel = (self.F_tl_Az == 0) | (self.F_tl_El == 0)
+        # Replace BasicPositions with KissPositions
+        pos_keys = self._KidsRawData__pos_keys()
+
+        # Clean unused/recomputed positions
+        # sky : pointing corrected values at the telescope
+        # tel : oversampling of the position
+        # diff : differential coordinates computed at the telescope
+        for key in ["sky", "tel", "diff"]:
+            if key in pos_keys:
+                del pos_keys[key]
+
+        if "tl" in pos_keys:
+            self.__log.debug("Initializing KissPositions")
+
+            lon, lat = pos_keys["tl"]
+
+            pos = np.array([getattr(self, lon).flatten(), getattr(self, lat).flatten()])
+            mjd = getattr(self, "obstime").flatten()
+
+            if pos.shape[1] == self.nint * self.nptint:
+                # fully sampled position, should not arrive
+                self.__log.error('Fully sampled position with "tl" should not occur')
+                mjd = self.obstime.flatten()
+            elif pos.shape[1] == self.nint:
+                # Undersampled position, assuming center of block
+                mjd = Time(mjd.mjd.reshape(self.nint, self.nptint).mean(1), scale=mjd.scale, format="mjd")
+            else:
+                raise ValueError("Do not known how to handle position {}".format(key))
+
+            args = (mjd, pos)
+            kwargs = {"pointing_model": self.meta["pointing_model"], "source": self.meta["OBJECT"]}
+            # # Do not copy data (reference)
+            # pos_keys = {
+            #     "tl": KissPositions(*args, **kwargs, position_key="tl"),
+            #     "sky": KissPositions(*args, **kwargs, position_key="sky"),
+            #     "pdiff": KissPositions(*args, **kwargs, position_key="pdiff"),
+            # }
+            self.telescope_positions = KissPositions(*args, **kwargs, position_key="pdiff")

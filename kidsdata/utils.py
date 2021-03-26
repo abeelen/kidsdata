@@ -37,24 +37,23 @@ def grouper(iterable, n, fillvalue=None):
     return zip_longest(*args, fillvalue=fillvalue)
 
 
-def interp1d_nan(arr):
-    """Replace nan by interpolated value in 1d array.
+def interp_nan(arr):
+    """Replace nan and inf by interpolated value in contiguous array.
 
     Parameters
     ----------
-    arr : 1d array_like
+    arr : array_like
         the 1d input array with potential nans
 
     Returns
     -------
-    arr : 1d array_like
-        the same 1d array with nan linearly interpolated
+    arr : array_like
+        the same array with nan and inf linearly interpolated
     """
     arr = np.array(arr)
-    nans = np.isnan(arr)
+    nans = np.isnan(arr) | np.isinf(arr)
     if np.any(nans):
-        x = arr.nonzero()[0]
-        arr[nans] = np.interp(x[nans], x[~nans], arr[~nans])
+        arr[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(~nans), arr[~nans])
     return arr
 
 

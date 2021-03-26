@@ -1,6 +1,6 @@
 numpy>=1.16.0
 # ctypes
-scipy
+scipy>=1.1.0
 matplotlib
 astropy>=3.2.3
 autologging

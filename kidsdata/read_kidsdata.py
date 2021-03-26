@@ -13,27 +13,37 @@ from ipaddress import ip_address
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.ndimage.filters import median_filter
+from scipy.ndimage.morphology import binary_closing
 
+from datetime import datetime
+from dateutil.parser import parse
+
+import astropy.units as u
 from astropy.table import Table, MaskedColumn
 from astropy.io.misc.hdf5 import write_table_hdf5, read_table_hdf5
+from astropy.time import Time
 
 from . import settings
-from .utils import _import_from, sizeof_fmt, pprint_list
+from .utils import _import_from, sizeof_fmt, pprint_list, mad_med
+from .database.constants import RE_ASTRO, RE_MANUAL, RE_DIR, RE_TABLEBT
 
 # import line_profiler
 # import atexit
 # profile = line_profiler.LineProfiler()
 # atexit.register(profile.print_stats)
 
-NIKA_LIB_SO = Path(settings.NIKA_LIB_PATH) / "libreadnikadata.so"
+READDATA_LIB_SO = Path(settings.READDATA_LIB_PATH) / "libreaddata.so"
 READRAW_LIB_SO = Path(settings.READRAW_LIB_PATH) / "libreadraw.so"
 
-if NIKA_LIB_SO.exists():
-    READNIKADATA = ctypes.cdll.LoadLibrary(str(NIKA_LIB_SO))
+if READDATA_LIB_SO.exists():
+    READDATA = ctypes.cdll.LoadLibrary(str(READDATA_LIB_SO))
 else:
-    READNIKADATA = None
+    READDATA = None
     logging.error(
-        "Could not find {} : Please check $NIKA_LIB_PATH ({})".format(NIKA_LIB_SO.name, settings.NIKA_LIB_PATH)
+        "Could not find {} : Please check $READDATA_LIB_PATH ({})".format(
+            READDATA_LIB_SO.name, settings.READDATA_LIB_PATH
+        )
     )
 
 if READRAW_LIB_SO.exists():
@@ -75,6 +85,55 @@ TName = namedtuple("TName", ["DataSc", "DataSd", "DataUc", "DataUd", "RawDataDet
 
 
 DETECTORS_CODE = {"kid": 3, "kod": 2, "all": 1, "a1": 4, "a2": 5, "a3": 6}
+
+
+@logged
+def filename_to_meta(filename):
+    """Fill meta data from the filename."""
+
+    filename = Path(filename)
+
+    re_astro = RE_ASTRO.match(filename.name)
+    re_manual = RE_MANUAL.match(filename.name)
+    re_tablebt = RE_TABLEBT.match(filename.name)
+    re_dir = RE_DIR.match(filename.parent.name)
+
+    scan = None
+    if re_astro:
+        scan = int(re_astro.groups()[2])
+    elif re_tablebt:
+        scan = int(re_tablebt.groups()[2])
+    else:
+        filename_to_meta._log.warning("No source from filename")
+
+    source = None
+    if re_astro:
+        source = re_astro.groups()[3]
+
+    obstype = None
+    if re_astro:
+        obstype = re_astro.groups()[4]
+    elif re_manual:
+        obstype = "ManualScan"
+    elif re_tablebt:
+        obstype = "TableScan"
+    else:
+        filename_to_meta._log.warning("No obstype from filename")
+
+    date = None
+    if re_astro:
+        date = re_astro.groups()[0]
+    elif re_manual:
+        date = "".join(re_manual.groups()[0:3])
+    elif (re_tablebt is not None) & (re_dir is not None):
+        date = "".join(re_dir.groups()[1:])
+    else:
+        # Probably not a data scan
+        filename_to_meta._log.error("No time on filename")
+    if date is not None:
+        date = Time(parse(date), scale="utc")  # UTC ?
+
+    return {"FILENAME": str(filename), "SCAN": scan, "OBJECT": source, "OBSTYPE": obstype, "OBSDATE": date}
 
 
 def decode_ip(int32_val):
@@ -133,7 +192,7 @@ def read_info(filename, det2read="KID", list_data="all", fix=True, flat=True, si
 
     p_int32 = ctypes.POINTER(ctypes.c_int32)
 
-    read_nika_info = READNIKADATA.read_nika_info
+    read_nika_info = READDATA.read_nika_info
     read_nika_info.argtypes = [
         ctypes.c_char_p,
         p_int32,
@@ -338,7 +397,7 @@ def read_all(
     p_int32 = ctypes.POINTER(ctypes.c_int32)
     p_float = ctypes.POINTER(ctypes.c_float)
 
-    read_nika_all = READNIKADATA.read_nika_all
+    read_nika_all = READDATA.read_nika_all
     read_nika_all.argtype = [
         ctypes.c_char_p,
         p_float,
@@ -441,7 +500,8 @@ def read_all(
         clean_position_unit(data)
 
     # Compute median pps_time and differences and corrections
-    clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time)
+    obsdate = filename_to_meta(filename)["OBSDATE"]
+    clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time, obsdate=obsdate)
 
     gc.collect()
     ctypes._reset_cache()
@@ -453,36 +513,31 @@ def read_all(
     return nb_samples_read, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
 
-@logged
-def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_time=True, raw=False):
+PPS_TO_ANGLE = (2 * np.pi) / 3600
+HOURS_TO_ANGLE = (2 * np.pi) / 12
+TIME_TO_ANGLE = (2 * np.pi) / (24 * 3600)
 
-    if raw:
-        # Some quantities are stored with a different units
-        unit_keys = []
-        for key in dataSc:
-            if key.endswith("_pps") or key.endswith("_ntp"):
-                # This avoid rounding errors
-                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-6)
-            elif key.endswith("_freq"):
-                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-2)
-            elif key.endswith("_n_mes"):
-                dataSc[key] = np.float32(np.int32(dataSc[key]) * 3600)
-            elif key.endswith("_pos"):
-                dataSc[key] = np.float32(np.int32(dataSc[key]) * 1e-3)
-            elif ":" in key:
-                unit_keys.append(key)
-        for key in unit_keys:
-            _key, exp = key.split(":")
-            if exp[0] == "e":
-                exp = exp[1:]
-            dataSc[_key] = np.float32(dataSc.pop(key) / 10 ** int(exp))
+
+@logged
+def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, fix_pps=False, correct_time=True, obsdate=None):
+
+    freq_keys = [key for key in dataSc if key.endswith("_freq")]
+    if freq_keys:
+        clean_dataSc._log.debug("Cleaning *_freq")
+        for key in freq_keys:
+            freq = dataSc.get(key)
+            mask = freq == 0
+            freq[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), freq[~mask])
+            dataSc[key] = freq
 
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
     if pps_keys:
         clean_dataSc._log.debug("Using {} to compute median pps time".format(pprint_list(pps_keys, "_time_pps")))
         shape = dataSc.get(pps_keys[0]).shape
-        times = [dataSc.get(key).flatten() for key in pps_keys]
-        pps = np.nanmedian(times, axis=0)
+        pps = [dataSc.get(key).flatten() for key in pps_keys]
+        bad_pps = np.array(pps) == 0
+        pps = np.ma.array(pps, mask=bad_pps)
+        pps = np.ma.median(pps, axis=0)
 
         if diff_pps:
             pps_diff = {"pps-{}".format(key): (pps - dataSc[key].flatten()) * 1e6 for key in pps_keys}
@@ -494,11 +549,28 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
         if correct_pps:
             clean_dataSc._log.info("Correcting pps time")
 
-            dummy = np.append(np.diff(pps), 0)
-            good = np.abs(dummy - 1 / acqfreq) < 0.02
-            if any(~good):
-                param = np.polyfit(dataSc["sample"].flatten()[good], pps[good], 1)
-                pps[~good] = np.polyval(param, dataSc["sample"].flatten()[~good])
+            pps = np.unwrap(pps * PPS_TO_ANGLE) / PPS_TO_ANGLE
+            dummy = np.append(1 / acqfreq, np.diff(pps))
+            bad = np.abs(1 / dummy - acqfreq) / acqfreq > 2 / 100
+            # To avoid large jumps....
+            bad = binary_closing(bad, iterations=4096)
+            if any(bad):
+                sample = dataSc["sample"].flatten()
+                pps[bad] = interp1d(sample[~bad], pps[~bad])(sample[bad])
+
+        if fix_pps:
+            clean_dataSc._log.info("Fixing pps time")
+            pps = np.unwrap(pps * PPS_TO_ANGLE) / PPS_TO_ANGLE
+            sample = dataSc["sample"].flatten()
+            # Two step polynomial fit to robustely remove outliers
+            p = np.polynomial.polynomial.polyfit(sample, pps, 1)
+            residual = pps - np.polynomial.polynomial.polyval(sample, p)
+            med, std = mad_med(residual)
+            bad = np.abs(residual - med) / std > 3
+            p = np.polynomial.polynomial.polyfit(sample[~bad], pps[~bad], 1)
+            pps = np.polynomial.polynomial.polyval(sample, p)
+
+        pps %= 3600
 
         dataSc["time_pps"] = pps.reshape(shape)
 
@@ -508,31 +580,45 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, correct_ti
         clean_dataSc._log.debug("Using {} to compute median hours".format(pprint_list(hours_keys, "_hours")))
         shape = dataSc.get(hours_keys[0]).shape
         hours = [dataSc.get(key).flatten() for key in hours_keys]
-        hours = np.nanmedian(hours, axis=0).reshape(shape)
-        dataSc["hours"] = hours
+        bad_hours = np.array(hours) == 0  # Beware that this flag midgnigth
+        hours = np.ma.array(hours, mask=bad_hours, fill_value=0)
+        hours = np.ma.median(hours, axis=0).filled(0)  # masked value goes back to midnight
+
+        if correct_time:
+            clean_dataSc._log.info("Correcting hours jumps")
+            # When crossing midgnigth, there is a middle point at 12...
+            hours = np.unwrap(hours * HOURS_TO_ANGLE) / HOURS_TO_ANGLE
+            # Remove up to 64 sample jumps... hours should be monotonous
+            # hours = median_filter(hours, size=64)
+
+        hours %= 24  # For concerto hours is given as yearly hours, so safer here
+
+        dataSc["hours"] = hours.reshape(shape)
 
     # Compute time if possible
-    if "time_pps" in dataSc and "hours" in dataSc:
+    if "time_pps" in dataSc and "hours" in dataSc and obsdate is not None:
 
-        time_pps = dataSc["time_pps"]
-        hours = dataSc["hours"]
-        mask = time_pps.flatten() == 0
+        shape = dataSc["time_pps"].shape
+        time_pps = dataSc["time_pps"].flatten()
+        hours = dataSc["hours"].flatten()
 
-        # Masked array, to be able to unwrap properly
-        time = np.ma.array(time_pps.flatten() + hours.flatten(), mask=mask)
-        time = np.ma.array(np.unwrap(time), mask=mask)
+        # seconds from the beginning of the day
+        time = hours * 3600 + time_pps
+
+        # Wrapping around midnight
+        time = np.unwrap(time * TIME_TO_ANGLE) / TIME_TO_ANGLE
 
         # Correct jumps in time
         if correct_time:
             clean_dataSc._log.info("Correcting time differences greather than {} s".format(float(correct_time)))
-            bad = (np.append(np.diff(np.unwrap(time)), 0) > correct_time) | time.mask
+            bad = np.append(np.diff(np.unwrap(time)), 0) > correct_time
             if any(bad) and any(~bad):
                 # Interpolate bad values
                 idx = np.arange(time.shape[0])
                 func = interp1d(idx[~bad], np.unwrap(time)[~bad], kind="linear", fill_value="extrapolate")
                 time[bad] = func(idx[bad])
 
-        dataSc["time"] = time.reshape(hours.shape)
+        dataSc["obstime"] = Time(obsdate + time.reshape(shape) * u.s, format="mjd")
 
     return dataSc
 
@@ -628,14 +714,75 @@ def clean_namedet(namedet, fix=True):
 
 
 def clean_position_unit(dataXc):
-    for ckey in ["F_azimuth", "F_elevation", "F_tl_Az", "F_tl_El", "F_sky_Az", "F_sky_El", "F_diff_Az", "F_diff_El"]:
+    """From milli radians to degrees"""
+    for ckey in [
+        "F_azimuth",
+        "F_elevation",
+        "F_tel_Az",
+        "F_tel_El",
+        "F_tl_Az",
+        "F_tl_El",
+        "F_sky_Az",
+        "F_sky_El",
+        "F_diff_Az",
+        "F_diff_El",
+    ]:
         if ckey in dataXc:
-            data[ckey] = np.rad2deg(data[ckey] / 1000.0)
+            dataXc[ckey] = np.rad2deg(dataXc[ckey] / 1000.0)
+
+    # /data/PHOTOM/Processing/Pipeline/Readdata/C/v1/brut_to_data.c
+    for ckey in [
+        "antLST",
+        "antxoffset",
+        "antyoffset",
+    ]:
+        if ckey in dataXc:
+            dataXc[ckey] = np.float32(dataXc[ckey] / 1e8)
+    for ckey in [
+        "antAz",
+        "antEl",
+    ]:
+        if ckey in dataXc:
+            dataXc[ckey] = np.rad2deg(dataXc[ckey] / 1e8)
+    for ckey in ["antMJD", "antMJDf"]:
+        if ckey in dataXc:
+            dataXc[ckey] /= 1e-9
+    for ckey in ["antactualAz", "antactualEl", "anttrackAz", "anttrackEl"]:
+        if ckey in dataXc:
+            dataXc[ckey] = np.rad2deg(dataXc[ckey] / (np.pi / 180 / 3600 * 9.0 / 1024.0))
+
+
+def clean_raw_unit(dataXc):
+    # Some raw quantities are stored with different units from read_nika_all
+    unit_keys = []
+    for key in dataXc:
+        if key == "sample":
+            dataXc[key] = np.uint32(dataXc[key])
+        elif key.endswith("_pps") or key.endswith("_ntp"):
+            # This avoid rounding errors from microsecond to second
+            dataXc[key] = np.float64(np.uint32(dataXc[key]) * 1e-6)
+        elif key.endswith("_freq"):
+            dataXc[key] = np.float64(np.uint32(dataXc[key]) * 1e-2)
+        elif key.endswith("_n_mes"):
+            dataXc[key] = np.float64(np.int32(dataXc[key]) * 3600)
+        elif key.endswith("_pos"):
+            dataXc[key] = np.float64(np.uint32(dataXc[key]) * 1e-3)
+        elif ":" in key:
+            unit_keys.append(key)
+    for key in unit_keys:
+        _key, exp = key.split(":")
+        if exp == "":
+            exp = "0"
+        if exp[0] == "e":
+            exp = exp[1:]
+        dataXc[_key] = np.float64(dataXc.pop(key) / 10 ** int(exp))
+
+    clean_position_unit(dataXc)
 
 
 def namept_to_names(name, nbname):
     return [
-        item.tobytes().strip(b"\x00").decode()
+        item.tobytes().split(b"\x00")[0].decode()
         for item in np.ctypeslib.as_array(
             name,
             shape=(
@@ -653,6 +800,7 @@ P_CHAR = ctypes.POINTER(ctypes.c_char)
 class TdataPt(ctypes.Structure):
     _fields_ = [
         ("nbpt", ctypes.c_int32),
+        ("nbph", ctypes.c_int32),
         ("nbBloc", ctypes.c_int32),
         ("nbBlocInFile", ctypes.c_int32),
         ("nbBlocRead", ctypes.c_int32),
@@ -682,6 +830,7 @@ class TdataPt(ctypes.Structure):
         ("ptDataSd", P_INT32),
         ("ptDataUc", P_INT32),
         ("ptDataUd", P_INT32),
+        ("ptDataPh", P_INT32),
         ("ptDataRg", P_INT32),
     ]
 
@@ -765,6 +914,7 @@ def read_raw(
     flat=True,
     diff_pps=False,
     correct_pps=False,
+    fix_pps=True,
     correct_time=False,
     silent=True,
 ):
@@ -788,6 +938,8 @@ def read_raw(
         pre-compute pps time differences. The default is False
     correct_pps: bool
         correct the pps signal. The default is False
+    fix_pps: bool
+        remplace the pps time by a semi-robust polynomial fit, True
     correct_time: bool or float
         correct the time signal by interpolating jumps higher that given value in second. The default is False
 
@@ -837,7 +989,17 @@ def read_raw(
     assert Path(filename).stat().st_size != 0, "{} is empty".format(filename)
 
     if list_data is None or (isinstance(list_data, str) and list_data.lower() == "all"):
-        list_data = ["Sc", "Sd", "Uc", "Ud", "Rg"]
+        list_data = ["Sc", "Sd", "Uc", "Ud", "Ph", "Rg"]
+
+    for item in list_data:
+        assert item in [
+            "Sc",
+            "Sd",
+            "Uc",
+            "Ud",
+            "Ph",
+            "Rg",
+        ], "{} can not be read with read_raw ['Sc', 'Sd', 'Uc', 'Ud', 'Rg']".format(item)
 
     codeDet, list_detector = list_detector_to_codedet(list_detector=list_detector)
 
@@ -849,11 +1011,12 @@ def read_raw(
     start = start or 0
     nb_to_read = end - start if (end is not None) and (end > start) else -1  # read all
 
-    c_read_raw = READRAW.readraw_c
+    c_read_raw = READRAW.readRawx
     c_read_raw.argtype = [
         ctypes.c_char_p,
         ctypes.c_int32,
         ctypes.c_int32,
+        ctypes.c_bool,
         ctypes.c_bool,
         ctypes.c_bool,
         ctypes.c_bool,
@@ -865,9 +1028,6 @@ def read_raw(
     ]
     c_read_raw.restype = TdataPt
 
-    c_read_raw_free = READRAW.readrawFree_c
-    c_read_raw_free.argtype = [TdataPt]
-
     read_raw._log.debug("before read_raw")
     Tdata = c_read_raw(
         bytes(str(filename), "ascii"),
@@ -877,6 +1037,7 @@ def read_raw(
         "Sd" in list_data,
         "Uc" in list_data,
         "Ud" in list_data,
+        "Ph" in list_data,
         "Rg" in list_data,
         codeDet,
         list_detector.ctypes.data_as(P_INT32),
@@ -954,10 +1115,12 @@ def read_raw(
         read_raw._log.debug("dataSc")
 
         shape = (Tdata.nbDataSc, Tdata.nbBloc, Tdata.nbpt)
-        values = np.ctypeslib.as_array(Tdata.ptDataSc, shape)[:, good_blocs, :].astype(np.float32)
+        values = np.ctypeslib.as_array(Tdata.ptDataSc, shape)[:, good_blocs, :].astype(np.int32)
         dataSc = dict(zip(TName_dataSc, values))
         del values
-        dataSc = clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, correct_time, raw=True)
+        clean_raw_unit(dataSc)
+        obsdate = filename_to_meta(filename)["OBSDATE"]
+        dataSc = clean_dataSc(dataSc, param_c["acqfreq"], diff_pps, correct_pps, fix_pps, correct_time, obsdate=obsdate)
 
     # dataSd
     # the .astype(np.float32) force a copy since we defined pointers on int32
@@ -981,6 +1144,7 @@ def read_raw(
         values = np.ctypeslib.as_array(Tdata.ptDataUc, shape)[:, good_blocs].astype(np.float32)
         dataUc = dict(zip(TName_dataUc, values))
         del values
+        clean_raw_unit(dataUc)
 
     # dataUd
     # the .astype(np.float32) force a copy since we defined pointers on int32
@@ -996,7 +1160,14 @@ def read_raw(
     names = TName(TName_dataSc, TName_dataSd, TName_dataUc, TName_dataUd, namedet)
 
     # Release C memory
-    c_read_raw_free(Tdata)
+    c_read_raw_intfree = READRAW.readRawFreeIntMalloc
+    c_read_raw_intfree.argtype = [TdataPt]
+
+    c_read_raw_extfree = READRAW.readRawFreeExtAlloc
+    c_read_raw_extfree.argtype = [TdataPt]
+
+    c_read_raw_intfree(Tdata)
+    c_read_raw_extfree(Tdata)
 
     return header, param_c, kidpar, names, nb_read_samples, namedet, dataSc, dataSd, dataUc, dataUd, dataRg
 
@@ -1037,7 +1208,7 @@ def filename_or_h5py_file(func=None, mode="r"):
             f = filename
         output = func(f, *args[1:], **kwargs)
 
-        if isinstance(filename, str):
+        if isinstance(filename, (str, Path)):
             f.close()
 
         return output
@@ -1079,9 +1250,21 @@ def _to_hdf5(parent_group, key, data, **kwargs):  # noqa: C901
         # astropy table
         if key in parent_group:
             del parent_group[key]
+        dset = parent_group.create_group(key)
+
         write_table_hdf5(data, parent_group, path=key, append=True, overwrite=True, serialize_meta=True)
         dset = parent_group[key]
         dset.attrs["type"] = "Table"
+        return dset
+
+    if isinstance(data, Time):
+        # astropy Time data
+        if key in parent_group:
+            del parent_group[key]
+        dset = parent_group.create_dataset(key, data=data.to_value("mjd"), **kwargs)
+        dset.attrs["type"] = "Time"
+        dset.attrs["scale"] = data.scale
+        dset.attrs["format"] = data.format
         return dset
 
     if isinstance(data, (str, int, np.int, np.int32, np.int64, float, np.float, np.float32, np.float64)):
@@ -1174,6 +1357,10 @@ def _from_hdf5(parent_group, key, array=None):
                 return data
             elif item.attrs["type"] == "Table":
                 return read_table_hdf5(item.parent, path=item.name, character_as_bytes=False)
+            elif item.attrs["type"] == "Time":
+                data = Time(item[:], format="mjd", scale=item.attrs["scale"])
+                data.format = item.attrs["format"]
+                return data
         else:
             # numpy arrays returned as references (need [:] to get the data)
             if array is not None:
@@ -1238,6 +1425,13 @@ def read_info_hdf5(filename):
     param_c = _from_hdf5(filename, "param_c") if "param_c" in filename else None
     names = _from_hdf5(filename, "names") if "names" in filename else None
     kidpar = _from_hdf5(filename, "kidpar") if "kidpar" in filename else None
+
+    # kidpar must be a masked table and have an index
+    if "index" not in kidpar.keys():
+        kidpar["index"] = np.arange(len(kidpar))
+    if not kidpar.has_masked_values:
+        kidpar = Table(kidpar, masked=True, copy=False)
+    kidpar.add_index("namedet")
 
     return header, param_c, kidpar, names, nb_read_samples
 

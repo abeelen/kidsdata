@@ -6,17 +6,10 @@ from astropy.coordinates import get_body, solar_system_ephemeris, EarthLocation
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.coordinates.name_resolve import NameResolveError
-from kidsdata.settings import NIKA_LIB_PATH
+from kidsdata.settings import KISS_CAT_DIR
 
-KISS_CAT_FILENAME = (
-    Path(NIKA_LIB_PATH).parent.parent
-    / "Acquisition"
-    / "instrument"
-    / "kiss_telescope"
-    / "library"
-    / "KISS_Source_Position"
-    / "CatalogKissJuan.sou"
-)
+
+KISS_CAT_FILENAME = KISS_CAT_DIR / "CatalogKissJuan.sou"
 
 if KISS_CAT_FILENAME.exists():
     KISS_CAT = Table.read(

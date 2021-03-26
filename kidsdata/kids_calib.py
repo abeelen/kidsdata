@@ -11,7 +11,7 @@ from scipy.ndimage import uniform_filter1d
 
 from astropy.stats import mad_std
 
-from .utils import cpu_count, grouper, interp1d_nan
+from .utils import cpu_count, grouper, interp_nan
 from .utils import fit_circle_3pts, fit_circle_algebraic, fit_circle_leastsq, radii
 
 import logging
@@ -30,7 +30,9 @@ def compute_continuum(R0, P0, calfact):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         bgrd = np.unwrap(R0 - P0, axis=1) * calfact
-    return np.ma.array(bgrd, mask=np.isnan(bgrd), fill_value=np.nan)
+    mask = np.isnan(bgrd) | np.isinf(bgrd)
+    # Need to interpolate the bad values to avoid problems later-on, since filling with 0 is not possible
+    return np.ma.array(interp_nan(bgrd), mask=mask, fill_value=np.nan)
 
 
 def angle0(phi):
@@ -438,9 +440,9 @@ def get_calfact_3pts(
         if nfilt is not None:
             # uniform_filter1d is sensitive to nan, thus if one fit fails, it will crash for the rest of the scan...
             if np.any(np.isnan(Icc)):
-                Icc = np.apply_along_axis(interp1d_nan, 1, Icc)
+                Icc = np.apply_along_axis(interp_nan, 1, Icc)
             if np.any(np.isnan(Qcc)):
-                Qcc = np.apply_along_axis(interp1d_nan, 1, Qcc)
+                Qcc = np.apply_along_axis(interp_nan, 1, Qcc)
             Icc = uniform_filter1d(Icc, nfilt, axis=1)
             Qcc = uniform_filter1d(Qcc, nfilt, axis=1)
 

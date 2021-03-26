@@ -9,7 +9,6 @@ pylint
 sphinx
 # These are dependencies of various sphinx extensions for documentation.
 ipython
-matplotlib
 numpydoc
 sphinx-copybutton
 sphinx_rtd_theme

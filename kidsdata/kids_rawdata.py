@@ -11,11 +11,12 @@ from itertools import chain
 
 from custom_inherit import DocInheritMeta
 
-import datetime
-from dateutil.parser import parse
+from datetime import datetime
+
+import astropy.units as u
 from astropy.time import Time
 from astropy.table import Table, join
-import astropy.units as u
+from astropy.utils.metadata import MetaData
 
 import h5py
 from autologging import logged
@@ -23,8 +24,9 @@ from autologging import logged
 from .read_kidsdata import read_info, read_all, read_raw
 from .read_kidsdata import read_info_hdf5, read_all_hdf5
 from .read_kidsdata import info_to_hdf5, data_to_hdf5
+from .read_kidsdata import filename_to_meta
 
-from .utils import roll_fft, interp1d_nan
+from .utils import roll_fft, interp_nan
 
 from .database.constants import RE_ASTRO, RE_MANUAL, RE_DIR, RE_TABLEBT
 from .database.api import get_kidpar
@@ -32,6 +34,8 @@ from kidsdata.settings import CACHE_DIR
 
 if not CACHE_DIR.exists():
     logging.warning("Cache dir do not exist : {}".format(CACHE_DIR))
+
+_meta_doc = """`dict`-like : Additional meta information about the dataset."""
 
 
 @logged
@@ -60,18 +64,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         the kidpar contatenation of the infile _kidpar, and external _extended_kidpar
     list_detector : array_like
         names of the read detectors
-    obsdate : array_like
-        return the obsdate of the observation, based on filename
-    obstime : array_like
-        proper observed time per interferogram
     exptime : float
         the exposure time of the object
-    scan : int
-        the scans number, based on filename
-    source : str
-        the source name, based on filename
-    obstype : str
-        the observation type, based on filename
     position_shift : float
         the shift in sample between the position of the telescope and the KIDs data
 
@@ -90,13 +84,15 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         Read the raw data.
     get_list_detector(**kwargs)
         Retrieve the valid detector list given a pattern.
-    get_telescope_position(coord="pdiff") (cached)
+    get_telescope_positions(coord="pdiff") (cached)
         Retrieve the telescope position, with shifts applied.
 
     Notes
     -----
     All read data `__dataSc, __dataSd, __dataUc, __dataUd` are linked as top level attributes.
     """
+
+    meta = MetaData(doc=_meta_doc, copy=False)
 
     filename = None
     header = None
@@ -111,7 +107,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
 
     __raw = False
     __position_shift = None
-    __position_keys = None
+    telescope_positions = None
 
     _cache = None  # The open cache file
     _cache_filename = None
@@ -148,6 +144,7 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             filename = get_scan(filename)
 
         self.filename = Path(filename)
+        self.meta.update(filename_to_meta(self.filename))
 
         self.__raw = raw
         self.__dataSc = dict()
@@ -166,23 +163,17 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         self.header, self.param_c, _kidpar, self.names, self.nsamples = info
         del info  # Need to release the reference counting
 
-        # Required here for self.obstime
+        # TODO : Check with NIKA data that nptint exist, otherwise should be moved to KissRawData
         self.nptint = self.header.nb_pt_bloc  # Number of points for one interferogram
         self.nint = self.nsamples // self.nptint  # Number of interferograms
 
-        # kidpar must be a masked table and have an index (mostly hdf5)
-        if "index" not in _kidpar.keys():
-            _kidpar["index"] = np.arange(len(_kidpar))
-        if not _kidpar.has_masked_values:
-            _kidpar = Table(_kidpar, masked=True, copy=False)
-        _kidpar.add_index("namedet")
         self._kidpar = _kidpar
 
         self._extended_kidpar = None
         if e_kidpar == "auto":
-            # Beware self.obsdate is based on the filename.....
+            # Beware obdate is based on the filename.....
             try:
-                e_kidpar = get_kidpar(self.obsdate)
+                e_kidpar = get_kidpar(self.meta["OBSDATE"])
             except ValueError:
                 e_kidpar = None
         if e_kidpar is not None:
@@ -195,19 +186,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
                 self.__log.warning("Updating filename in extended kidpar")
                 self._extended_kidpar.meta["FILENAME"] = e_kidpar_name
 
-        # Position related attributes
+        # Position related attributes, move to meta ?
         self.__position_shift = position_shift
-
-        # Find all potential telescope position keys
-        keys = self.names.DataSc + self.names.DataSd + self.names.DataUc + self.names.DataUd
-        pos_keys = [key.split("_")[1] for key in keys if "Az" in key]
-        self.__position_keys = {
-            key.split("_")[1]: ("{}_Az".format(key), "{}_El".format(key))
-            for key in pos_keys
-            if "{}_Az".format(key) in keys and "{}_El".format(key) in keys
-        }
-
-        self.mask_tel = False
 
         # Default detector list, everything not masked
         self.list_detector = np.array(self._kidpar[~self._kidpar["index"].mask]["namedet"])
@@ -232,28 +212,6 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
     def ndet(self):
         return len(self.list_detector)
 
-    @property
-    @lru_cache(maxsize=1)
-    def obsdate(self):
-        """Return the obsdate of the observation, based on filename."""
-        re_astro = RE_ASTRO.match(self.filename.name)
-        re_manual = RE_MANUAL.match(self.filename.name)
-        re_tablebt = RE_TABLEBT.match(self.filename.name)
-        re_dir = RE_DIR.match(self.filename.parent.name)
-        if re_astro:
-            date = re_astro.groups()[0]
-            return Time(parse(date), scale="utc")  # UTC ?
-        elif re_manual:
-            date = "".join(re_manual.groups()[0:3])
-            return Time(parse(date), scale="utc")  # UTC ?
-        elif (re_tablebt is not None) & (re_dir is not None):
-            date = "".join(re_dir.groups()[1:])
-            return Time(parse(date), scale="utc")  # UTC ?
-        else:
-            # Probably not a data scan
-            self.__log.error("No time on filename")
-            return Time.now()
-
     # TODO: This could probably be done more elegantly
     @property
     def position_shift(self):
@@ -265,65 +223,11 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             self.__position_shift = value
         else:
             self.__position_shift += value
-        KidsRawData.get_telescope_position.cache_clear()
-
-    @property
-    @lru_cache(maxsize=1)
-    def obstime(self):
-        """Recompute the proper obs time in UTC per interferograms."""
-        times = ["time"]
-        self.__check_attributes(times)
-
-        time = self.time
-        obstime = self.obsdate
-
-        # Getting only median time per interferograms here :
-        return obstime + np.median(time.reshape((self.nint, self.nptint)), axis=1) * u.s
+        KidsRawData.get_telescope_positions.cache_clear()
 
     @property
     def exptime(self):
         return (self.obstime[-1] - self.obstime[0]).to(u.s)
-
-    @property
-    @lru_cache(maxsize=1)
-    def scan(self):
-        """Return the scan number, based on filename."""
-        re_astro = RE_ASTRO.match(self.filename.name)
-        re_tablebt = RE_TABLEBT.match(self.filename.name)
-        if re_astro:
-            return int(re_astro.groups()[2])
-        elif re_tablebt:
-            return int(re_tablebt.groups()[2])
-        else:
-            self.__log.warning("No scan from filename")
-            return None
-
-    @property
-    @lru_cache(maxsize=1)
-    def source(self):
-        """Return the source name, based on filename."""
-        filename = self.filename.name
-        if RE_ASTRO.match(filename):
-            return RE_ASTRO.match(filename).groups()[3]
-        else:
-            self.__log.warning("No source name from filename")
-            return None
-
-    @property
-    @lru_cache(maxsize=1)
-    def obstype(self):
-        """Return the observation type, based on filename."""
-        re_astro = RE_ASTRO.match(self.filename.name)
-        re_manual = RE_MANUAL.match(self.filename.name)
-        re_tablebt = RE_TABLEBT.match(self.filename.name)
-        if re_astro:
-            return re_astro.groups()[4]
-        elif re_manual:
-            return "ManualScan"
-        elif re_tablebt:
-            return "TableScan"
-        else:
-            return "Unknown"
 
     def info(self):
         """Display the basic infomation about the data file."""
@@ -331,10 +235,10 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         print("==================")
         print("File name:\t" + str(self.filename))
         print("------------------")
-        print("Source name:\t" + (self.source or "Unknown"))
-        print("Observed date:\t" + self.obsdate.iso)
-        print("Description:\t" + self.obstype)
-        print("Scan number:\t" + str(self.scan or "Unknown"))
+        print("Source name:\t" + (self.meta["source"] or "Unknown"))
+        print("Observed date:\t" + self.meta["OBSDATE"].iso)
+        print("Description:\t" + self.meta["obstype"] or "Unknown")
+        print("Scan number:\t" + str(self.meta["scan"] or "Unknown"))
 
         print("------------------")
         print("No. of KIDS detectors:\t", self.ndet)
@@ -343,43 +247,50 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             "Typical size of fully sampled data (GiB):\t{:3.1f}".format(self.nsamples * self.ndet * 32 / 8 / 1024 ** 3)
         )
 
-    @property
-    def meta(self):
+    def _update_meta(self):
         """Default meta data for products.
         Notes
         -----
         Follow fits convention http://archive.stsci.edu/fits/fits_standard/node40.html
         Should look at IVOA Provenance models
         """
-        meta = {}
 
-        meta["OBJECT"] = self.source
-        meta["OBS-ID"] = self.scan
-        meta["FILENAME"] = str(self.filename)
-        meta["DATE"] = datetime.datetime.now().isoformat()
+        self.meta["OBS-ID"] = self.meta.get("scan", "Unknown")
+        self.meta["DATE"] = datetime.now().isoformat()
 
-        meta["EXPTIME"] = self.exptime.value
-        meta["DATE-OBS"] = self.obstime[0].isot
-        meta["DATE-END"] = self.obstime[-1].isot
-        meta["INSTRUME"] = self.param_c.get("nomexp", "Unknown")
-        meta["AUTHOR"] = "KidsData"
-        meta["ORIGIN"] = os.environ.get("HOSTNAME")
-        meta["TELESCOP"] = ""
-        meta["INSTRUME"] = ""
-        meta["OBSERVER"] = os.environ["USER"]
+        self.meta["EXPTIME"] = self.exptime.value
+        self.meta["DATE-OBS"] = self.obstime[0].isot
+        self.meta["DATE-END"] = self.obstime[-1].isot
+        self.meta["INSTRUME"] = self.param_c.get("nomexp", "Unknown")
+        self.meta["AUTHOR"] = "KidsData"
+        self.meta["ORIGIN"] = os.environ.get("HOSTNAME")
+        self.meta["TELESCOP"] = self.meta.get("TELESCOP", "")
+        self.meta["INSTRUME"] = self.meta.get("INSTRUME", "")
+        self.meta["OBSERVER"] = os.environ["USER"]
 
         # Add extra keyword
-        meta["SCAN"] = self.scan
-        meta["OBSTYPE"] = self.obstype
-        meta["NKIDS"] = self.ndet
-        meta["NINT"] = self.nint
-        meta["NPTINT"] = self.nptint
-        meta["NSAMPLES"] = self.nsamples
-        meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else ""
-        meta["OBSTYPE"] = self.obstype
-        meta["POSITION_SHIFT"] = self.position_shift or 0
+        self.meta["NKIDS"] = self.ndet
+        self.meta["NINT"] = self.nint
+        self.meta["NPTINT"] = self.nptint
+        self.meta["NSAMPLES"] = self.nsamples
+        self.meta["KIDPAR"] = self._extended_kidpar.meta["FILENAME"] if self._extended_kidpar else ""
+        self.meta["POSITION_SHIFT"] = self.position_shift or 0
 
-        return meta
+    def __pos_keys(self):
+        """Return potential telescope position key in the object."""
+
+        keys = self.__dict__.keys()
+        pos_keys = {
+            key.replace("Az", ""): (key, key.replace("Az", "El"))
+            for key in [key for key in keys if key.endswith("Az")]
+            if key in keys and key.replace("Az", "El") in keys
+        }
+        for key in list(pos_keys.keys()):
+            if key == "":
+                pos_keys["default"] = pos_keys.pop("")
+            if "_" in key:
+                pos_keys[key.split("_")[1]] = pos_keys.pop(key)
+        return pos_keys
 
     def read_data(self, list_data=None, cache=False, array=np.array, **kwargs):
         """Read the raw data.
@@ -474,6 +385,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             if self.nsamples != nb_samples_read:
                 self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
                 self.nsamples = nb_samples_read
+                # Assuming one loose a full block
+                self.nint = nb_samples_read // self.nptint
 
         if cache != "only" and list_data and not h5py.is_hdf5(self.filename):
             self.__log.debug("Reading raw data")
@@ -502,6 +415,8 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
             if self.nsamples != nb_samples_read:
                 self.__log.warning("Read less sample than expected : {} vs {}".format(nb_samples_read, self.nsamples))
                 self.nsamples = nb_samples_read
+                # Assuming one loose a full block
+                self.nint = nb_samples_read // self.nptint
 
         # Expand keys :
         # Does not double memory, but it will not be possible to
@@ -510,6 +425,28 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         for _dict in [self.__dataSc, self.__dataSd, self.__dataUc, self.__dataUd]:
             for ckey in _dict.keys():
                 self.__dict__[ckey] = _dict[ckey]
+
+        # TODO: Define telescope position if present...
+        # from .telescope_positions import BasicPositions
+
+        # pos_keys = self.__pos_keys()
+
+        # for key in pos_keys:
+        #     lon, lat = pos_keys[key]
+        #     pos = np.array([getattr(self, lon).flatten(), getattr(self, lat).flatten()])
+        #     mjd = getattr(self, "obstime").flatten()
+
+        #     if mjd.shape[0] == pos.shape[1]:
+        #         # fully sampled position :
+        #         pos_keys[key] = BasicPositions(mjd, pos)
+        #     elif mjd.shape[0] // self.nptint == pos.shape[1]:
+        #         # Undersamped position, assuming center of block
+        #         u_mjd = Time(mjd.mjd.reshape(self.nint, self.nptint).mean(1), scale=mjd.scale, format="mjd")
+        #         pos_keys[key] = BasicPositions(u_mjd, pos)
+        #     else:
+        #         raise ValueError("Do not known how to handle position {}".format(key))
+
+        # self.__position_key = pos_keys
 
     def _write_data(self, filename=None, dataSd=False, mode="a", file_kwargs=None, **kwargs):
         """write internal data to hdf5 file
@@ -707,53 +644,81 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
 
         return np.array(self._kidpar[mask]["namedet"])
 
-    @lru_cache(maxsize=1)
-    def get_telescope_position(self, coord="pdiff"):
+    ## Another solution would be to shift the mjds and interpolate, but this would require too much interpolation when searching for position_shift...
+    @lru_cache(maxsize=2)
+    def get_telescope_positions(self, coord="pdiff", undersampled=True):
         """Retrieve the telescope position, with shifts applied.
 
         Parameters
         ----------
         coord : str
             the type of position to retrieve
+        undersampled : bool
+            retrieve undersamped positions, default True
 
         Returns
         ------
-        lon, lat : array_like
-            the corresponding longitude and latitude with shifts applied
+        lon, lat, mask : array_like
+            the corresponding longitude, latitude with shifts applied
         """
-        if coord not in self.__position_keys:
-            raise ValueError("Position key {} not found".format(coord))
+        lon, lat, mask = self._get_positions(coord=coord, undersampled=undersampled)
 
-        lon_coord, lat_coord = self.__position_keys.get(coord)
+        lon = lon.copy()
+        lat = lat.copy()
 
-        self.__check_attributes([lon_coord, lat_coord, "mask_tel"])
+        position_shift = self.position_shift
 
-        lon = getattr(self, lon_coord).copy()
-        lat = getattr(self, lat_coord).copy()
-        mask = getattr(self, "mask_tel")
-
-        if self.position_shift is None:
+        if position_shift is None:
             return lon, lat, mask
 
-        self.__log.info("Rolling telescope position by {}".format(self.position_shift))
-        if isinstance(self.position_shift, (int, np.int, np.int16, np.int32, np.int64)):
-            lon = np.roll(lon, self.position_shift)
-            lat = np.roll(lat, self.position_shift)
+        self.__log.info("Rolling telescope position by {}".format(position_shift))
+
+        if not undersampled:
+            position_shift = position_shift * self.nptint
+
+        if isinstance(position_shift, (int, np.int, np.int16, np.int32, np.int64)):
+            lon = np.roll(lon, position_shift)
+            lat = np.roll(lat, position_shift)
+
             if mask is not False:
                 mask = mask.copy()
-                mask = np.roll(mask, self.position_shift)
-        elif isinstance(self.position_shift, (float, np.float, np.float32, np.float64)):
+                mask = np.roll(mask, position_shift)
+        elif isinstance(position_shift, (float, np.float, np.float32, np.float64)):
+
             # replace flagged values by interpolated values before performing the ffts...
             for item in [lon, lat]:
                 item[mask] = np.nan
-                item[:] = interp1d_nan(item)
-                item[:] = roll_fft(item, self.position_shift)
+                item[:] = interp_nan(item)
+                item[:] = roll_fft(item, position_shift)
 
             if mask is not False:
                 mask = mask.copy()
-                mask = roll_fft(mask.astype(float), self.position_shift) > 0.5
+                mask = roll_fft(mask.astype(float), position_shift) > 0.5
 
         return lon, lat, mask
+
+    @lru_cache(maxsize=2)
+    def _get_positions(self, coord="pdiff", undersampled=True):
+        """Retrieve interpolated telescope position, without shift.
+
+        Parameters
+        ----------
+        coord : str
+            the type of position to retrieve
+        undersampled : bool
+            retrieve undersampled positions, default True
+
+        Returns
+        ------
+        lon, lat, mask : array_like
+            the corresponding longitude, latitude and mask
+        """
+        if undersampled:
+            mjd = self.u_obstime
+        else:
+            mjd = self.obstime
+
+        return self.telescope_positions.get_interpolated_positions(mjd, key=coord)
 
     @property
     def kidpar(self):
