@@ -176,7 +176,6 @@ class KissContinuum(KissRawData):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    @lru_cache(maxsize=2)
     def continuum_pipeline(
         self,
         ikid=None,

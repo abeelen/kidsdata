@@ -177,8 +177,6 @@ def process_scan_new_calib(scan, outdir=None):
             method=("all", "leastsq"),
             nfilt=None,
         )
-        # KissRawData.continuum.fget.cache_clear()
-        # KissContinuum.continuum_pipeline.cache_clear()
 
         process_scan_new_calib._log.info("beammap")
         kd, (fig_beammap, figs_geometries, fig_coadd) = beammap(kd)

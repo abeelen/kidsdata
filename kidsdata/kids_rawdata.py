@@ -644,6 +644,24 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
 
         return np.array(self._kidpar[mask]["namedet"])
 
+    def flag_telescope_speed(self, coord="pdiff", **kwargs):
+        """Flag telescope position based on telescope speed.
+
+        Parameters
+        ----------
+        coord : str
+            the type of position to retrieve
+        sigma : float
+            the sigma-kappa threshold for the speed
+        min_speed : float in arcsec / s
+            the minimum speed to flag before sigma clipping, default 0
+        savgol_args : tuple
+            the arguments of the savgol function
+        """
+        self.telescope_positions.flag_speed(key=coord, **kwargs)
+        KidsRawData.get_telescope_positions.cache_clear()
+        KidsRawData._get_positions.cache_clear()
+
     ## Another solution would be to shift the mjds and interpolate, but this would require too much interpolation when searching for position_shift...
     @lru_cache(maxsize=2)
     def get_telescope_positions(self, coord="pdiff", undersampled=True):

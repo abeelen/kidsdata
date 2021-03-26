@@ -170,6 +170,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
 
             self.interferograms = np.vstack(interferograms)
 
+            # TODO: do the same on all the mask !!
             self.A_masq = np.zeros(self.ph_IQ.shape[1:])
 
         if clean_raw:
@@ -207,7 +208,6 @@ class InLabData(KissContinuum, KissSpectroscopy):
         KissSpectroscopy.opds.cache_clear()
         KissSpectroscopy.laser.fget.cache_clear()
         KissSpectroscopy.laser_directions.fget.cache_clear()
-        KissContinuum.continuum_pipeline.cache_clear()
         KissRawData.mod_mask.fget.cache_clear()
         KissRawData.fmod.fget.cache_clear()
         KissRawData.get_object_altaz.cache_clear()
