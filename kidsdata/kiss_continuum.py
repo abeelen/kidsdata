@@ -222,7 +222,12 @@ class KissContinuum(KissRawData):
 
         # Add the mask from the positions
         if coord is not None:
-            _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=True)
+            if bgrd.shape[1] == self.nint:
+                _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=True)
+            elif bgrd.shape[1] == self.nint * self.nptint:
+                _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
+            else:
+                raise ValueError("Unrecognized continuum shape")
             # bgrd.mask |= mask_tel[None, :] ## Much slower
             bgrd.mask[:, mask_tel] = True
 
@@ -482,11 +487,16 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        az, el, mask_tel = self.get_telescope_positions(coord, undersampled=True)
-
         self.__log.info("Continuum pipeline without flatfield")
         kwargs["flatfield"] = None
         bgrds = self.continuum_pipeline(tuple(ikid), coord=coord, **kwargs)
+
+        if bgrds.shape[1] == self.nint:
+            az, el, mask_tel = self.get_telescope_positions(coord=coord, undersampled=True)
+        elif bgrds.shape[1] == self.nint * self.nptint:
+            az, el, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
+        else:
+            raise ValueError("Unrecognized continuum shape")
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
