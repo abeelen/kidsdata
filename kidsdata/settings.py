@@ -19,7 +19,7 @@ READDATA_LIB_PATH = config(
     "READDATA_LIB_PATH", default="/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readData/readdata/", cast=Path
 )
 READRAW_LIB_PATH = config(
-    "READRAW_LIB_PATH", default="/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readRaw", cast=Path
+    "READRAW_LIB_PATH", default="/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readRaw/readraw", cast=Path
 )
 
 KISS_CAT_DIR = config(
