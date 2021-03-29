@@ -176,6 +176,17 @@ class KissContinuum(KissRawData):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def __get_continuum_positions(self, coord="pdiff"):
+        """Get undersampled or fully sampled positions depending on continuum shape."""
+        bgrd = self.continuum
+
+        if bgrd.shape[1] == self.nint:
+            return self.get_telescope_positions(coord=coord, undersampled=True)
+        elif bgrd.shape[1] == self.nint * self.nptint:
+            return self.get_telescope_positions(coord=coord, undersampled=False)
+        else:
+            raise ValueError("Unrecognized continuum shape")
+
     def continuum_pipeline(
         self,
         ikid=None,
@@ -222,12 +233,7 @@ class KissContinuum(KissRawData):
 
         # Add the mask from the positions
         if coord is not None:
-            if bgrd.shape[1] == self.nint:
-                _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=True)
-            elif bgrd.shape[1] == self.nint * self.nptint:
-                _, _, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
-            else:
-                raise ValueError("Unrecognized continuum shape")
+            _, _, mask_tel = self.__get_continuum_positions(coord=coord)
             # bgrd.mask |= mask_tel[None, :] ## Much slower
             bgrd.mask[:, mask_tel] = True
 
@@ -399,7 +405,7 @@ class KissContinuum(KissRawData):
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
 
-        az, el, _ = self.get_telescope_positions(coord, undersampled=True)
+        az, el, _ = self.__get_continuum_positions(coord=coord)
 
         self.__log.info("Computing WCS & shape")
         wcs, _shape = self._build_2d_wcs(ikid=ikid, wcs=wcs, coord=coord, **kwargs)
@@ -491,12 +497,7 @@ class KissContinuum(KissRawData):
         kwargs["flatfield"] = None
         bgrds = self.continuum_pipeline(tuple(ikid), coord=coord, **kwargs)
 
-        if bgrds.shape[1] == self.nint:
-            az, el, mask_tel = self.get_telescope_positions(coord=coord, undersampled=True)
-        elif bgrds.shape[1] == self.nint * self.nptint:
-            az, el, mask_tel = self.get_telescope_positions(coord=coord, undersampled=False)
-        else:
-            raise ValueError("Unrecognized continuum shape")
+        az, el, mask_tel = self.__get_continuum_positions(coord=coord)
 
         # In case we project only one detector
         if len(bgrds.shape) == 1:
