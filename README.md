@@ -42,10 +42,23 @@ You must have the `libreadnika` compiled and setup a environement variable `READ
 
 
 ```bash
-export READDATA_LIB_PATH=/data/KISS/NIKA_lib_AB_OB_gui/Readdata/C/
-export DATA_DIR=/data/KISS/Raw/nika2c-data3/KISS
+export READRAW_LIB_PATH="/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readRaw/readraw"
+export READDATA_LIB_PATH="/data/CONCERTO/Processing/kid-all-sw/Acquisition/kani/readData/readdata"
+
+export DATA_DIR=/data/KISS/Raw
 export CALIB_DIR=/data/KISS/Calib
+export CACHE_DIR=/data/KISS/Cache
+
+export DB_URI=
 ```
+
+When using a local sqllite database, please run 
+```
+kidsdata-migrate upgrade heads
+```
+before the first use
+
+
 
 ## Developer note
 
