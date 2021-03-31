@@ -258,7 +258,7 @@ def get_kidpar(time: Union[datetime, astropy.time.Time], session=None) -> str:
 
         if time > last_kidpar_time.end:
             logger.warning("No kidpar for this late date, using the latest one in Kidpar table")
-            return last_kidpar_time
+            return last_kidpar_time.file_path
 
         closest_start = get_closest(session, Kidpar, Kidpar.start, time)
         closest_end = get_closest(session, Kidpar, Kidpar.end, time)
