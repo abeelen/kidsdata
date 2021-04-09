@@ -558,7 +558,7 @@ class KissSpectroscopy(KissRawData):
         return laser_directions
 
     def find_lasershifts_brute(
-        self, ikid=None, start=-10, stop=10, num=21, roll_func="numpy.roll", plot=False, mode="single"
+        self, ikid=None, start=-10, stop=10, num=21, roll_func="numpy.roll", plot=False, mode="single", sos=None
     ):
         """Find potential shift between mirror position and interferograms timeline.
 
@@ -578,6 +578,8 @@ class KissSpectroscopy(KissRawData):
             display so debugging plots
         mode : str (single|per_det|per_int|per_det_int)
             return value mode (see Notes), (default: single)
+        sos : array_like, optionnal
+            A second-order sections representation of an IIR filter (see `scipy.signal`), default None
 
         Returns
         -------
@@ -589,9 +591,15 @@ class KissSpectroscopy(KissRawData):
         else:
             ikid = np.asarray(ikid)
 
+        # Apply a high pass filter at 100 Hz
+        # This DO NOT work for ralenti > 1
+        # self.__log.info("Applying a high pass filter at 100 Hz")
+        # sos = signal.butter(4, 100, "high", fs=self.param_c["acqfreq"], output="sos")
+
         interferograms = self.interferograms_pipeline(
-            ikid=tuple(ikid), flatfield=None, baseline_opd=3, baseline_time=3, cm_func=None
+            ikid=tuple(ikid), flatfield=None, baseline_opd=3, baseline_time=3, cm_func=None, sos=sos
         ).filled(0)
+
         lasers = self.laser
         laser_mask = self.laser_directions
 
@@ -599,6 +607,8 @@ class KissSpectroscopy(KissRawData):
             rolls = np.linspace(start, stop, num, dtype=int)
         elif roll_func == "kidsdata.utils.roll_fft":
             rolls = np.linspace(start, stop, num)
+        else:
+            raise ValueError("Unknown roll_func : {}".format(roll_func))
 
         self.__log.info("Brute force rolling of laser position from {} to {} ({})".format(start, stop, num))
         # laser_rolls = []
@@ -758,6 +768,7 @@ class KissSpectroscopy(KissRawData):
         baseline_opd=None,
         baseline_time=None,
         cm_func="kidsdata.common_mode.pca_filtering",
+        sos=None,
         **kwargs,
     ):
         """Return the interferograms processed by given pipeline.
@@ -778,6 +789,8 @@ class KissSpectroscopy(KissRawData):
             the polynomial degree (in time space) of baselines
         cm_func : str
             Function to use for the common mode removal, by default 'kidsdata.common_mode.pca_filtering'
+        sos : array_like, optionnal
+            A second-order sections representation of an IIR filter (see `scipy.signal`), default None
         **kwargs :
             Additionnal keyword argument passed to cm_func
 
@@ -844,6 +857,11 @@ class KissSpectroscopy(KissRawData):
             self.__log.warning("Masking {:3.1f}% of the data from glitches".format(np.mean(glitches_mask) * 100))
 
             interferograms.mask |= glitches_mask
+
+        if sos is not None:
+            self.__log.debug("Applying IIR filter")
+            dummy = signal.sosfiltfilt(sos, interferograms.filled(0))
+            interferograms = np.ma.array(dummy, mask=interferograms.mask)
 
         self.__log.debug("Applying flatfield : {}".format(flatfield))
         # FlatField normalization
