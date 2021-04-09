@@ -143,7 +143,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
             ) as pool:
                 continuum = pool.map(_to_continuum, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
-            self.continuum = np.vstack(continuum)
+            self.continuum = np.ma.array(np.vstack(continuum))
 
         else:
             self.__log.info("Spectroscopic data, downsampling continuum")
@@ -156,7 +156,7 @@ class InLabData(KissContinuum, KissSpectroscopy):
             ) as pool:
                 continuum = pool.map(_this, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU))
 
-            self.continuum = np.vstack(continuum)
+            self.continuum = np.ma.array(np.vstack(continuum))
 
             # interferograms is fully sampled (copy is made here) remove first order continuum
             with Pool(
@@ -168,13 +168,20 @@ class InLabData(KissContinuum, KissSpectroscopy):
                     _to_interferograms, np.array_split(np.arange(self.list_detector.shape[0]), N_CPU)
                 )
 
-            self.interferograms = np.vstack(interferograms)
+            interferograms = np.vstack(interferograms)
+            self.interferograms = np.ma.array(interferograms, mask=np.zeros_like(interferograms))
 
             # TODO: do the same on all the mask !!
             self.A_masq = np.zeros(self.ph_IQ.shape[1:])
 
         if clean_raw:
             self._clean_data("_KidsRawData__dataSd")
+
+    def _from_ralenti(self, ralenti=None):
+        """Change a ralenti file to a ralenti 1 bloc."""
+
+        if ralenti is not None:
+            self._change_nptint(self.nptint * ralenti)
 
     def _change_nptint(self, nptint):
 
@@ -210,8 +217,4 @@ class InLabData(KissContinuum, KissSpectroscopy):
         KissSpectroscopy.laser_directions.fget.cache_clear()
         KissRawData.mod_mask.fget.cache_clear()
         KissRawData.fmod.fget.cache_clear()
-        KissRawData.get_object_altaz.cache_clear()
-        KissRawData._pdiff_Az.fget.cache_clear()
-        KissRawData._pdiff_El.fget.cache_clear()
         KidsRawData.get_telescope_positions.cache_clear()
-        self.__log.info("You probably need to run _fix_table()")
