@@ -288,7 +288,7 @@ def quickshow_beammaps(self, ikids, datas, wcs, kidpar, pointing_offsets=(0, 0),
     return fig_beammap
 
 
-def show_contmap(data, label=None, snr=False):
+def show_contmap(data, label=None, snr=False, norm=None):
 
     if not isinstance(data, list):
         data = [data]
@@ -320,10 +320,11 @@ def show_contmap(data, label=None, snr=False):
     else:
         datas_to_plot = [_data.data for _data in data]
 
-    norm = Normalize(
-        vmin=np.nanmean(datas_to_plot) - 3 * np.nanstd(datas_to_plot),
-        vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
-    )
+    if norm is None:
+        norm = Normalize(
+            vmin=np.nanmean(datas_to_plot) - 3 * np.nanstd(datas_to_plot),
+            vmax=np.nanmean(datas_to_plot) + 3 * np.nanstd(datas_to_plot),
+        )
 
     for ax, _data in zip(axes, datas_to_plot):
         im = ax.imshow(_data, origin="lower", norm=norm)
