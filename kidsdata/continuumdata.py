@@ -4,6 +4,7 @@ from copy import deepcopy
 import astropy.units as u
 from astropy.io import fits, registry
 from astropy.nddata import NDDataRef
+from astropy.nddata import InverseVariance, StdDevUncertainty, VarianceUncertainty
 
 from astropy.nddata.ccddata import _known_uncertainties, _unc_cls_to_name, _uncertainty_unit_equivalent_to_parent
 
@@ -39,6 +40,17 @@ class ContinuumData(NDDataRef):
     @hits.setter
     def hits(self, value):
         self._hits = value
+
+    @property
+    def snr(self):
+        if isinstance(self.uncertainty, InverseVariance):
+            return self.data * np.sqrt(self.uncertainty.array)
+        elif isinstance(self.uncertainty, StdDevUncertainty):
+            return self.data / self.uncertainty.array
+        elif isinstance(self.uncertainty, VarianceUncertainty):
+            return self.data / np.sqrt(self.uncertainty.array)
+        else:
+            raise ValueError("Unknown uncertainty type")
 
     def _arithmetic(self, operation, operand, *args, **kwargs):
         # take all args and kwargs to allow arithmetic on the other properties
