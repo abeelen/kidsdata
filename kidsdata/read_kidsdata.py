@@ -527,7 +527,8 @@ def clean_dataSc(dataSc, acqfreq=1, diff_pps=False, correct_pps=True, fix_pps=Fa
         for key in freq_keys:
             freq = dataSc.get(key)
             mask = freq == 0
-            freq[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), freq[~mask])
+            if np.any(mask) and np.any(~mask):
+                freq[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), freq[~mask])
             dataSc[key] = freq
 
     pps_keys = [key for key in dataSc if key.endswith("_time_pps")]
