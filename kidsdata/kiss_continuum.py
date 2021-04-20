@@ -488,7 +488,7 @@ class KissContinuum(KissRawData):
         pointing_offset : tuple of 2 float
             the additionnal offset to the kidpar (0, 0)
         """
-        assert "diff" in coord, "beammaps should be done of `diff` coordinates"
+        # assert "diff" in coord, "beammaps should be done of `diff` coordinates"
 
         if ikid is None:
             ikid = np.arange(len(self.list_detector))
