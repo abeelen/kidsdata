@@ -187,6 +187,7 @@ class BasicPositions(TelescopePositions):
         return self.mjd, self.pos, self.mask
 
 
+@logged
 class MBFitsPositions(TelescopePositions):
 
     filename = None
@@ -221,7 +222,12 @@ class MBFitsPositions(TelescopePositions):
     @lru_cache
     def header(self):
         filename, extnum = self._list_extensions("SCAN-MBFITS")[0]
-        return fits.getheader(filename, extnum)
+        try:
+            header = fits.getheader(filename, extnum)
+        except OSError:
+            self.__log.error("Can not read SCAN-MBFITS")
+            header = {"TIMESYS": "TAI"}
+        return header
 
     @property
     @lru_cache
