@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 from typing import List, Union
 
-import astropy
+import astropy.time
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.filesize import _to_str
@@ -28,9 +28,22 @@ logger = logging.getLogger(__name__)
 
 global_session = None
 
-__all__ = ["get_session", "get_scan", "get_filename", "get_manual", "get_file_path", "populate_params",
-           "populate_kidpar", "get_kidpar", "populate_scans", "list_data", "list_manual", "list_astro", "list_tablebt",
-           "edit_comment"]
+__all__ = [
+    "get_session",
+    "get_scan",
+    "get_filename",
+    "get_manual",
+    "get_file_path",
+    "populate_params",
+    "populate_kidpar",
+    "get_kidpar",
+    "populate_scans",
+    "list_data",
+    "list_manual",
+    "list_astro",
+    "list_tablebt",
+    "edit_comment",
+]
 
 
 # TODO def list_scan():
@@ -184,13 +197,13 @@ def populate_params(session=None):
         rows.extend(session.query(Model).filter_by(param_id=None).all())
 
     with Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            TimeElapsedColumn(),
-            "Scan {task.completed}/{task.total}",
-            TimeRemainingColumn(),
-            refresh_per_second=1,
+        "[progress.description]{task.description}",
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        "Scan {task.completed}/{task.total}",
+        TimeRemainingColumn(),
+        refresh_per_second=1,
     ) as progress:
 
         task1 = progress.add_task("Update table params...", total=len(rows))
