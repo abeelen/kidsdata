@@ -1,10 +1,13 @@
 from ._version import get_versions
 
-from .rta import *
-from .kiss_data import KissData
-from .inlab_data import InLabData
-from .ftsdata import FTSData
+
 from .database import *
+from .rta import *
+
+from .kiss_data import KissData
+from .ftsdata import FTSData
+from .inlab_data import InLabData
+from .concerto_data import ConcertoData
 
 __version__ = get_versions()["version"]
 del get_versions
