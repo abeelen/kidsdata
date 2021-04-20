@@ -136,7 +136,8 @@ class KissRawData(KidsRawData):
         masq_names = np.unique(["{}_masq".format(item[1]) for item in self.list_detector])
         self.__check_attributes(masq_names, read_missing=False)
         # Check that they are all the same
-        masqs = [getattr(self, masq) for masq in masq_names]
+        warnings.warn("Temporary fix to int8")
+        masqs = [getattr(self, masq).astype(np.int8) for masq in masq_names]
 
         if np.any(np.std(masqs, axis=0) != 0):
             self.__log.error("*_masq is varying -- Please check : {}".format(pprint_list(masq_names, "_masq")))
