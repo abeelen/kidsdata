@@ -100,7 +100,11 @@ def filename_to_meta(filename):
 
     scan = None
     if re_astro:
-        scan = int(re_astro.groups()[2])
+        scan = re_astro.groups()[2]
+        if scan is not None and scan != "":
+            scan = int(scan)
+        else:
+            scan = -1
     elif re_tablebt:
         scan = int(re_tablebt.groups()[2])
     else:

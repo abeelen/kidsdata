@@ -93,7 +93,10 @@ def astro_columns(file_path, re_pattern=None):
     """Extract func for Astro table"""
     date, hour, scan, source, obsmode = re_pattern.match(file_path.name).groups()
     dtime = datetime.strptime(" ".join([date, hour]), "%Y%m%d %H%M")
-    scan = int(scan)
+    if scan is not None and scan != "":
+        scan = int(scan)
+    else:
+        scan = -1
     return {
         "date": dtime,
         "scan": scan,
@@ -116,7 +119,7 @@ def tablebt_columns(file_path, re_pattern=None):
 
 
 def create_param_row(session, path):
-    """ Read a scan file header and create a row in the Param table
+    """Read a scan file header and create a row in the Param table
 
     - creates a row in the table Param if not exists already
     - update the foreign key on the row of Scan/Manual/Tablebt table
