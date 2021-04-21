@@ -173,6 +173,29 @@ class KissRawData(KidsRawData):
         _u_mjd = [np.mean(_mjd[_mask]) for _mjd, _mask in zip(obstime.mjd, mask)]
         return Time(_u_mjd, format="mjd", scale=obstime.scale)
 
+    @lru_cache(maxsize=2)
+    def _get_positions(self, coord="pdiff", undersampled=True):
+        """Retrieve interpolated telescope position, without shift.
+
+        Parameters
+        ----------
+        coord : str
+            the type of position to retrieve
+        undersampled : bool
+            retrieve undersampled positions, default True
+
+        Returns
+        ------
+        lon, lat, mask : array_like
+            the corresponding longitude, latitude and mask
+        """
+        if undersampled:
+            mjd = self.u_obstime
+        else:
+            mjd = self.obstime.flatten()
+
+        return self.telescope_positions.get_interpolated_positions(mjd, key=coord)
+
     @property
     @lru_cache(maxsize=1)
     def fmod(self):

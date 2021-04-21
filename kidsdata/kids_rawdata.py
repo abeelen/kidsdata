@@ -716,25 +716,21 @@ class KidsRawData(metaclass=DocInheritMeta(style="numpy_with_merge", include_spe
         return lon, lat, mask
 
     @lru_cache(maxsize=2)
-    def _get_positions(self, coord="pdiff", undersampled=True):
+    def _get_positions(self, coord="pdiff"):
         """Retrieve interpolated telescope position, without shift.
 
         Parameters
         ----------
         coord : str
             the type of position to retrieve
-        undersampled : bool
-            retrieve undersampled positions, default True
 
         Returns
         ------
         lon, lat, mask : array_like
             the corresponding longitude, latitude and mask
         """
-        if undersampled:
-            mjd = self.u_obstime
-        else:
-            mjd = self.obstime
+
+        mjd = self.obstime
 
         return self.telescope_positions.get_interpolated_positions(mjd, key=coord)
 
