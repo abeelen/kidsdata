@@ -24,7 +24,7 @@ from . import kids_plots
 from .kids_rawdata import KidsRawData
 from .kiss_object import get_coords
 from .read_kidsdata import _to_hdf5, _from_hdf5
-from .utils import _import_from, pprint_list
+from .utils import _import_from, pprint_list, interp_nan
 from .telescope_positions import KissPositions
 
 try:
@@ -73,6 +73,8 @@ class KissRawData(KidsRawData):
     """
 
     __calib = None
+    continuum = None
+    interferograms = None
 
     def __init__(self, *args, pointing_model="KISSMateoNov2020", **kwargs):
         """
@@ -171,6 +173,10 @@ class KissRawData(KidsRawData):
         obstime = self.obstime
 
         _u_mjd = [np.mean(_mjd[_mask]) for _mjd, _mask in zip(obstime.mjd, mask)]
+
+        if np.any(np.isnan(_u_mjd)):
+            _u_mjd = interp_nan(_u_mjd)
+
         return Time(_u_mjd, format="mjd", scale=obstime.scale)
 
     @lru_cache(maxsize=2)
