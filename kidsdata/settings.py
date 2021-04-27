@@ -13,6 +13,8 @@ BASE_DIRS = [Path(directory) for directory in config("DATA_DIR", default="/data/
 # other settings
 CALIB_DIR = config("CALIB_DIR", default="/data/CONCERTO/Calib/", cast=Path)
 CACHE_DIR = config("CACHE_DIR", default="/data/CONCERTO/Cache", cast=Path)
+MBFITS_DIR = config("MBFITS_DIR", default="/data/CONCERTO/MBFits", cast=Path)
+ESO_PROJID = config("ESO_PROJID", default="E-0107.F-9898A-2021")
 
 # read_kidsdata settings
 READDATA_LIB_PATH = config(
@@ -32,6 +34,8 @@ logger.debug("Using DB_URI : {}".format(DB_URI))
 logger.debug("Using BASE_DIRS : {}".format(BASE_DIRS))
 logger.debug("Using CALIB_DIR : {}".format(CALIB_DIR))
 logger.debug("Using CACHE_DIR : {}".format(CACHE_DIR))
+logger.debug("Using MBFITS_DIR : {}".format(MBFITS_DIR))
+logger.debug("Using ESO_PROJID : {}".format(ESO_PROJID))
 logger.debug("Using READDATA_LIB_PATH : {}".format(READDATA_LIB_PATH))
 logger.debug("Using READRAW_LIB_PATH : {}".format(READRAW_LIB_PATH))
 logger.debug("Using KISS_CAT_DIR : {}".format(KISS_CAT_DIR))

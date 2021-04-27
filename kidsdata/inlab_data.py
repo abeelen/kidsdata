@@ -184,6 +184,9 @@ class InLabData(KissContinuum, KissSpectroscopy):
             self._change_nptint(self.nptint * ralenti)
 
     def _change_nptint(self, nptint):
+        self._change_nptint(nptint)
+
+    def _higher_nptint(self, nptint):
 
         if self.nptint % nptint != 0 and nptint % self.nptint != 0:
             self.__log.error("Not a multiple of the original nptint")
