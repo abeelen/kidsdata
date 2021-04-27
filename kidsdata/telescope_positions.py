@@ -229,6 +229,16 @@ class MBFitsPositions(TelescopePositions):
             header = {"TIMESYS": "TAI"}
         return header
 
+    def header_to_meta(self):
+        """Extract meta information from MBFits header.
+
+        Following the kidsdata.read_kidsdata.filename_to_name dictionnary
+        """
+        return {
+            "OBJECT": self.header["OBJECT"],
+            "OBSTYPE": self.header["SCANMODE"],
+        }
+
     @property
     @lru_cache
     def _monpoint(self):
